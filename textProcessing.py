@@ -1,3 +1,4 @@
+''' Author: thalesfc@gmail.com '''
 from unidecode import unidecode
 import string
 from nltk import stem, corpus

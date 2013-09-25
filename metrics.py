@@ -1,4 +1,5 @@
 #!/usr/bin/python
+''' Author: thalesfc@gmail.com - Thales Filizola Costa'''
 import argparse
 
 parser = argparse.ArgumentParser(description="# Metrics")

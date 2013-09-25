@@ -4,8 +4,10 @@ import string
 from nltk import stem, corpus
 
 
-def test_4_class(inp, outp, classes):
+def test_4_class(inp, outp, classes, outc):
     fc = open(classes)
+    fco = open(outc, 'w')
+
     fi = open(inp)
     fo = open(outp, 'w')
     count = 0
@@ -16,6 +18,7 @@ def test_4_class(inp, outp, classes):
             print "Line", count, "removed."
         else:
             fo.write(inp_line)
+            fco.write(line)
 
 
 def remove_1tab(f, out):
@@ -125,7 +128,8 @@ def stemmize(inp, outp):
 if __name__ == "__main__":
 
     inp = 'data/papers.txt'
-    path_c = 'data/keywords.txt'
+    path_c_in = 'data/keywords.txt'
+    path_c_out = 'data/keywords.dat'
     temp1 = 'data/temp1.txt'
     temp2 = 'data/temp2.txt'
     temp3 = 'data/temp3.txt'
@@ -133,7 +137,7 @@ if __name__ == "__main__":
     temp5 = 'data/temp5.txt'
     temp6 = 'data/papers.dat'
 
-    test_4_class(inp, temp1, path_c)
+    test_4_class(inp, temp1, path_c_in, path_c_out)
     remove_unidecode(open(temp1, 'r'), open(temp2, 'w'))
     remove_punctuation(open(temp2, 'r'), open(temp3, 'w'))
     remove_stopwords(open(temp3, 'r'), open(temp4, 'w'))

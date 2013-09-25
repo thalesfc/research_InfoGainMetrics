@@ -18,7 +18,7 @@ def test_4_class(inp, outp, classes, outc):
             print "Line", count, "removed."
         else:
             fo.write(inp_line)
-            fco.write(line)
+            fco.write(line.lower())
 
 
 def remove_1tab(f, out):

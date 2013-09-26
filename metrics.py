@@ -1,11 +1,14 @@
 #!/usr/bin/python
 ''' Author: thalesfc@gmail.com - Thales Filizola Costa'''
 import argparse
+import math
+import operator
 from collections import defaultdict
 
 parser = argparse.ArgumentParser(description="# Metrics")
 parser.add_argument("path_papers", help="Path to papers file.")
 parser.add_argument("path_classes", help="Path to classes file.")
+parser.add_argument("metric", help="The given metric (MI, DICE, CHI2 or KLD).")
 
 
 # loading terms
@@ -55,6 +58,56 @@ def load_classes(path):
     return cset, papers_classes, Ec
 
 
+def MI_function(E, Ei, Ec, Eci):
+    '''
+        E -> # of items
+        Ei -> term freq
+        Ec -> the frequency of the given class
+        Eci -> term freq on class
+    '''
+    up = float(Eci)
+    down = float(Ei) * float(Ec)
+    return math.log(up / down)
+
+
+def get_metric_func(name):
+    print "# Score func:", name
+    if name == 'MI':
+        return MI_function
+    # TODO include others
+
+
+def get_classes_scores(fx, E, Ei, Ec, Eci):
+    ''' function to calculate the score of all terms for all classes
+        Ec -> {classe : class_freq}
+    '''
+    f = open('data/scores.dat', 'w')
+    # classe -> item -> metric_score
+    scores = defaultdict(lambda: defaultdict(float))
+
+    count = 0
+
+    # iterating through all classes and its freq
+    for classe, class_freq in Ec.items():
+        print >> f, "{}>>".format(classe),
+        count += 1
+        print count
+        for item, item_freq in Ei.items():
+            class_item_freq = Eci[classe][item]
+
+            # if the fiven term happened in the given classe
+            if class_item_freq > 0:
+                scores[classe][item] = fx(E, item_freq, class_freq, class_item_freq)
+
+        #TODO temp
+        # compute the top words
+        sorted_class = sorted(scores[classe].iteritems(), key=operator.itemgetter(1), reverse=True)
+        for i in xrange(10):
+            classe, score = sorted_class[i]
+            print >> f, "{}:{}".format(classe, score),
+    return scores
+
+
 def main():
     args = parser.parse_args()
     print "# Args {}".format(args)
@@ -71,8 +124,12 @@ def main():
     E, Ei, Eci = load_terms(args.path_papers, pcs)
     print "# E:{}".format(E)
 
-    # TODO compute the scores given E, Ei, Ec and Eci
+    # switch between the metric functions
+    score_func = get_metric_func(args.metric)
+
+    # computes the score of all terms for classes
+    c_scores = get_classes_scores(score_func, E, Ei, Ec, Eci)
 
 if __name__ == "__main__":
     print 10 * " #"
-    main()
+    i = main()

@@ -1,9 +1,11 @@
 #!/usr/bin/python
 ''' Author: thalesfc@gmail.com - Thales Filizola Costa'''
 import argparse
+import sys
 import math
 import operator
 from collections import defaultdict
+from unidecode import unidecode
 
 parser = argparse.ArgumentParser(description="# Metrics")
 parser.add_argument("path_papers", help="Path to papers file.")
@@ -58,30 +60,61 @@ def load_classes(path):
     return cset, papers_classes, Ec
 
 
+'''
+    E -> # of items
+    Ei -> term freq
+    Ec -> the frequency of the given class
+    Eci -> term freq on class
+'''
+
+
 def MI_function(E, Ei, Ec, Eci):
-    '''
-        E -> # of items
-        Ei -> term freq
-        Ec -> the frequency of the given class
-        Eci -> term freq on class
-    '''
     up = float(Eci)
     down = float(Ei) * float(Ec)
     return math.log(up / down)
 
 
+def KLD_function(E, Ei, Ec, Eci):
+    Ptic = float(Eci) / float(Ec)
+    Pti = float(Ei) / float(E)
+    return Ptic * math.log(Ptic / Pti)
+
+
+def CHI2_function(E, Ei, Ec, Eci):
+    Ptic = float(Eci) / float(Ec)
+    Pti = float(Ei) / float(E)
+    up = (Ptic - Pti) ** 2
+    down = Pti
+    return up / down
+
+
+def DICE_function(E, Ei, Ec, Eci):
+    up = float(2.0 * Eci)
+    down = float(Ec + Ei)
+    return up / down
+
+
 def get_metric_func(name):
+    name = name.upper()
     print "# Score func:", name
     if name == 'MI':
         return MI_function
-    # TODO include others
+    elif name == 'KLD':
+        return KLD_function
+    elif name == 'CHI2':
+        return CHI2_function
+    elif name == 'DICE':
+        return DICE_function
+    else:
+        print >> sys.stderr, '# metric: ', name, 'do not exist!'
+        sys.exit(1)
 
 
-def get_classes_scores(fx, E, Ei, Ec, Eci):
+def get_classes_scores(fx, E, Ei, Ec, Eci, metric):
     ''' function to calculate the score of all terms for all classes
         Ec -> {classe : class_freq}
     '''
-    f = open('data/scores.dat', 'w')
+    f = open('data/' + metric.upper() + '.dat', 'w')
 
     # TODO save scores for future work?
     # classe -> item -> metric_score
@@ -109,7 +142,7 @@ def get_classes_scores(fx, E, Ei, Ec, Eci):
         sorted_class = sorted(class_scores.iteritems(), key=operator.itemgetter(1), reverse=True)
         for i in xrange(20):
             classe, score = sorted_class[i]
-            print >> f, "{}::{}".format(classe, score),
+            print >> f, "{}::{}".format(unidecode(classe), score),
 
         f.write("\n")
         f.flush()
@@ -135,7 +168,7 @@ def main():
     score_func = get_metric_func(args.metric)
 
     # computes the score of all terms for classes
-    get_classes_scores(score_func, E, Ei, Ec, Eci)
+    get_classes_scores(score_func, E, Ei, Ec, Eci, args.metric)
 
 
 if __name__ == "__main__":

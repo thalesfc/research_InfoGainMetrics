@@ -82,14 +82,20 @@ def get_classes_scores(fx, E, Ei, Ec, Eci):
         Ec -> {classe : class_freq}
     '''
     f = open('data/scores.dat', 'w')
+
+    # TODO save scores for future work?
     # classe -> item -> metric_score
-    scores = defaultdict(lambda: defaultdict(float))
+    #scores = defaultdict(lambda: defaultdict(float))
+    #scores[classe][item] = fx(E, item_freq, class_freq, class_item_freq)
+    #sorted_class = sorted(scores[classe].iteritems(), key=operator.itemgetter(1), reverse=True)
+    # END
 
     count = 0
 
     # iterating through all classes and its freq
     for classe, class_freq in Ec.items():
-        print >> f, "{}>>".format(classe),
+        class_scores = defaultdict(int)
+        print >> f, "{} ||".format(classe),
         count += 1
         print count
         for item, item_freq in Ei.items():
@@ -97,15 +103,16 @@ def get_classes_scores(fx, E, Ei, Ec, Eci):
 
             # if the fiven term happened in the given classe
             if class_item_freq > 0:
-                scores[classe][item] = fx(E, item_freq, class_freq, class_item_freq)
+                class_scores[item] = fx(E, item_freq, class_freq, class_item_freq)
 
-        #TODO temp
         # compute the top words
-        sorted_class = sorted(scores[classe].iteritems(), key=operator.itemgetter(1), reverse=True)
-        for i in xrange(10):
+        sorted_class = sorted(class_scores.iteritems(), key=operator.itemgetter(1), reverse=True)
+        for i in xrange(20):
             classe, score = sorted_class[i]
-            print >> f, "{}:{}".format(classe, score),
-    return scores
+            print >> f, "{}::{}".format(classe, score),
+
+        f.write("\n")
+        f.flush()
 
 
 def main():
@@ -128,7 +135,8 @@ def main():
     score_func = get_metric_func(args.metric)
 
     # computes the score of all terms for classes
-    c_scores = get_classes_scores(score_func, E, Ei, Ec, Eci)
+    get_classes_scores(score_func, E, Ei, Ec, Eci)
+
 
 if __name__ == "__main__":
     print 10 * " #"

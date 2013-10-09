@@ -1,0 +1,1427 @@
+DOI: 10.1111/j.1467-8659.2010.01846.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 30 (2011), number 6 pp. 1603–1616
+
+Adaptive Records for Irradiance Caching
+Micka¨el Ribardi`ere1,2 , Samuel Carr´e1 and Kadi Bouatouch3
+
+1 Centre
+
+Scientifique et Technique du Bˆatiment (CSTB), France
+mickael.ribardiere@irisa.fr
+2 Universit´
+e de Rennes 1, France
+samuel.carre@cstb.fr
+3 IRISA - INRIA Rennes, France
+kadi.bouatouch@irisa.fr
+
+Abstract
+Irradiance Caching is one of the most widely used algorithms to speed up global illumination. In this paper,
+we propose an algorithm based on the Irradiance Caching scheme that allows us (1) to adjust the density of
+cached records according to illumination changes and (2) to efficiently render the high-frequency illumination
+changes. To achieve this, a new record footprint is presented. Although the original method uses records having
+circular footprints depending only on geometrical features, our record footprints have a more complex shape
+which accounts for both geometry and irradiance variations. Irradiance values are computed using a classical
+Monte Carlo ray tracing method that simplifies the determination of nearby objects and the pre-computation
+of the shape of the influence zone of the current record. By gathering irradiance due to all the incident rays,
+illumination changes are evaluated to adjust the footprint’s records. As a consequence, the record footprints are
+smaller where illumination gradients are high. With this technique, the record density depends on the irradiance
+variations. Strong variations of irradiance (due to direct contributions for example) can be handled and evaluated
+accurately. Caching direct illumination is of high importance, especially in the case of scenes having many light
+sources with complex geometry as well as surfaces exposed to daylight. Recomputing direct illumination for the
+whole image can be very time-consuming, especially for walkthrough animation rendering or for high-resolution
+pictures. Storing such contributions in the irradiance cache seems to be an appropriate solution to accelerate the
+final rendering pass.
+Keywords: rendering, global illumination, irradiance cache
+ACM CCS: I.3.7 [Computer Graphics]: Three-Dimensional Graphics and Realism
+
+1. Introduction
+Computing global illumination in a reasonable time still is a
+challenge in computer graphics. To take up this challenge, Irradiance/Radiance caching is one of the most widely used algorithms [WRC88, WH92, TL04, KBPv06, KGW*08]. The
+original Irradiance caching [WRC88] is a ray tracing-based
+method that computes the indirect diffuse illumination component. It relies on the fact that indirect irradiance changes
+slowly over the object surfaces. Indirect illumination is computed for a sparse set of points, called records, and stored in
+a cache. Direct illumination is evaluated using classical techc 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics
+Association and Blackwell Publishing Ltd. Published by
+Blackwell Publishing, 9600 Garsington Road, Oxford OX4
+2DQ, UK and 350 Main Street, Malden, MA 02148, USA.
+
+niques (shadow map for point light sources, Monte Carlo ray
+tracing for area light sources for example), whereas indirect
+illumination is computed either by a Monte Carlo method for
+the records or using interpolation for the other points.
+In some applications, direct illumination can be very
+costly, for instance in architectural design or in lighting
+projects requiring accurate and physically based results
+(spectral quantities with many wavelets, not only three as
+usual). The scene may have many area light sources of complex geometry and specific photometric characteristics. Daylight (sun and sky) is often present as well. In such cases,
+
+1603
+
+1604
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+direct illumination computation can be very time demanding.
+When using Ward’s irradiance caching method, caching the
+indirect and the direct irradiances would yield low-quality
+results. Indeed, direct illumination changes quickly over surfaces because of occlusions (shadows). The original Irradiance Caching method [WRC88] and the original gradients
+[WH92] cannot compensate for high illumination changes
+because the record density must be proportional to the rate
+of illumination change. In addition, gradients are used for
+computing smooth changes over surfaces and cannot detect
+occlusions in case of translation. Furthermore, the record
+density is only controlled by geometry and not by illumination results. This is not sufficient in complex indirect illumination cases in which a significant indirect illumination
+source illuminates the scene and produces shadows.
+This paper presents an adaptive Irradiance Caching algorithm, which adapts the record density depending on the
+surface geometry and the illumination changes. This density
+control reduces the number of cached records along edges
+and corners. The record density has to be proportional to
+the change rate of direct and indirect illumination when high
+gradients are detected. A novel gradient is proposed to detect
+these significant illumination changes to adaptively determine the shape and size of the record footprints. This method
+straightforwardly includes both direct and indirect illumination in the same cache. It is then efficient in terms of direct
+illumination from complex light sources. Furthermore, storing all kinds of illumination in records allows to easily reuse
+the cache for interpolation of global illumination at points
+different from records.
+The paper is organized as follows: Section 2 summarizes
+the related works, whereas a background is presented in
+Section 3 for a clear presentation of our method in the rest
+of the paper. Then Section 4 describes adaptive record footprints. Section 5 explains how gradients including direct illumination are computed. Section 6 shows how to adapt the
+size of the influence zone of a record depending on the interpolation accuracy needed. Finally, Section 7 presents and
+discusses some results before concluding.
+
+2. Related Work
+The technique proposed in this paper is based on the classical Irradiance Caching algorithm. Irradiance Caching was
+introduced by Ward et al. [WRC88] to speed up global illumination computations based on Monte Carlo ray tracing. It
+has been widely used ever since [KGW*08]. The algorithm
+takes advantage of spatial coherence of irradiance. Irradiance
+is computed for only a few points over the surfaces of the
+scene and then interpolated to reconstruct the radiance for
+each other point. In [WH92], Ward and Heckbert improved
+this interpolation scheme by using irradiance gradients. As
+said before, the original algorithm only caches irradiance due
+to indirect illumination.
+
+In [SM02], Smyk et al. increased the density of records
+according to the gradient magnitude to better reconstruct high
+changes of indirect illumination. This density is controlled
+by modifying the records radii. However, this method adds
+a considerable number of records around the corners and
+the edges of the scene. Tabellion and Lamorlette [TL04]
+proposed several improvements of the original method such
+as using a minimum distance to the near objects instead
+of the harmonic mean to determine a record radius. As in
+[SM02], an excessive record density may be assigned to
+concave objects. In the same way, Kˇriv´anek et al. [KBPv06]
+(see [KGW*08] too) proposed other practical modifications
+to the original Ward et al.’s method to make it more practical.
+With Adaptive Caching the spatial density of the cached
+values gets variable. The change rate of indirect illumination
+controls this adaptive density to avoid visible interpolation
+artefacts. The overlapping area of a record which includes a
+discontinuity in the interpolation will then be reduced. If the
+change rate in indirect illumination is too high then the radius
+of a record is smaller, which increases the record density.
+Unfortunately, with this adaptive caching method, the record
+which provides the highest discontinuity is often the one
+which is closest to the considered point and which provides
+the best interpolation. Such records may be very important
+for a good interpolation and reducing its zone may add a lot
+of records in the cache. Imagine that we want to compute the
+irradiance at point P overlapped by three irradiance records
+called R 1 , R 2 and R 3 . If R 1 is much closely located to P
+than the other records, then R 1 is intuitively the record which
+should contribute the most to the irradiance interpolation in
+P . But applying the Kˇriv´anek’s adaptive caching method in
+such context will remove the record R 1 from the computation
+of the irradiance at P , as R 1 is the record which causes the
+biggest discontinuity.
+Kˇriv´anek et al. presented in the same paper [KBPv06]
+another improvement referred to as neighbour clamping. This
+technique minimizes the ray-leaking problem caused by a
+poor detection of nearby objects. The radius of a record is
+controlled as well as all its nearby records. Thus, there are
+more chances to detect small sources of indirect illumination.
+As an extension to glossy surfaces, Radiance Caching has
+been proposed. It consists in projecting the incoming radiances stored in records into a spherical or hemispherical
+harmonics basis [Gre03, GKPB04]. The Radiance Caching
+ˇ KGPB05] by Kˇriv´anek
+scheme was first proposed in [K05,
+et al. Illumination of diffuse and glossy surfaces are stored in
+the cache and high-frequency BRDF and specular reflections
+are computed in an additional pass. In [KGBP05], the authors improved radiance gradient computations. The radiance
+caching scheme has known several improvements. Recently,
+Herzog et al. in [HMS09] used an (r)radiance caching algorithm using the lightcuts method, an adaptive and hierarchical
+instant-radiosity based algorithm [WFA*05, WABG06]. As
+in [KGPB05], incident radiances are projected into a hemispherical harmonics basis. An interesting feature in this work
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1605
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+is the two-level radiance caching: the first one for indirect irradiance and the second for direct irradiance computed in
+parallel. Two caches are maintained as well as two light
+trees. The two caches are tested whereas direct and indirect
+irradiance computations are performed individually. Another
+interesting aspect is the multipass adaptive caching proposal.
+It is an extension of Kˇriv´anek et al.’s adaptive caching method
+[KBPv06]. It consists in reducing the record footprints in one
+dimension resulting in an ellipsoidal footprint only. In this
+paper, we focus only on diffuse reflections, glossy reflections
+could be computed in a second pass.
+Other techniques allow to interpolate direct and indirect
+illumination from sparse samples to achieve interactive rendering. One of these methods is the Render Cache [WDP99,
+WDG02]. Only few pixels of the image are computed using
+ray tracing or path tracing. The values of these pixels are
+stored in a cache and reused for the subsequent frames. The
+other pixels of the current frame are computed using interpolation/smoothing filters. The result is an estimate of the
+current image. The Render Cache can also be reused across
+frames in a walkthrough context by reprojecting shaded pixels according to the new viewpoint. Another technique is the
+Edge-and-Point Rendering proposed by Bala et al. [BWG03]
+and extended by [VALBW06]. It is based on the Render
+Cache. Edge-and-Point Rendering improves the rendering
+of high discontinuity regions such as silhouettes and shadow
+boundaries by using an Edge-and-Point Image, which stores
+the discontinuities. The goal of the above techniques are
+well suited for interactive rendering but not for a complete
+and physically based lighting simulation.
+
+3. Background
+The Irradiance Caching algorithm exploits spatial coherence
+by sparsely sampling and interpolating indirect irradiance.
+Each record R stores the following information:
+(1)
+(2)
+(3)
+(4)
+
+xR , position of the record,
+−
+→
+nR , normal at xR ,
+E(R), irradiance computed at xR ,
+dR , harmonic mean distance ([WRC88, KBPv06]) or
+minimum distance ([TL04]) to objects visible from
+xR .
+
+Let a · dR be the radius of the influence zone of record R,
+where a is a user-defined constant related to the maximum
+error. If the influence zone of a record R covers a given point
+p it is not necessary to compute an irradiance value at p from
+scratch, but from the already computed irradiance value of
+R. The contribution of a record R to a point p is weighted
+by wRWard whose expression is
+wRWard (p) =
+
+xp − xR
++
+dR
+
+−1
+
+1 − n p · nR
+
+.
+
+(1)
+
+Let S be the set of records surrounding point p:
+S = R : wRW ard (p) >
+
+1
+.
+a
+
+(2)
+
+If S is not empty, the irradiance at p can be estimated as
+E(p) =
+
+Ward
+(p)
+R∈S E(R)wR
+.
+Ward
+w
+(p)
+R∈S R
+
+(3)
+
+The original weighting function [wRWard in Equation (1)] has
+some undesirable properties. This function is not continuous
+at the border of the influence zone of a record as it does
+not tend towards zero. As proposed in [KGW*08], we use a
+slightly modified function wR :
+wR (p) =
+
+−1
+
+xp − xR
++
+dR
+
+1 − n p · nR
+
+−
+
+1
+.
+a
+
+(4)
+
+A record covers p if wR (p) > 0. Otherwise, a new irradiance
+record is computed and added to the cache and p becomes
+the record position. Gradients proposed in [WH92, KGBP05]
+are designed for improving interpolation. Irradiance at x can
+be expressed by
+→
+→
+→
+→
+L(x, −
+ω )(−
+nx · −
+ω ) d−
+ω.
+
+E(x) =
+
+(5)
+
+In the Irradiance Caching method, this value is computed using Monte Carlo ray tracing with an uniform
+distribution:
+E(x) =
+
+2π
+N
+
+N
+
+→
+→
+→
+Li (x, −
+ωi )(−
+nx · −
+ωi ),
+
+(6)
+
+i=1
+
+where N is the number of ray samples, Li the incoming
+→
+→
+nx the
+radiance for the ith sample in the direction −
+ωi and −
+−
+→
+−
+→
+−
+→
+normal at x. Consider Ei (x) = 2π Li (x, ωi )( nx · ωi ) as an
+estimate of the irradiance at x (up to a scaling factor 2π )
+due to the ith ray sample. In other words, it is an estimation
+of the irradiance due to the ith equivalent point source. The
+determination of equivalent point sources has been used in
+the Bidirectional Path Tracing method [VG94, Vea98, LW93]
+(Figure 1 ). An equivalent point light source corresponds to
+a point light or an eye path which is directly connected to
+xR , the position of a new record R (xR is the first vertex
+→
+→
+→
+ωi )(−
+nx · −
+ωi ) in
+in eye path). Now we can substitute Li (x, −
+Equation (6):
+E(x) =
+
+1
+N
+
+N
+
+Ei (x).
+
+(7)
+
+i=1
+
+Knowing Ei and using ray tracing, an equivalent intensity
+eq →
+ωi ) characterizing the ith equivalent point light source
+Ii (−
+can be expressed:
+Ei (x) · di2
+eq →
+ωi ) = −
+,
+Ii (−
+→
+→
+ωi
+nx · −
+
+(8)
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1606
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+Figure 1: A sample with Bidirectional Path Tracing: this
+sample allows us to know three indirect contributions ( B , C
+and D) and one direct contribution (A) for R corresponding
+to four equivalent point sources. More tracing would give
+full coverage of the hemisphere above R.
+
+Figure 2: With a circular influence zone of a record (left)
+more records are needed. With an influence zone that is small
+towards close objects and large towards far objects (right), a
+record covers a better shaped influence zone and finally less
+records are needed.
+
+where di is the distance to the ith equivalent point source.
+For the new record R at position x, the irradiance becomes
+E(x) =
+
+1
+N
+
+N
+
+i=1
+
+eq →
+→
+→
+Ii (−
+ω i ) · (−
+nx · −
+ωi )
+.
+2
+di
+
+(9)
+
+Note that an equivalent light source will be considered
+as a secondary point light source located at the intersection
+point between a ray sample (generated from a point R) and
+the scene. The intensity of a equivalent point light source
+located at point R will be reused for another point R close to
+R to evaluate the irradiance at point R without tracing new
+sample rays as shown in Figure 6. This allows to significantly
+speed up our method. There are two types of equivalent point
+light source: direct if it lies on a primary light source, and
+indirect otherwise. As previously said, the original Irradiance
+Caching scheme does not store direct irradiance. Our method
+proposes improvements to this technique: use of a new shape
+of influence zone, a new gradient formulation, an adaptation
+to strong illumination changes, and the storage of both direct
+and indirect irradiances in the records. These contributions
+will be detailed later on.
+4. Adaptive Records
+Adapting the size of the influence zone of a record [KBPv06,
+HMS09] to the rate of illumination changes increases the
+number of records while providing better results. The cache
+density is then adapted to this rate of illumination changes.
+However, the number of records increases at the edges and
+the corners too regardless of the illumination changes. The
+same problem appears when using the minimum distance
+[TL04]. To avoid this problem, Tabellion and Lamorlette
+control the cache density by using the projected area of a
+pixel. This results in under-sampling far objects and adding
+a lot of records in case of animation rendering. Although it
+is necessary to increase the number of records to better estimate the rate of illumination changes, it is important not to
+
+Figure 3: Height pseudo-elliptic zones define the influence
+zone of a record (red balls). Here, the record is near a cube; a
+circular zone (on the left) is compared to an adaptive record
+zone (on the right).
+
+increase the density where it is not necessary. We think that
+the over-sampling issue is due to the circular shape of the
+record’s influence zones whose radii are defined by the minimum distance or the harmonic mean of distance to nearby
+objects. In this section, we propose a new record footprint
+which better adapts to the geometry. Figure 2 describes
+the main idea. To avoid shadow and light leaks, Tobler and
+Maierhofer [RFT06] proposed a similar idea to determine
+adaptive projection areas for density estimation in photon
+mapping.
+The ideal influence zone of a record can be represented
+by a planar surface with a curved boundary. This surface
+cannot be computed exactly but it is approximated through
+a discretization scheme as explained hereafter. This planar
+surface lies on the tangent plane associated with a record
+position and is described by an angular decomposition in
+height pseudo-elliptic zones as seen in Figure 3 . The local
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1607
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+−−→
+−−→
+with P the intersection point between |RP | and |P1 P2 |,
+−−−→ −−−→
+−
+→
+t = |P 1P |/|P 1P 2| and Pi = R + ki .di .
+
+Figure 4: p is necessarily between 2 axes k 1 and k 2 of the
+zone assigned to R. The green circle of radius d max (the
+longest axis) represents the first test used to reject a record.
+→
+→
+→
+coordinate system of the current influence zone (−
+u ,−
+v ,−
+n)
+is used to determine eight axes around the record position R
+on its tangent plane. The angle between two successive axes
+ki and k i+1 is equal to 4 . An influence zone is then divided
+into eight subzones, each one being defined by two edges
+and a pseudo-arc. These two edges have the record position
+R as an endpoint and are aligned with two successive axes.
+The lengths of these edges are computed as follows. When
+computing the irradiance at a record, rays are shot from the
+record covering an hemisphere placed above it. For each ray
+close to a footprint axis ki , we compute the distance to the
+closest object (called minimum distance from now on) and
+assign it to the axis. A pseudo-elliptic arc representing the
+boundary of a subzone is not determined exactly. Rather, it
+is approximated using a linear interpolation between d 1 and
+d 2 (the lengths of the edges) if k 1 and k 2 are supposed to be
+the two successive axes supporting the edges. As described
+in the Figure 4 , all points P lying between k 1 and k 2 on the
+curved boundary of the surface describe approximately this
+pseudo-arc:
+−−→
+|RP | = (1 − t) · d1 + t · d2 ,
+
+(10)
+
+To detect if a point p is covered by the influence zone
+of a record R, we first test if |xp − xR | < dkmax with k max
+being the longest edge of the eight subzones making up the
+influence zone. Otherwise, p lies outside the zone. The projection of p onto the tangent plane placed at R is necessarily
+located between two of the eight axes associated with the
+record. Then, as seen in Figure 4, it is possible to find P
+using Equation (10). A function similar to the original Ward
+et al. [WRC88] weighting function wR (P ) can be used:
+wR (P ) =
+
+−→
+|RP |
+−−→ +
+|RP |
+
+−1
+
+1 − n p · nR
+
+− 1.
+
+(11)
+
+The accuracy parameter a is set to 1 in Equation (11) because
+the detection of the closest object is more accurate as the
+length of a footprint axis is a minimum distance. As in the
+Irradiance Caching method, the record R is rejected if wR (P )
+0.
+In the Cornell Box scene shown in Figure 5, our new
+record’s influence zones are compared to circular zones. Both
+methods use the minimum distance from close objects and
+exactly the same criterion (same number of paths for computing irradiance and a = 1). Direct contributions are not
+considered. We observe a large gain in terms of number of
+records, which results in a smaller computation time because
+each record requires the same computation time for both
+methods. As described before, with circular zones, records
+are concentrated on edges and corners. Adaptive zones better
+adapt to the geometry and result in a smaller total number
+of records (see grey scale colour pictures in Figure 5 for the
+records distribution). The density is lower in the corners and
+edges for a similar result. However, some artefacts may still
+exist at the corners because of the ray leaking phenomenon
+(see [KGW*08]). In what follows, a solution to this issue is
+
+Figure 5: Circular zones (left panel) and our adaptive zones (right panel) with indirect illumination only; both methods use
+the minimum distance from close objects and exactly the same criteria. Computation time for one record is the same for both
+methods. The footprint adjustment depending on the irradiance value (Section 6) has not been performed in this example.
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1608
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+−
+→
+−
+→
+the equivalent point light source S, I eq (SR) = L(S, SR) ·
+−
+−
+→
+−
+−
+→
+cos(α) and I eq (SRk ) = L(S, SRk ) · cos(α ). If we suppose
+−−→
+−
+→
+that L(S, SR) ≈ L(S, SRk ) then
+−−→
+−
+→ cos(α )
+I eq (SRk ) ≈ I eq (SR) ·
+,
+cos(α)
+
+(13)
+
+−
+→
+−
+→
+where L(S, SR) is the radiance at S in direction SR, α is the
+−
+→
+angle between SR and the normal at S.
+Figure 6: Two types of equivalent point light source (direct on the right and indirect on the left) are detected for
+computing irradiance in R. They are used to determine the
+irradiance at Rk on the axis k.
+
+Let us now consider the rightmost figure of Figure 6 and
+let S be a point lying on a primary area light source. The
+intensity at S and for each direction is known (input data). It
+−−→
+−
+→
+−
+→
+is easy to prove that I (SR) = I eq (SR) · cos(α) and I (SRk ) =
+−
+−
+→
+I eq (SRk ) · cos(α ). We get then
+
+proposed allowing the integration of direct contributions in
+the records’ data structure as well.
+
+−−→
+I (SRk ) cos(α)
+−−→
+−
+→
+· I eq (SR).
+I eq (SRk ) = −
+→ ·
+I (SR) cos(α )
+
+(14)
+
+If we suppose that cos(α) ≈ cos(α ) then we get
+5. Gradients Computation
+This section presents a novel method of computing translational and rotational gradients for each of the eight record
+axes. With adaptive record zones, the Ward and Heckbert’s
+gradients [WH92] could be used. As these gradients are of the
+first order, the irradiance changes are considered as smooth.
+For high irradiance changes, these gradients are not valid,
+second-order gradients are then required.
+
+Gradients help determining how the irradiance changes at
+each point within the record zone. Computing gradients can
+be achieved by making use of equivalent point light sources
+described in Section 3 and of Equation (9). The irradiance
+due to these point light sources can then be computed at every
+point lying on each axis of the record’s influence zone. For
+point p at position px on an axis k of record R, the irradiance
+is expressed using Equation (12):
+E(px ) =
+
+1
+N
+
+i=1
+
+→
+eq −
+Ii ( ωi )
+
+−
+→
+· (−
+n→
+px · ωi )
+V (xi , px ),
+d 2i
+
+(15)
+
+Using these two formulations, irradiance can now be computed at each point of each axis.
+
+5.2. Translational gradients
+5.2.1. Computation
+
+5.1. Computing irradiance along axes
+
+N
+
+−−→
+−−→
+−
+→ I (SRk )
+I eq (SRk ) ≈ I eq (SR) · −
+→ .
+I (SR)
+
+(12)
+
+−
+→
+where ωi is the direction from equivalent point source i
+→
+eq −
+to px , Ii ( ωi ) is its equivalent intensity, di is the distance
+between px and the equivalent point light source i. V (xi ,
+px ) represents the visibility between xi , the position of the
+equivalent point light source i, and px . V (xi , px ) is equal to 1
+for an indirect equivalent point light source located at xi but it
+is evaluated if xi belongs to a primary light source. As shown
+in Figure 6 , two types of contributions are considered: direct
+and indirect contributions from light sources and objects,
+respectively. The notations introduced in Figure 6 will be
+−
+→ −−→
+−
+→
+→
+used here (i.e. −
+ωi = SR and ωi = SRk ). Let us consider
+the leftmost figure of Figure 6. It is easy to prove that, for
+
+A new method is used to compute gradients to integrate the
+direct illumination contributions: a second-order Taylor’s expansion is introduced for interpolation in the adaptive influence zones. It requires solving an equation expressing the
+irradiance E˜ k (x) at a point x on the axis k of the record R:
+E˜ k (x) = E(R) + G1k
+
+k
+
++ G2k
+
+2
+k
+
+2
+
+,
+
+(16)
+
+where k = |x − R|k and G1k and G2k are useful interpolation
+gradients stored in the record and so E˜ k (x) = E(x). As mentioned earlier, it is possible to know the value of E˜ k (x) (the
+irradiance at point x) for all points x on an axis k thanks to
+= dk /2 from
+Equation (12). If we choose x at a distance
+R with dk the length of the axis k (minimum distance to the
+closest object along axis k) and x at a distance = dk , we
+obtain the following set of equations:
+˜ ) = E(R) + G1k
+E(x
+
++ G2k
+
+˜
+E(x)
+= E(R) + G1k
+
++ G2k
+
+2
+2
+
+/2,
+
+(17)
+
+/2.
+
+˜ ) and E(x)
+˜
+Applying Equation (12) to express E(x
+results
+in a system whose solutions are G1k and G2k . The approximated irradiance can now be quickly determined at every
+point on each axis k of each record using Equation (16).
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1609
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+5.2.2. Interpolation
+As stated in Section 4, a point P belongs to the influence
+zone of a record R if its projection onto the tangent plane of
+R lies within a curved subzone defined by two axes k 1 and
+k 2 (Figure 4). Equation (16) is expressed for each axis kn as
+−→
+|RP |
+E˜ kn (P ) = E(R) + G1k −−→ · dkn
+|RP |
+1
++ G2k
+2
+
+−→
+|RP |
+−−→ · dkn
+|RP |
+
+2
+
+.
+
+(18)
+Figure 7: Rotational interpolation. φ is the angle between
+the (NR ,NP ) and the (k2 ,NR ) planes.
+
+We assume that the lighting change is linear between two
+successive axes k 1 and k 2 , so the irradiance at P due to R
+is evaluated using a linear interpolation of the two values
+E˜ k1 (P ) and E˜ k2 (P ):
+E(P ) = wR (P ) · E˜ k1 (P ) · (1 − τ ) + τ · E˜ k2 (P ) , (19)
+−−→ −−→
+where after Thales theorem τ = |P1 P |/|P1 P2 |. We de˜
+fine T r(P ) = Ek1 (P ) · (1 − τ ) + τ · E˜ k2 (P ) as the translational term for the point P . The above assumption provides
+good results in practice.
+
+5.3. Rotational gradients
+5.3.1. Computation
+Rotational gradients help determining the irradiance variation due to normal perturbation. A new method of rotational
+gradient computation is proposed in this section. Our approach computes eight rotational gradients, each corresponding to a normal perturbation of maximum angle α max along
+one axis associated with the influence zone of a record. Using
+Equation (7), irradiance can be computed for a normal vector
+−
+→
+→
+nR of the record R
+nk , a perturbation of the normal vector −
+along the axis k:
+1
+−
+→
+E( nk ) =
+N
+
+N
+
+−
+→→
+ωi )>0
+i,( nk ·−
+
+−
+→ →
+eq →
+Ii (−
+ωi ) · ( nk · −
+ωi )
+.
+2
+di
+
+(20)
+
+θ
+
+1
++ Grot2
+2 k
+
+2
+θ.
+
+5.3.2. Interpolation
+As in the case of translation interpolation, when a point P lies
+within the influence zone of the record R, then its orthogonal
+projection onto the tangent plane of R lies necessarily between two successive axes. Let us suppose that these axes are
+−
+→
+−
+→
+→
+n
+k1 and k2 . The normal vector −
+P at P also ranges between
+two normal perturbation vectors on each axis (Figure 7 ). As
+in the case of translation interpolation, we make the same empirical assumption regarding irradiance changes: we consider
+them as linear between two successive axes. The rotational
+term Rot(P ) may be written as
+Rot(P ) =
+
+φ
+φ ˜
+· Ek1 (α) + 1 −
+β
+β
+
+· E˜ k2 (α) , (23)
+
+where φ is the angle between the projection plane of normal
+−
+→
+−
+→
+−
+→
+−
+→
+nR and k2 , and β = π /4 is the angle between k1 and k2
+(Figure 7). The interpolation of irradiance at a point P within
+the influence zone of the record R using rotational gradients
+is expressed as
+E(P ) = wR (P ) · (Tr(P ) + Rot(P )) .
+
+A second-order Taylor expansion is a function of θ , the
+→
+angular distance between the normal vector −
+nR of the record
+−
+→
+R, and nk , the perturbed normal vector by an angle α max :
+˜ max ) = E(R) + Grot1
+E(α
+k
+
+Similarly to translational gradients and Equation (17), we
+get
+⎧
+2
+⎪
+αmax
+1
+θ
+θ
+⎪
+⎪
+= E(R) + Grot1
++ Grot2
+,
+⎨E
+k
+k
+2
+2
+2
+2
+(22)
+⎪
+⎪
+1 rot2
+⎪
+2
+⎩ E(αmax ) = E(R) + Grot1
+θ + Gk ( θ ) .
+k
+2
+
+(21)
+
+(24)
+
+Doing a slight modification of the weighting function
+which must tend towards 0 when α tends towards α max to
+avoid a discontinuity at the border of the influence area (see
+[KGW*08] and Section 3), we get
+wR (P ) =
+
+−−→
+|RP |
+α
+−→ − 1 · 1 − α
+max
+|RP |
+
+(25)
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1610
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+Figure 8: Ward and Heckbert’s rotational gradients (left)
+and our rotational gradients (right) with direct and indirect
+illumination; both methods give the same number of records
+(around 150 records on the sphere). In our gradients, α max is
+fixed to 20◦
+
+In fact, we replace Equation (11) by Equation (25) because
+we allow a rotational perturbation of an angle α ranging
+between 0 and α max and assume that the weights vary linearly
+with the angle α.
+Figure 8 shows an example where Ward and Heckbert’s
+rotational gradients are not accurate enough when direct contributions are stored in the records. Both methods use adaptive records described in Section 4 as well as translational
+gradients described in the previous section. Our rotational
+gradients provide smoother results on curved surfaces.
+6. Size of Zones Based on Interpolation Accuracy
+Storing direct lighting into records saves a lot of time in
+case of complex lighting conditions. However, despite the
+
+quadratic gradients interpolation, some lighting situations,
+such as the presence of shadows, can be sources of artefacts.
+To cope with these cases, it is possible to adjust the size
+of a record’s influence zone depending on the irradiance
+change over this zone. The higher the irradiance change along
+an axis ki of the zone, the smaller the length of this axis.
+In this paper, the interpolation quality is controlled during
+the computation of a record (Figure 9). Ray tracing is used
+to compute the irradiance of a record R together with its
+initial length axes (size of the influence zone for each axis
+on the tangent plane associated with R). For each axis ki ,
+the translational gradients are computed at a point R at a
+distance di (the initial length of the axis ki ) from R and at
+a point R at distance di /2. Two other intermediate points
+are used: R 1 at distance di /4 and R 2 at distance 3di /4. These
+two points are assigned two different values: one computed
+˜ 1 ) and
+using Equation (12) [E(R 1 ) and E(R 2 )], the other [E(R
+˜
+E(R2 )] interpolated using Equation (16) where x is equal
+to R 1 or R 2 and k to RR 1 or RR 2 , respectively. If
+˜ 1)
+˜ 2)
+1 )−E(R
+2 )−E(R
+the error E(RE(R
+[or E(RE(R
+for point R 2 ] exceeds a
+1)
+2)
+threshold ρ set by the user, then the interpolation quality is
+not satisfactory. In this case, the process proceeds as follows.
+First, we reduce the distance di to RR 2 . Secondly, to save
+computation time, the new R replaces the previous R 2 , the
+new R 2 replaces the previous R and R 1 does not change.
+Consequently, the irradiance values at the new points R , R 2
+and R 1 are not recomputed, only the new R (middle of the
+segment whose endpoints are R and the new R ) as well
+as its irradiance have to be recomputed. This technique has
+the effect of increasing the concentration of records in areas
+where irradiance gradients are not valid for interpolation
+purpose.
+
+Figure 9: Points R and R together with the intermediate points (R 1 and R 2 ) are used to determine if irradiance interpolation
+˜ 2 ) [computed using
+˜ 1 ) and E(R
+(the blue curve) is accurate. Interpolation is inaccurate if the relative difference between E(R
+Equation (16) at points R 1 and R 2 represented by black dots] and the actual values E(R 1 ) and E(R 2 ) [computed using
+Equation (12), represented by blues circles] exceeds the threshold ρ fixed by user. See Section 6 for more details.
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+7. Results and Discussion
+7.1. General comments on results
+In physics-based lighting design, light/material interaction
+must be simulated as accurately as possible. Results must
+of course be consistent with the physical reality. All results
+presented in this paper are obtained without any restriction
+on the number of indirect bounces. The physical quantities,
+radiance and irradiance, are represented by spectra of 40
+wavelengths. The light sources and their photometric features are defined by IES (Illuminating Engineering Society
+of North America) and stored in specific files (see standard
+[IES02]).
+The Adaptive Records for Irradiance Caching method presented in this paper (called ARIC from now on) has been
+compared with several other techniques. The classical BPT
+(Bidirectional Path Tracing [VG94, Vea98] and [LW93]) was
+first considered. Then, two versions of the Irradiance Caching
+algorithm have been used. A first method (called MDIC) relies on circular zones and uses a minimum distance for computing the weighting coefficients. A second method (called
+HMDIC) uses circular influence zones, harmonic mean distance (rather than minimum distance), neighbour clamping
+and the adaptive caching test proposed in [KBPv06]. It is of
+course possible to include these optimizations in our method.
+Nevertheless, the results presented in this section have been
+obtained without this optimization. For all the other Irradi-
+
+1611
+
+ance Caching methods, direct illumination is not stored in
+the records, rather it is recomputed in the rendering pass.
+All the methods that are compared to ours are integrated
+into a same renderer. Results have been obtained on an Intel
+Core 2 Q9550 (2.83 GHz) with 4 GByte of RAM (using a
+single core) running on a 64 bits version of linux operating
+system.
+7.2. Cornell box scene results
+Figure 10 shows renderings of the well-known Cornell Box
+scene with the four above-mentioned methods. The rendering
+resolution is 800 × 800 pixels. Rendering statistics are given
+in Table 1. BPT has been calibrated to take approximately
+the same time as our new method (12 samples per pixel). The
+Irradiance Caching methods have been run with the objective
+of providing the same perceptive results. To evaluate irradiance similar convergence criteria for Monte Carlo sampling
+are used for all methods. Direct contributions are recomputed for all pixels (for the MDIC and HMDIC methods),
+30 shadow rays are cast to sample the area light source. Parameter a is set to 0.4 for the HMDIC method while it is
+equal to 1 for the MDIC method. Note that with the ARIC
+method, the records are concentrated around the shadow to
+better capture the abrupt illumination changes. For the same
+image quality, our adaptive approach outperforms the other
+methods in terms of rendering time.
+
+Figure 10: Four views of the Cornell Box scene rendered with four different methods. With our adaptive records method (on
+the right), the record density is higher in areas of high gradients (here along the shadow edges).
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1612
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+Table 1: Rendering statistics for the Cornell Box scene: cache filling
+is the time (expressed in seconds) spent for creating records and
+storing them in the cache.
+
+BPT
+MDIC
+HMDIC
+ARIC
+
+No. of records
+created
+
+Cache
+filling
+
+Rendering
+pass
+
+Total
+time
+
+–
+2798
+1443
+1371
+
+–
+200
+102
+74
+
+81
+47
+47
+6
+
+81
+247
+149
+80
+
+Note: Rendering pass is the time spent for creating the final pictures
+(interpolation from the cached records and evaluation of the direct
+contributions for the MDIC and HMDIC methods). BPT needs only
+a Rendering Pass.
+
+Figure 12: Scene composed of curved surfaces and exhibiting high-frequency illumination. The first row is computed
+with adaptive records storing direct and indirect illuminations while the second row with adaptive records storing
+only indirect illumination (direct illumination is recomputed
+in a rendering pass). The images in the second row are of
+better quality but require twice the computation time.
+7.3. Llama, torus and grid scene results
+
+Figure 11: Relative difference between the image calculated
+with our method and a reference picture: the mean relative
+difference is 1%.
+
+Figure 11 shows the difference between an image generated with our method and a reference image. The image with
+a 800 × 800 pixel resolution is computed with 1300 records.
+The average relative difference on all non-zero points is 1%.
+Most errors are located on the edges of the shadows: a smaller
+threshold ρ mini could solve the problem. Other errors located
+on surfaces can be corrected by a better Monte Carlo sampling.
+
+The scene (Llama, torus and grid) shown in Figure 12 is
+composed of curved surfaces and exhibits high-frequency illumination. High-frequency illumination due to small area
+light sources is difficult to compute with Irradiance Caching
+because some effects can be missed. Monte Carlo sampling
+seems to be better because few shadow rays are needed to
+capture direct illumination. Storing direct illumination in the
+records could be less interesting for this kind of scene. Figure 12 compares two version of our ARIC : (1) direct and
+indirect illuminations are stored in the records, (2) only indirect contributions are stored. The same parameters are used
+for both versions. The direct contributions are recomputed
+for version 2. As our method adapts the cache density in
+regions of high illumination change, the results of Figure 12
+show two different records distributions for the two versions.
+For version 1, the records are concentrated around shadow
+edges. In this example, more records are needed for version
+1 (6016 records) than for version 2 (3241 records) because of
+the high-frequency illumination changes. However, version
+1 takes twice less time than version 2 for exactly the same
+parameters. Consequently, version 1 of our method performs
+well in case of strong indirect or direct illumination changes.
+Figure 13 shows the impact of the threshold ρ on a closeup view of the scene shown in Figure 12 and computed
+with our ARIC method where the records store direct and
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+1613
+
+indirect illuminations. Both results are computed with the
+same parameters, only the threshold ρ is different. A restrictive threshold (e.g. 1%) allows to concentrate records density around strong illumination gradients while a permissive
+threshold (e.g. 10%) can miss this kind of effects. In case
+of complete records with a low threshold in a scene composed of high-frequency illumination, interpolation artefacts
+appear around shadow edges. A restrictive threshold solves
+the problem by adding records around high frequency illumination effects.
+
+7.4. Villa Arpel scene results
+
+Figure 13: Impact of the threshold ρ on the quality of the
+high-frequency illumination effects and on the records density.
+
+Figure 14 shows two close-up views of the villa Arpel scene
+generated with our method and the two other Irradiance
+Caching methods. The image in Figure 15 represents the
+complete villa Arpel scene generated with our method. The
+images resolutions are 800 × 800 pixels for the close-up
+views and 1920 × 1080 pixels (full high definition) for Figure 15. The rendering results are given in Table 2 for the two
+close-up views. The results have been obtained with complex
+
+Figure 14: Two close-up views of the villa Arpel scene rendered with different methods. The cached points are represented in
+red colour.
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1614
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+Figure 15: Villa Arpel scene rendered with our adaptive records method.
+Table 2: Rendering statistics for results seen in Figure 14.
+
+First
+close-up
+Second
+close-up
+
+MDIC
+HMDIC
+ARIC
+MDIC
+HMDIC
+ARIC
+
+No. of
+records
+created
+
+Cache
+filling
+
+Total
+time
+
+380
+197
+209
+1247
+798
+523
+
+7 min 59 s
+3 min 3 s
+3 min 10 s
+18 min 15 s
+12 min 9 s
+6 min 50 s
+
+2 h 47 min
+2 h 40 min 30 s
+3 min 16 s
+2 h 34 min 6 s
+2 h 56 min 24 s
+6 min 57 s
+
+artificial lighting conditions (11 light sources made up of 760
+polygons with different coloured spectra) and overcast sky
+for daylighting conditions obtained with a standard CIE sky
+model (see CIE standards in [CIE96]). Given the high number
+of light sources, it is particularly interesting to store direct
+contributions in records to save computation time. All the
+methods have the same parameters. Direct contributions are
+computed using 4000 shadow rays for all the artificial light
+sources. Parameter a is set to 0.4 for the HMDIC method
+and 1 for the methods using a minimum distance. The image
+in Figure 15 has been computed in 1 h and 6 min (and 33 s
+for the rendering pass) with 6962 cached points, whereas the
+HMDIC method took 1 h and 30 min (and 8 h for the rendering pass) with 6656 records. As shown in Figure 14, our
+method provides a better record distribution while reducing
+the total number of records. In addition, for the same image
+quality, our ARIC method outperforms the other methods.
+
+8. Conclusion
+We have presented a new method to adaptively compute
+records in an Irradiance Caching algorithm. We have proposed a new record footprint specifically built to account
+for both geometrical and irradiance changes over surfaces.
+Our approach prevents the cache from being too dense at the
+edges and borders of the scene’s objects. Including irradiance
+changes in the translational gradient computations leads to a
+denser cache in areas subject to large irradiance changes. It
+thus compensates for any inaccurate interpolation appearing
+with complex changes of irradiance. Such a feature allowed
+us to successfully store direct illumination in the records and
+to significantly speed up the rendering pass. The storage of
+the direct irradiance is interesting especially in the case of
+complex lighting conditions such as combined daylighting
+and artificial lighting. Similarly, large area light sources or
+animation rendering could also benefit from this characteristic because direct lighting does not have to be computed for
+successive frames but rather interpolated.
+In a future work, the Radiance Caching scheme will be
+investigated to include in the adaptive record method more
+directional information such as glossy reflection.
+
+Acknowledgments
+This work has been carried out with the financial support
+of ANRT within the framework of the CSTB Institut Carnot
+2009 research program. Thanks go to Luis Paulo dos Santos
+for his helpful comments on the paper.
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+References
+[BWG03] BALA K., WALTER B., GREENBERG D. P.: Combining edges and points for interactive high-quality rendering.
+ACM Transactions on Graphics 22, 3 (2003), 631–640.
+[CIE96] CIE: Spatial distribution of daylight - cie standard
+overcast sky and clear sky. In Proceedings of CIE S 003/E1996 (Vienna, Australia, 1996).
+[GKPB04] GAUTRON P., KˇRIVA´ NEK J., PATTANAIK S. N.,
+BOUATOUCH K.: A novel hemispherical basis for accurate and efficient rendering. In Proceedings of Rendering
+Techniques 2004, Eurographics Symposium on Rendering
+(Norrk¨oping, Sweden, June 2004), pp. 321–330.
+[Gre03] GREEN R.: Spherical harmonic lighting: The gritty
+details. In Proceedings of Archives of the Game Developers Conference (San Jose, CA, USA, March 2003).
+[HMS09] HERZOG R., MYSZKOWSKI K., SEIDEL H.-P.:
+Anisotropic radiance-cache splatting for efficiently computing high-quality global illumination with lightcuts.
+In Computer Graphics Forum (Proc. EUROGRAPHICS)
+(M¨unchen, Germany, 2009), M. Stamminger, P. Dutr´e
+(Eds.), vol. 28, Wiley-Blackwell, Oxford, pp. 259–268.
+[IES02] IESNA: Iesna standard file format for the electronic
+transfer of photometric data and related information. In
+LM-63-02 (September 2002), IESNA, New York, NY.
+[KBPv06] KˇRIVA´ NEK J., BOUATOUCH K., PATTANAIK S. N.,
+ˇ ARA J.: Making radiance and irradiance caching practical:
+Z´
+Adaptive caching and neighbor clamping. In Proceedings
+of Rendering Techniques 2006, Eurographics Symposium
+on Rendering (Nicosia, Cyprus, June 2006), T. AkenineM¨oller, W. Heidrich (Eds.), Eurographics Association, Eurographics Association.
+[KGBP05] KˇRIVA´ NEK J., GAUTRON P., BOUATOUCH K.,
+PATTANAIK S.: Improved radiance gradient computation. In
+SCCG’05: Proceedings of the 21st Spring Conference on
+Computer Graphics (New York, NY, USA, 2005), ACM
+Press, pp. 155–159.
+[KGPB05] KˇRIVA´ NEK J., GAUTRON P., PATTANAIK S.,
+BOUATOUCH K.: Radiance caching for efficient global
+illumination computation. IEEE Transactions on Visualization and Computer Graphics 11, 5 (September/October 2005), 550–561. http://graphics.cs.ucf.edu
+/RCache/index.php.
+[KGW*08] KˇRIVA´ NEK J., GAUTRON P., WARD G., JENSEN H.
+W., TABELLION E., CHRISTENSEN P. H.: Practical global illumination with irradiance caching. In Proceedings of ACM
+SIGGRAPH ’08 Class (Los Angeles, CA, USA, 2008).
+http://www.graphics.cornell.edu/ jaroslav/papers/2008irradiance_cachin g_class/index.htm.
+
+1615
+
+ˇ KˇRIVA´ NEK J.: Radiance Caching for Global Illumina[K05]
+tion Computation on Glossy Surfaces. PhD thesis, Universit´e de Rennes 1 and Czech Technical University in
+Prague, December 2005.
+[LW93] LAFORTUNE E. P., WILLEMS Y. D.: Bi-directional path
+tracing. In Proceedings of Third International Conference
+on Computational Graphics and Visualization Techniques
+(Compugraphics ’93) (Alvor, Portugal, 1993), H. P. Santo
+(Ed.), pp. 145–153.
+[RFT06] ROBERT F., TOBLER S. M.: Improved illumination
+estimation for photon maps in architectural scenes. In Proceedings of WSCG (International Conference in Central
+Europe on Computer Graphics, Visualization and Computer Vision) (Plzen, Czech Republic, 2006), pp. 257–262.
+[SM02] SMYK M., MYSZKOWSKI K.: Quality improvements
+for indirect illumination interpolation. In Proceedings of
+the International Conference on Computer Vision and
+Graphics (Zakopane, Poland, 2002).
+[TL04] TABELLION E., LAMORLETTE A.: An approximate
+global illumination system for computer generated films.
+In Proceedings of SIGGRAPH ’04: ACM SIGGRAPH
+2004 Papers (New York, NY, USA, 2004), ACM,
+pp. 469–476.
+[VALBW06] VELA´ ZQUEZ-ARMENDA´ RIZ E., LEE E., BALA K.,
+WALTER B.: Implementing the render cache and the edgeand-point image on graphics hardware. In GI ’06: Proceedings of the 2006 Conference on Graphics Interface
+(Toronto, Ont., Canada, Canada, 2006), Canadian Information Processing Society, pp. 211–217.
+[Vea98] VEACH E.: Robust Monte Carlo Methods for Light
+Transport Simulation. PhD thesis, Stanford University,
+Stanford, CA, USA, 1998. Adviser-Leonidas J. Guibas.
+[VG94] VEACH E., GUIBAS L. J.: Bidirectional estimators
+for light transport. In Proceedings of the Eurographics
+Rendering Workshop (Darmstadt, Germany, June 1994),
+Springer-Verlag, New York, pp. 147–162.
+[WABG06] WALTER B., ARBREE A., BALA K., GREENBERG
+D. P.: Multidimensional lightcuts. In Proceedings of the
+SIGGRAPH ’06: ACM SIGGRAPH 2006 Papers (New
+York, NY, USA, 2006), ACM, pp. 1081–1088.
+[WDG02] WALTER B., DRETTAKIS G., GREENBERG D.: Enhancing and optimizing the render cache. In Proceedings
+of the Eurographics Workshop on Rendering, P. Debevec,
+S. Gibson (Eds.), Eurographics, ACM Press, Pisa, Italy
+(June 2002).
+[WDP99] WALTER B., DRETTAKIS G., PARKER S.: Interactive rendering using the render cache. In Rendering
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1616
+
+M. Ribardi`ere et al. / Adaptive Records for Irradiance Caching
+
+Techniques (Proceedings of the Eurographics Workshop
+on Rendering) (New York, NY, June 1999), D. Lischinski, G. Larson (Eds.), vol. 10, Springer-Verlag/Wien, pp.
+235–246.
+[WFA*05] WALTER B., FERNANDEZ S., ARBREE A., BALA K.,
+DONIKIAN M., GREENBERG D. P.: Lightcuts: A scalable approach to illumination. ACM Transactions on Graphics
+24, 3 (2005), 1098–1107.
+
+[WH92] WARD G., HECKBERT P.: Irradiance gradients. In Proceedings of the Eurographics Rendering Workshop (Bristol, UK, May 1992), pp. 85–98.
+[WRC88] WARD G. J., RUBINSTEIN F. M., CLEAR R. D.: A ray
+tracing solution for diffuse interreflection. In SIGGRAPH
+’88: Proceedings of the 15th Annual Conference on Computer Graphics and Interactive Techniques (New York,
+NY, USA, 1988), ACM, pp. 85–92.
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+

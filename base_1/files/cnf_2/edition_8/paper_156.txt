@@ -1,0 +1,1033 @@
+Eurographics Symposium on Geometry Processing 2008
+Pierre Alliez and Szymon Rusinkiewicz
+(Guest Editors)
+
+Volume 27 (2008), Number 5
+
+Non-Rigid Registration Under Isometric Deformations
+1,2
+1 Stanford
+
+University
+
+Qi-Xing Huang
+2 Max
+
+1,3
+
+Bart Adams
+
+1,2
+
+Martin Wicke
+
+1
+
+Leonidas J. Guibas
+
+Planck Center for Visual Computing and Communication
+
+3 Katholieke
+
+Universiteit Leuven
+
+Abstract
+We present a robust and efficient algorithm for the pairwise non-rigid registration of partially overlapping 3D surfaces. Our approach treats non-rigid registration as an optimization problem and solves it by alternating between
+correspondence and deformation optimization. Assuming approximately isometric deformations, robust correspondences are generated using a pruning mechanism based on geodesic consistency. We iteratively learn an
+appropriate deformation discretization from the current set of correspondences and use it to update the correspondences in the next iteration. Our algorithm is able to register partially similar point clouds that undergo large
+deformations, in just a few seconds. We demonstrate the potential of our algorithm in various applications such
+as example based articulated segmentation, and shape interpolation.
+Categories and Subject Descriptors (according to ACM CCS): I.3.5 [Computer Graphics]: Computational Geometry
+and Object Modeling
+
+1. Introduction
+Surface registration is central to various aspects of computer
+graphics. Given a source and a target surface, the goal of registration is to find a motion that optimally positions points on
+the source surface into the scene in which the target surface
+lies. This is a common problem in 3D scanning [WJH∗ 07],
+where multiple 3D scans of a moving object need to be registered, and in geometry processing, where correspondences
+between different surfaces are needed for applications, such
+as segmentation [SY07], information transfer [SP04] and
+morphing [KMP07].
+So far, most of the surface registration algorithms have focused on rigid registrations, i. e., when the motion between
+the source and target is rigid. Dominant rigid registration algorithms are Iterative Closest Point (ICP) [BM92] and its
+variants [RL01]. ICP alternates between computing correspondences between the source and target and performing
+a rigid motion in response to these correspondences. If the
+distance between source and target is large, correspondences
+tend to be unstable and ICP easily gets trapped in local
+minima. To address this problem, another category of approaches [GMGP05, HFG∗ 06] uses feature matches to generate initial guesses of the optimal motion which can be fed
+into ICP. Most challenges posed by rigid registration have
+been addressed, and there are several automatic 3D scanning
+systems [RHHL02, HH03].
+Despite the amazing advances regarding rigid registration,
+the problem of automatic non-rigid registration has mainly
+only been tackled for small deformations [HTB03, BR07,
+MFO∗ 07, WJH∗ 07]. In this paper however, we consider auc 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+tomated registration under large deformations. One of the
+main challenges in this setting is obtaining stable correspondences. Incorrect correspondences easily trap the registration in local minima. In addition, appropriate deformation
+models are central to efficiency and robustness of non-rigid
+registration algorithms.
+We present a novel framework for non-rigid registration,
+addressing the two challenges outlined above. We formulate
+non-rigid registration as an optimization problem and solve
+it by alternating correspondence computation and deformation optimization in terms of the resulting correspondences.
+Enforcing that correspondences preserve geodesic distances
+greatly improves stability. We also learn an appropriate deformation discretization during the optimization, leading to
+significantly better registration results. The major components of our algorithm are illustrated in Fig. 1.
+Our algorithm has great advantages in various applications where correspondences across surfaces are required.
+We demonstrate its potential in example based articulated
+segmentation and shape interpolation. For example based
+segmentation, we do not need any correspondences between
+example poses, and it is even possible to handle incomplete
+examples. Our method can be used for shape interpolation
+because of its high suitability for dealing with extremely
+large deformations before steps.
+In summary, our main contributions are
+• An efficient and robust non-rigid registration framework
+for aligning partially overlapping point clouds. By enforcing that geodesic distances are preserved between sets of
+corresponding points, we are able to extract extremely sta-
+
+Q.-X. Huang et al. / Non-Rigid Registration
+
+1450
+Source + Target
+
+Source Samples
+
+Correspondences
+
+Rigid Clusters
+
+Registration Result
+
+Figure 1: Illustration of the major components in our non-rigid registration algorithm. High quality correspondences are
+computed from a downsampled representation using feature guidance and spectral pruning. Rigid clusters are identified during
+registration. The source is iteratively deformed based on the computed correspondences and clusters to yield the final non-rigid
+registration.
+ble correspondences. This removes the need for manually
+established landmark correspondences.
+• An adaptive deformation model that allows for stable
+deformations also for parts of the surface for which
+good correspondences are not available. Our deformation
+model does not have strong assumptions on rigidity or articulatedness, and can adapt to the deformation present in
+the model.
+• We propose two algorithms that showcase the strength of
+our method. Building upon the registration framework,
+our methods for example based segmentation and deformation interpolation do not require recomputed correspondences, and work even with incomplete and noisy
+data.
+1.1. Related Work
+Correspondence Computation. The simplest correspondences are closest point correspondences [BM92, RL01] obtained by computing for each point on the source its closest point on the target surface. However, closest point correspondences tend to be unstable when the two surfaces are
+far apart. Therefore, most of the methods [HTB03,WJH∗ 07,
+BR07] that use this kind of correspondences assume that the
+source and target surfaces are very close, an assumption we
+avoid in this paper.
+In [SLW02], Sharp et al. propose to use a combination
+of Euclidean distances and feature distances to improve correspondence stability for rigid registration. However, in the
+presence of non-rigid motions, the correspondences computed with this method are not robust enough to ensure correct registration.
+Using landmark correspondences can alleviate the stability problems [ACP03, PMG∗ 05, BBBK08]. However, manually labeling and associating landmarks is a tedious and time
+consuming task. Geometric feature matching [GMGP05,
+HFG∗ 06] has been successfully used to automatically generate landmark correspondences in the rigid case. In the
+non-rigid case, however, such landmarks are not necessarily persistent across frames, and geometric feature matching
+can be unreliable. To overcome this problem, we s enforce
+that the resulting correspondences are consistent and respect
+geodesic distances.
+
+A very elegant technique for obtaining dense correspondences comes from computer vision. Optical flow methods can generate correspondences from video [ATD∗ 08,
+ATR∗ 08], rendered animations or densely sampled 3D scans
+[MFO∗ 07]. However, these methods only work when the
+motions between frames are small.
+Anguelov et al. [ASP∗ 05] solved the problem of nonrigid correspondences by searching in the space of all possible correspondences using belief propagation. They also
+use geodesic distances as a quality criterion; however, their
+method assumes that the data surface can be fully embedded
+in the model surface.
+Correspondences in 2D images have also been computed
+using modal analysis [SP95]. This method could also be applicable to 3D shapes, however, it requires complete shapes
+and a discretization suitable for finite element analysis.
+Deformation Model.
+Deformation models have been
+studied in great detail in the context of shape deformation
+and we refer to [Sor06, NMK∗ 05] for a good overview and
+to [HSL∗ 06,BPGK06,SZT∗ 07,SSP07,LCOGL07] for some
+recent advances.
+In non-rigid registration, the deformation model used determines which assumptions about the deformations of the
+shape are made. Isometric models [PMG∗ 05, BBBK08], asrigid-as-possible models [ACP03, WJH∗ 07] and skeleton
+driven models [EPT∗ 07, PG08] have been used. In this paper, we allow for a wide variety of deformations by adapting the deformation model to the deformation observed during registration. In the presence of constraints obtained from
+correspondences, our model favors as-rigid-as-possible deformations, while in the absence of good correspondences,
+we assume an articulated motion, adaptively reducing the
+number of unknowns to obtain more robust results.
+2. Overview
+Throughout the paper, all vectors and matrices will be set in
+a bold font, while sets are set in script. The different steps in
+our algorithm are illustrated in Fig. 1 and outlined in more
+detail in Fig. 2.
+Given source surface S = {si } and a target surface T =
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Q.-X. Huang et al. / Non-Rigid Registration
+Preprocessing
+
+Non−Rigid Registration
+Deformation Optimization
+
+Downsampling
+Correspondence Computation
+Neighborhood
+Computations
+
+1451
+
+Closest point
+Correspond.
+
+Filtered
+Correspond.
+
+Expanded
+Correspond.
+
+Energy Minimization
+Improved
+Correspond.
+
+Clustering
+
+Cluster
+Transforms
+
+Deformed
+Samples
+
+Surface
+Deformation
+
+Feature
+Extraction
+
+Figure 2: Overview of the non-rigid registration pipeline. After downsampling the source and target point clouds and computing
+neighborhoods and features, we iteratively compute reliable correspondences and cluster and update the deformation field.
+After non-rigid registration we deform the original full resolution source point cloud to align with the target surface.
+{ti }, both represented as point clouds, the goal of non-rigid
+registration is to find correspondences that relate points on S
+to points on T . Correspondences should associate measurements of the same physical point. These correspondences
+are then used to align the two surfaces by deforming S to
+S ′ . If the correspondences are valid, this deformation results
+in close overlap of S ′ and T . If the point cloud surfaces are
+incomplete and/or noisy, the alignment is partial and approximate.
+We solve the non-rigid registration problem using an iterative two-step procedure. From the current deformed surface
+S ′ , we compute reliable correspondences that relate sample
+points on S to sample points on T . Given these correspondences, we update the deformed surface S ′ using energy
+minimization. This procedure is iterated until convergence.
+The result of our algorithm is a set of correspondences as
+well as a deformed source surface S ′ registered to the target
+surface T .
+Correspondence Computation. Correspondences K =
+{(si , ti )} are computed for a subset of surface sample points
+si ∈ Sˆ ⊂ S and ti ∈ Tˆ ⊂ T . We discuss the sample selection in Sec. 3. For each sample point in the source and the
+target surface, we compute a feature vector f and match sample points that are close in Euclidean space and in signature
+space, i. e., when both s′i − ti and f(si ) − f(ti ) are small.
+Here, s′i corresponds to the current deformed position of the
+sample si . For large deformations, feature matches generate much better correspondences than closest point matches.
+However, closest point matches yield good correspondences
+when the surfaces are close. As the registration progresses
+and S ′ approaches T , our algorithm automatically reverts
+to closest point matching. Note that when computing f, we
+only assume geometric information; no color or other texture information is used to compute correspondences. If this
+is desired, it is easy to incorporate additional information
+into the feature matching.
+In the presence of non-rigid deformations, feature
+matches can be treacherous. Since the shape deforms, point
+signatures based on geometry change, and matches are unreliable. We assume that deformations are roughly isometric, and therefore, geodesic distances between points should
+be preserved by the correspondences. Therefore, we prune
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+the initial set of correspondences to enforce this property:
+If two sample points si and s j in S have geodesic distance
+dg (si , s j ), then their corresponding target sample points ti
+and t j should have a similar geodesic distance on T , i. e.,
+dg (si , s j ) ≈ dg (ti , t j ). We discuss the correspondence computation in more detail in Sec. 4.
+Deformation Field Optimization. Given the correspondences, we deform the source surface to align it with the target surface. We use an energy minimization approach similar
+to [SSP07]. In regular intervals, source samples with similar
+transformations are grouped into clusters Ck , for which we
+compute optimal rigid transformations. Neighboring cluster
+transformations are coupled to ensure a smooth deformation
+field. We then update the deformed source samples s′i by
+minimizing the sum of a correspondence energy and a local rigidity preserving energy.
+The clustering effectively constrains points within a cluster to move rigidly. In case of partial overlap between source
+and target scan, the clustering extends rigid transformations
+computed in regions with correspondences to regions where
+such correspondences are not available. Only relying on
+an energy term penalizing deformation can lead to drift,
+severely degrading the quality of the alignment. The clustering is performed adaptively and hence we allow both articulated motions as well as general deformable motions. We
+discuss the clustering and deformation optimization in more
+detail in Sec. 5.
+3. Downsampled Representation
+As both input point clouds potentially consist of millions of
+points, we perform the computations on subsets. We denote
+the chosen subsets of S and T as Sˆ = {si } and Tˆ = {ti }
+respectively. The subsampling is performed using a combination of uniform sampling on the surface and uniform
+sampling in normal space as was proposed in [RL01]. The
+positional sampling is done by constructing an octree and
+picking one sample point per leaf cell, the one closest to the
+leaf’s box center. The normal space sampling generates additional points by uniform sampling on the sphere obtained
+from the Gauss map of the input surface. These additional
+points, as noted also by [RL01], ensure proper sampling of
+all features. Surface normals are computed using the tech-
+
+Q.-X. Huang et al. / Non-Rigid Registration
+
+1452
+
+Figure 3: Robust correspondence computation between
+source (silver) and target (gold). From left to right: Closest point correspondences, improved correspondences by
+local feature matching, filtered kernel correspondences by
+geodesic consistency and final propagated correspondences
+with the confidence weight color-coded from red (not confident at all) to blue (very confident).
+nique proposed in [MNG04]. Note that this subsampling can
+be just as easily applied to meshes or any other surface representation. Except for implementation details, the full surface
+registration pipeline is therefore equally applicable to those
+representations.
+Neighborhoods.
+Our algorithm makes heavy use of
+geodesic distances on surfaces and sets of nearest neighbors
+with respect to this distance metric. In the following, we denote with Ng (p, P) the set of k nearest neighbors to p that
+are part of the set of points P.
+These sets are computed by using a breadth first search
+on the Euclidean k-nearest neighbor graph of the set P. We
+typically use k = 15. We precompute and store Ng (s, S) and
+ˆ for all s ∈ S,
+ˆ as well as Ng (t, T ) and Ng (t, Tˆ ) for
+Ng (s, S)
+all t ∈ Tˆ .
+Geodesic distances are approximated using the graph distance dg (si , s j ) which corresponds to the length of the shortˆ
+est path between si and s j on the graph defined by Ng (s, S)
+ˆ
+for s ∈ S.
+Features. Using multi-level fitting of quadratic patches
+[CP03], we compute a feature vector
+N
+T
+f(si ) = [κ11 (si ), κ12 (si ), . . . , κN
+1 (si ), κ2 (si )]
+
+(1)
+
+j
+and Tˆ . Here, κ1,2
+
+denote the prinfor each sample point in Sˆ
+cipal curvatures for fitting level j, remapped to lie within the
+interval [−1, 1]. For each quadratic fit, we use all points that
+d
+have a geodesic distance smaller than 25−5
+j , where d is the
+diagonal length of the bounding box of the model. In our
+experiments, we use N = 4 fitting levels.
+4. Correspondence Computation
+Obtaining a good set of correspondences is crucial for faithful alignment of the source and target surface. To allow efficient computation for large point sets, we compute correspondences using the smaller subsets Sˆ ⊂ S and Tˆ ⊂ T
+defined above. The actual correspondence computation is
+performed in four major steps, illustrated in Fig. 3. First,
+we create a set of possible correspondences by connecting
+
+points that are close in Euclidean space and feature space
+(see Sec. 4.1). Next, we prune this dense set by extracting a
+kernel of correspondences that are consistent in the sense
+that geodesic distances between source sample points are
+close to the geodesic distances between their corresponding
+target points. Sec. 4.2 discusses how this pruning can be efficiently done using a spectral method. Then, we expand the
+set of correspondences by propagating correspondence information from the kernel correspondences to other points
+on the surface (Sec. 4.3). Here, every correspondence is also
+given a confidence score. Finally, we fine-tune the correspondences by allowing correspondences to end in any point
+on the original target surface T , as described in Sec. 4.4.
+4.1. Initial Correspondence Computation
+For each sample point si , we define an initial correspondence
+by computing the closest point ti on the target with respect
+to the current deformed position s′i .
+We improve the initial correspondence (si , ti ) by replacing ti with the point t j ∈ Ng (ti , Tˆ ) in its neighborhood that
+minimizes d f (si , t j ) = f(si ) − f(t j ) . We iterate this until
+we find a local minimum of d f .
+Similarly, we update si by moving it to the source sample s j that corresponds to the closest local minimum of
+d f (s j , t j ). We discard the correspondence if si − s j is
+above a user-defined threshold. Large movement of si after
+ti has been optimized indicates an unstable correspondence.
+The reasoning is similar to the heuristic used in [TL94]. An
+illustration of this procedure is shown in Fig. 3.
+4.2. Correspondence Pruning
+The initial set of correspondences might be inconsistent with
+the assumption that deformations are approximately isometric. Hence, we prune the set of correspondences to enforce
+that the geodesic distance between each pair of samples si
+and s j , should be similar to the distance between their corresponding target sample points, dg (si , s j ) ≈ dg (ti , t j ).
+By removing correspondences that are not consistent with
+our assumption, we can greatly improve their quality and
+robustness. We are looking for the largest set of correspondences that are consistent assuming isometric deformation.
+This kernel extraction can be performed using a standard
+spectral matching method [LH05]. We only briefly summarize the method here, please refer to [LH05] for more details.
+Two correspondences (si , ti ) and (s j , t j ) are consistent if
+the ratio of geodesic distances dg (si , s j )/dg (ti , t j ) is close to
+1. Hence, we can define the consistency measure between 0
+and 1,
+ci j = min
+
+dg (si , s j ) dg (ti , t j )
+,
+,
+dg (ti , t j ) dg (si , s j )
+
+(2)
+
+where cii is defined as 1. Spectral matching proceeds by constructing a consistency matrix M. To account for discretizac 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Q.-X. Huang et al. / Non-Rigid Registration
+
+1453
+
+tion errors and to allow for small non-isometric deformations, we define M as
+Mi j =
+
+(
+
+ci j −c0 2
+1−c0 )
+
+0
+
+ci j > c0 ,
+otherwise,
+
+(3)
+
+where the threshold c0 determines how much error in the
+consistency we are willing to accept. We use a value of 0.7.
+As shown in [LH05], the entries in the eigenvector x corresponding to the largest eigenvalue λmax of M define a score
+for the initial correspondences.
+Starting from an empty set, we iteratively add the correspondence that has the next highest score to our set of kernel
+correspondences K, but only if its consistency measure (2)
+with respect to all kernel correspondences already in K is
+above the threshold c0 .
+4.3. Correspondence Propagation
+The kernel extraction results in a set of consistent correspondences. However, this set can be very sparse. Therefore, we
+expand the set of correspondences using a propagation strategy that respects the geodesic consistency criterion.
+Given a sample si that does not have a corresponding
+point, we look for the nearest s j with a correspondence
+(s j , t j ). We then assign a target sample that is most consistent with the kernel correspondences using the geodesic
+distance criterion
+ti = argmin eK (si , t)
+
+(4)
+
+t∈Ng (t j ,Tˆ )
+
+where the consistency error eK is defined as
+eK (s, t) =
+
+(5)
+
+(sk ,tk )∈K
+
+where the summation is over all kernel correspondences
+(sk , tk ). The correspondence propagation continues until all
+samples are assigned to a target point.
+After propagation we assign a confidence weight to all
+correspondences. This weight is defined as a function of the
+correspondence’s consistency compared to the consistency
+of the kernel correspondences
+e (s , t )
+wi = exp(− K i i ),
+2e
+
+1
+e=
+|K| (s
+
+∑
+
+The final result of the correspondence computation is a
+set of correspondences {(si , ti )} that relate points si ∈ Sˆ to
+a target sample ti ∈ T . Fig. 4 illustrates the correspondences
+for three different non-rigid registration examples. Note how
+reliable correspondences are found even under large deformations.
+5. Deformation Optimization
+Once correspondences are computed, we deform the surface
+to best align the corresponding points. In this section, we
+first describe how sample points can be grouped together
+in clusters whose deformation can be roughly described using a single rigid transformation. We then discuss how this
+clustered representation is used to find the optimal deformed
+sample positions using an energy minimization approach, after which we describe how to propagate the deformations
+onto the complete surface.
+5.1. Cluster Computation
+
+[dg (s, sk ) − dg (t, tk )]2 ,
+
+∑
+
+Figure 4: Correspondences between source (silver) and target (gold) for various examples. A small subset of the correspondences is shown for the sake of clarity.
+
+eK (sk , tk ). (6)
+
+k ,tk )∈K
+
+4.4. Correspondence Fine-Tuning
+Due to efficiency reasons, the above computations were performed using the reduced sample sets Sˆ and Tˆ . This means
+that a correspondence always has its end point in the reduced
+set Tˆ . When S ′ is close to T , the correspondences on Sˆ and
+Tˆ become inaccurate. Hence, correspondences are allowed
+to have end points in the full target point cloud T as opposed
+to the subset Tˆ .
+For each correspondence (si , ti ), we replace the end point
+ti with t j ∈ Ng (ti , T ), if t j is the nearest neighbor of the
+deformed sample s′i in T .
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Clusters are groups of sample points whose deformation can
+be described by a single rigid transformation. For example, when aligning body scans, the lower and upper arm can
+each be represented by a single cluster, while the sample
+points near the elbow each define their own cluster. Grouping points and sharing their transformation greatly improves
+the stability of the optimization process when registering incomplete and noisy scans.
+At the beginning of the clustering process, we create a
+single cluster Ci = {si } for every sample si . We then apply
+a forward search method [FCOS05] to iteratively combine
+neighboring clusters until a user-defined quality threshold is
+reached. In [FCOS05], forward search methods have been
+used in finding points that can be fitted well by planes. In
+our paper, we use forward search methods to find correspondences that can be described by rigid motions.
+For every cluster Ck , we define the extended cluster C˜k by
+adding all neighboring points to the extended cluster:
+[
+ˆ
+Ng (si , S).
+(7)
+C˜k = Ck
+si ∈Ck
+
+We will call two clusters neighboring if their extended clusters intersect.
+Each cluster Ck is assigned a rigid transformation that
+
+Q.-X. Huang et al. / Non-Rigid Registration
+
+1454
+
+Hence, we wish to find the deformed sample positions s′i
+that minimize
+Ecorr =
+
+∑
+
+wi α s′i − ti
+
+2
+
++ β((s′i − ti )T ni )2 ,
+
+(10)
+
+si ∈Sˆ
+
+Figure 5: Two views of the clusters color coded on the
+source surface for the registration example on the left. The
+registration deforms the source by an almost 180 degree rotation as indicated by the arrows. Many clusters are used in
+the regions on the lower back and around the arm pit where
+the source surface bends to align with the target. Large clusters can be used in regions that roughly deform rigidly.
+maps its undeformed sample points si to their deformed sample positions s′i . We obtain translation Tk and rotation Rk by
+minimizing
+Ek =
+
+∑
+
+Rk si + Tk − s′i 2 .
+
+(8)
+
+si ∈C˜k
+
+This is a simple rigid registration problem with known correspondences, which can be solved efficiently [Hor87].
+For cluster merging, we sort the clusters in order of increasing rigid registration error Ek . We pick the first cluster
+Ck and compute the maximal residual registration error Ekl
+for all its neighboring clusters Cl :
+Ekl = max Rk si + Tk − s′i
+si ∈C˜l
+
+2
+
+.
+
+(9)
+
+We merge Ck with all neighboring clusters that have a maximal rigid registration error Ekl below a threshold Emax . We
+then recompute Ek , resort the list of clusters, and iterate.
+The result of our clustering algorithm is a set of K clusters
+Ck , where every sample belongs to exactly one cluster. In the
+subsequent deformation optimization process we will use the
+extended overlapping clusters C˜k to enforce continuity in the
+rigid transformations.
+In the first 10 iterations of the deformation optimization
+we do not invoke the clustering algorithm, i. e., we use a single cluster Ci = {si } per sample point. Otherwise the clustering would result in one big cluster because in the beginning
+s′i = si . Starting from the 10th iteration, we cluster at regular
+intervals of 10 iterations.
+
+where wi is the consistency weight (Eq. 6), ni is the surface
+normal corresponding to the target point ti and α and β are
+parameters that vary the contribution of the point-to-point
+and point-to-plane energies. We use α = 0.6 and β = 0.4.
+To avoid the trivial solution s′i = ti , we add an additional
+energy that penalizes local non-rigid deformations. Using
+the cluster energy Ek , we define the total rigidity error as
+Erigid = ∑ Ek = ∑
+k
+
+∑
+
+Rk si + Tk − s′i
+
+2
+
+.
+
+(11)
+
+k si ∈C˜k
+
+Note that because the extended neighboring clusters overlap,
+the resulting transformations vary smoothly.
+The total deformation energy is now given by
+E = λcorr Ecorr + λrigid Erigid ,
+
+(12)
+
+where λcorr and λrigid vary the contribution of both energy
+terms. We typically use λcorr = 2 and λrigid = 1.
+The goal is to find the deformed sample positions s′i that
+minimize E. Due to the dependence of the cluster rotations
+Rk on s′i , this is a non-linear problem. We solve for the deformed sample positions by fixing Rk and Tk in each step
+and solving for s′i , and then computing new optimal rotations Rk and translations Tk [SA07, XZY∗ 07]. On average,
+only 6 iterations were required for convergence.
+5.3. Surface Deformation
+The result of the registration algorithm is a set of deformed
+positions s′i for the samples si in the downsampled source
+ˆ After the registration process is complete, we exsurface S.
+trapolate these deformations to the entire source point cloud
+S. We use a simple partition of unity approach [SSP07]. The
+new position of s j ∈ S is given by
+s′j =
+
+∑
+
+θ jk (Rk s j + Tk ),
+
+(13)
+
+sk ∈Ng (s j ,S)
+
+where Rk and Tk are the rotation and translation associated
+with sk ’s cluster.
+
+Fig. 5 Illustrates the clustering for a non-rigid alignment
+example involving partial scans and large deformations.
+
+The normalized weights θ jk = θ jk / ∑l θ jl with θ jk =
+exp(− s j − sk 2 /σ2 ) are defined to smoothly decay with
+increasing distance. σ is a user-defined parameter that determines the support of the sample points.
+
+5.2. Energy Minimization
+
+6. Results and Discussion
+
+After computing new correspondences, we update the deformed sample points s′i so that they are best aligned with
+their corresponding target points ti . We use a combination
+of point-to-point and point-to-plane constraints, motivated
+from the local quadratic approximation of the squared distance function [MGPG04].
+
+We tested our algorithm on various data sets with both partial
+similarity and full similarity. For each model, we are given a
+set of poses, and we compute registrations for each possible
+pair of poses. Table 1 summarizes the statistics. All timings
+were measured on a 3.2GHz PC with 2GB of RAM.
+Some example pairs are shown in Fig. 6. As can be seen
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Q.-X. Huang et al. / Non-Rigid Registration
+Source
+
+Initial Source
++ Target
+
+Target
+
+1455
+
+Registered Source
++ Target
+
+Horse
+
+✗✔
+
+✖✕
+
+Armadillo
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Shoulder
+
+Arms
+
+Figure 7: Comparison of different strategies for the nonrigid alignment of the Torso data set. (a) Source (gray) and
+target (gold). Each image (b)-(d) shows the deformed source
+surface and the target surface. (b) Using closest point correspondences. (c) Using our strategy, but without clustering.
+(d) Using both our feature based correspondences and the
+rigid clustering results in much better results for this difficult non-rigid registration problem.
+
+Torso
+
+scans of a moving person, and no ground truth was available.
+We therefore validated the registration visually.
+
+Figure 6: Non-rigid registration under large deformation
+for various data sets.
+from these figures, our algorithm is able to align incomplete
+surfaces that undergo significant deformations.
+For the Horse and Armadillo, we use the original undeformed point cloud as the source surface and various deformed instances as the target surface. Note that we did not
+exploit the fact that the source and target shapes share a common discretization. All correspondences were computed using our algorithm. However, using this ground truth, we were
+able to validate our registration algorithm and found that the
+resulting deformed shapes were all correctly aligned.
+The Arms, Shoulders and Torso data sets are incomplete
+data set
+Horse
+Armadillo
+Arms
+Shoulder
+Torso
+
+#poses
+10
+12
+36
+33
+27
+
+#pairs
+45
+66
+630
+528
+231
+
+|S|
+80k
+332k
+80k
+117k
+325k
+
+ˆ
+|S|
+2500
+2500
+600
+800
+1100
+
+pre time
+7.4s
+7.6s
+2.1s
+3.4s
+4.5s
+
+reg time
+13.6s
+14.8s
+1.1s
+1.9s
+4.5s
+
+Table 1: Data set statistics. Shown are the number of poses
+and the resulting number of registration pairs for each
+model, the average number of points per pose (the numbers
+vary between poses for real-world scans), the cardinality of
+ˆ as well as the average timing per pair,
+the sets S and S,
+for preprocessing (computation of neighborhoods, geodesic
+distances and features) and registration.
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Note that some of the models are partially and approximately symmetric. For such models, there are local minima
+that can trap our algorithm. We found that similar to rigid
+registration, these local minima can be avoided by trying
+all initial rotations from the icosahedral rotational symmetry
+group. In practice, we only try more than one initial rotation
+if the total registration error is very high. Since our registration method is very fast, this is not a problem. Using this
+approach we obtained valid registrations for all pairs of the
+Arms, Shoulders and Torso data sets.
+Since we use subsampled versions of the point clouds to
+compute the registrations, the full point clouds are not precisely aligned. A local deformation using closest point correspondences can be used to optimize the final alignment.
+On the other hand, subsampling makes the alignment more
+robust in the presence of noise.
+Fig. 7 shows a comparison with two alternatives for the
+registration of the Torso data set. Using simple closest point
+correspondences instead of the consistent geodesic and feature based correspondences leads to severe misalignments. If
+we filter the correspondences for geodesic consistency, but
+do not use clustering during the deformation optimization,
+shrinkage occurs in underconstrained regions, e. g., near the
+wrist. Using a single rigid transformation for large clusters
+of sample points reduces the effect of bad or sparse correspondences and results in better registration quality.
+One of the limitations of our method is that if the assumption of geodesic consistency between the surfaces is
+invalid due to topological changes, our method will result
+in erroneous registration. Changes in topology cause abrupt
+changes in geodesic distances on the surface, leading to very
+few, or even wrong correspondences after filtering. In the future, we plan to address these problems by only considering
+
+Q.-X. Huang et al. / Non-Rigid Registration
+
+1456
+
+Figure 8: Example based articulated segmentation. Left:
+Possibly incomplete example poses. Middle: Rigid clusters
+on the source shape. Right: Extracted skeleton.
+
+Figure 9: Interpolated shapes (silver) between source and
+target (gold).
+
+the most consistent samples both in kernel extraction and
+correspondence propagation.
+
+Fig. 8 illustrates the segmentation algorithm for the Horse
+model. From a set of 9 incomplete example poses we extract
+clusters and a skeleton. The skeleton nicely captures the rigid
+structure of the Horse model as learned from the examples.
+
+7. Applications
+
+7.2. Shape Interpolation
+
+Since the proposed algorithm reliably and automatically registers shapes that undergo large deformations, it is applicable to a wide variety of problems in computer graphics. To
+demonstrate the potential of the algorithm, we have implemented an example-based mesh segmentation method that
+can work with incomplete examples, as well as a deformation interpolation method.
+
+Given a source surface S and a target surface T , we can apply our approach to generate a series of surfaces Ml , 0 ≤ l ≤
+L, where M0 = S and ML = T , which smoothly interpolate
+between S and T .
+
+7.1. Example Based Articulated Segmentation
+Our framework can be used to compute the rigid parts of
+an articulated object from multiple example poses. The resulting segmentation can then be used to extract a skeleton
+which in turn can be used to create new articulated poses.
+Our proposed segmentation algorithm is more general and
+flexible than previous approaches [JT05, SY07] in the sense
+that we do not require known correspondences between the
+source and the target poses, nor do we require the example
+shapes to be complete.
+In order to perform segmentation by example, we consider
+one source surface S, but now register with respect to L target surfaces Tl . Similar to the original algorithms, we cluster
+the source sample points in K clusters Ck , but we now construct the clusters such that each can be rigidly aligned with
+all the target poses. Hence, the alignment energy (Eq. 8) of
+a cluster Ck now considers all target surfaces
+Ek =
+
+1 L
+∑
+L l=1
+
+∑
+
+si ∈C˜k
+
+Rlk si + Tlk − sli
+
+2
+
+,
+
+(14)
+
+where Rlk and Tlk denote the rotation and translation for cluster Ck with respect to the target surface Tl and sli is the deformed position of sample si for the alignment with Tl .
+The clustering can result in over-segmentation for example in the region of joints. As a post-processing step we reduce the number of clusters by only considering those clusters with at least 40 sample points. The remaining sample
+points are then added to neighboring clusters by iteratively
+growing the surviving clusters. The resulting rigid clusters
+can then be used to extract a skeleton.
+
+We start by performing a non-rigid alignment between S
+and T , assuming that the deformation is roughly isometric
+such that our method is able to find reliable correspondences.
+Next, we generate intermediate points sli for all the sample
+points si obtained during registration by minimizing
+L−1
+
+EI =
+
+∑ ∑∑
+l=0
+
+Rk sli + Tk − sl+1
+i
+
+k si ∈Ck
+
++γ
+
+∑
+
+si ∈Sˆ
+
+sli − sl+1
+i
+
+2
+
+2
+
+(15)
+,
+
+subject to the hard constraints s0i = si and sLi = s′i . EI is a
+variant of the energy used in [KMP07].
+The first term constrains the interpolation to be as rigid as
+possible. Note that if the motion between S and T is articulated, then this information will be reflected in the clustering,
+and the resulting interpolation will also be articulated. The
+second term forces the interpolation path to be as short as
+possible. We set γ = 0.001 as suggested in [KMP07].
+Fig. 9 illustrates the shape interpolation for the Armadillo
+model. Note that a high quality interpolation is obtained even
+though the deformation from the source to the target shape
+is large.
+8. Conclusion
+We have presented a novel algorithm for non-rigid registration of a pair of partially overlapping surfaces. Enforcing
+consistency with respect to geodesic distances on the surface greatly improves the quality of feature-based correspondences. Especially when considering large deformation, the
+new algorithm is significantly more robust than previous approaches. It allows for fully automatic alignment even for
+hard cases involving partial overlap and noise.
+As future work we plan to apply our method to non-rigid
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Q.-X. Huang et al. / Non-Rigid Registration
+
+scan alignment and surface reconstruction involving multiple point clouds [WJH∗ 07]. Special care will be required to
+avoid drift.
+Acknowledgements
+This research was funded by the Max-Planck Center for
+Visual Computing and Communication, as well as NSF
+grants ITR 0205671 and FRG 0354543, NIH grant GM072970, and DARPA grant HR0011-05-1-0007. Bart Adams
+is funded as a post-doctoral researcher by the Fund for Scientific Research, Flanders (F.W.O.-Vlaanderen). We would
+like to thank the University of Washington Graphics and
+Imaging Laboratory for the arms, shoulders and torso data
+sets, Robert Sumner and Jovan Popovic from the Computer Graphics Group at MIT for the horse model and
+AIM@Shape for providing the Armadillo data set.
+References
+[ACP03] A LLEN B., C URLESS B., P OPOVI C´ Z.: The space of human body shapes: reconstruction and parameterization from range
+scans. In Proc. SIGGRAPH (2003), pp. 587–594.
+[ASP∗ 05] A NGUELOV D., S RINIVASAN P., PANG H.-C.,
+KOLLER D., T HRUN S., DAVIS J.: The correlated correspondence algorithm for unsupervised registration of nonrigid surfaces. In NIPS., vol. 17. 2005, pp. 33–40.
+[ATD∗ 08] A HMED N., T HEOBALT C., D OBREV P., S EIDEL H.P., T HRUN S.: Robust fusion of dynamic shape and normal capture for high-quality reconstruction of time-varying geometry. In
+Proc. CVPR (2008). To appear.
+[ATR∗ 08] A HMED N., T HEOBALT C., ROESSL C., T HRUN
+S., S EIDEL H.-P.:
+Dense correspondence finding for
+parametrization-free animation reconstruction from video. In
+Proc. CVPR (2008). To appear.
+[BBBK08] B RONSTEIN A. M., B RONSTEIN M. M., B RUCK STEIN A. M., K IMMEL R.: Analysis of two-dimensional nonrigid shapes. IJCV. (2008). To appear.
+[BM92] B ESL P. J., M C K AY N. D.: A method for registration of
+3-d shapes. PAMI 14, 2 (1992), 239–256.
+[BPGK06] B OTSCH M., PAULY M., G ROSS M., KOBBELT L.:
+Primo: coupled prisms for intuitive surface modeling. In Proc.
+SGP (2006), pp. 11–20.
+[BR07] B ROWN B. J., RUSINKIEWICZ S.: Global non-rigid
+alignment of 3-d scans. TOG. 26, 3 (2007), 21.
+[CP03] C AZALS F., P OUGET M.: Estimating differential quantities using polynomial fitting of osculating jets. In Proc. SGP
+(2003), pp. 177–187.
+[EPT∗ 07] E CKSTEIN I., P ONS J.-P., T ONG Y., K UO C. C. J.,
+D ESBRUN M.: Generalized surface flows for mesh processing.
+In Proc. SGP (2007), pp. 183–192.
+[FCOS05] F LEISHMAN S., C OHEN -O R D., S ILVA C. T.: Robust moving least-squares fitting with sharp features. TOG. 24, 3
+(2005), 544–552.
+[GMGP05] G ELFAND N., M ITRA N. J., G UIBAS L. J.,
+P OTTMANN H.: Robust global registration. In Proc. SGP (2005),
+pp. 197–206.
+[HFG∗ 06] H UANG Q.-X., F LÖRY S., G ELFAND N., H OFER M.,
+P OTTMANN H.: Reassembling fractured objects by geometric
+matching. TOG 25, 3 (2006), 569–578.
+[HH03] H UBER D., H EBERT M.: Fully automatic registration of
+multiple 3d data sets. IVC 21, 7 (July 2003), 637–650.
+[Hor87] H ORN B.: Closed form solutions of absolute orientation
+using unit quaternions. J. Opt. Soc. of A. A 4, 4 (1987), 629–642.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+1457
+
+[HSL∗ 06] H UANG J., S HI X., L IU X., Z HOU K., W EI L.-Y.,
+T ENG S.-H., BAO H., G UO B., S HUM H.-Y.: Subspace gradient
+domain mesh deformation. TOG 25, 3 (2006), 1126–1134.
+[HTB03] H ÄHNEL D., T HRUN S., B URGARD W.: An extension
+of the ICP algorithm for modeling nonrigid objects with mobile
+robots. In IJCAI (Acapulco, Mexico, 2003).
+[JT05] JAMES D. L., T WIGG C. D.: Skinning mesh animations.
+In Proc.SIGGRAPH (2005), pp. 399–407.
+[KMP07] K ILIAN M., M ITRA N. J., P OTTMANN H.: Geometric
+modeling in shape space. In Proc. SIGGRAPH (2007), vol. 26,
+pp. #64, 1–8.
+[LCOGL07] L IPMAN Y., C OHEN -O R D., G AL R., L EVIN D.:
+Volume and shape preservation via moving frame manipulation.
+TOG 26, 1 (2007).
+[LH05] L EORDEANU M., H EBERT M.: A spectral technique for
+correspondence problems using pairwise constraints. In ICCV
+(2005), pp. 1482 – 1489.
+[MFO∗ 07] M ITRA N. J., F LORY S., OVSJANIKOV M.,
+G ELFAND N., G UIBAS L., P OTTMANN H.: Dynamic geometry registration. In Proc. SGP (2007), pp. 173–182.
+[MGPG04] M ITRA N. J., G ELFAND N., P OTTMANN H.,
+G UIBAS L. J.: Registration of point cloud data from a geometric
+optimization perspective. In Proc. SGP (2004), pp. 23–32.
+[MNG04] M ITRA N. J., N GUYEN A., G UIBAS L.: Estimating
+surface normals in noisy point cloud data. In IJCGA. (2004),
+vol. 14, pp. 261–276.
+[NMK∗ 05] N EALEN A., M ÜLLER M., K EISER R., B OXERMAN
+E., C ARLSON M.: Physically Based Deformable Models in Computer Graphics. In Eurographics: State of the Art Report (2005).
+[PG08] P EKELNY Y., G OTSMAN C.: Articulated object reconstruction and markerless motion capture from depth video. Computer Graphics Forum 27, 2 (2008), 243–253.
+[PMG∗ 05] PAULY M., M ITRA N. J., G IESEN J., G ROSS M. H.,
+G UIBAS L. J.: Example-based 3d scan completion. In Proc. SGP
+(2005), pp. 23–32.
+[RHHL02] RUSINKIEWICZ S., H ALL -H OLT O., L EVOY M.:
+Real-time 3d model acquisition. TOG. 21, 3 (2002), 438–446.
+[RL01] RUSINKIEWICZ S., L EVOY M.: Efficient variants of the
+icp algorithm. In 3-D Digital Imaging and Modeling (2001),
+pp. 145–152.
+[SA07] S ORKINE O., A LEXA M.: As-rigid-as-possible surface
+modeling. In Proc. SGP (2007), pp. 109–116.
+[SLW02] S HARP G. C., L EE S. W., W EHE D. K.: Icp registration
+using invariant features. PAMI. 24, 1 (2002), 90–102.
+[Sor06] S ORKINE O.: Differential representations for mesh processing. Computer Graphics Forum 25, 4 (2006), 789–807.
+[SP95] S CLAROFF S., P ENTLAND A.: Modal matching for correspondence and recognition. PAMI 17, 6 (1995), 545–561.
+[SP04] S UMNER R. W., P OPOVI C´ J.: Deformation transfer for
+triangle meshes. In Proc. SIGGRAPH (2004), pp. 399–405.
+[SSP07] S UMNER R. W., S CHMID J., PAULY M.: Embedded deformation for shape manipulation. In Proc. SIGGRAPH (2007),
+p. 80.
+[SY07] S CHAEFER S., Y UKSEL C.: Example-based skeleton extraction. In Proc. SGP (2007), pp. 153–162.
+[SZT∗ 07] S HI X., Z HOU K., T ONG Y., D ESBRUN M., BAO H.,
+G UO B.: Mesh puppetry: cascading optimization of mesh deformation with inverse kinematics. In Proc. SIGGRAPH (2007),
+p. 81.
+[TL94] T URK G., L EVOY M.: Zippered polygon meshes from
+range images. In Proceedings of ACM SIGGRAPH 94 (1994),
+pp. 311–318.
+[WJH∗ 07] WAND M., J ENKE P., H UANG Q., B OKELOH M.,
+G UIBAS L. J., S CHILLING A.: Reconstruction of deforming geometry from time-varying point clouds. In SGP. (2007), pp. 49–
+58.
+[XZY∗ 07] X U W., Z HOU K., Y U Y., TAN Q., P ENG Q., G UO B.:
+Gradient domain editing of deforming mesh sequences. TOG. 26,
+3 (2007), 84.
+
+

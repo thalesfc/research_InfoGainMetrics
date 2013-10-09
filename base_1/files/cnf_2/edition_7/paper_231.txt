@@ -1,0 +1,1742 @@
+DOI: 10.1111/j.1467-8659.2009.01548.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 28 (2009), number 8 pp. 2379–2395
+
+Bounding Volume Hierarchies of Slab Cut Balls
+T. Larsson1 and T. Akenine-M¨oller2
+1 M¨
+alardalen
+2 Lund
+
+University, Sweden
+University, Sweden
+
+Abstract
+We introduce a bounding volume hierarchy based on the Slab Cut Ball. This novel type of enclosing shape
+provides an attractive balance between tightness of fit, cost of overlap testing, and memory requirement. The
+hierarchy construction algorithm includes a new method for the construction of tight bounding volumes in worst
+case O(n) time, which means our tree data structure is constructed in O(n log n) time using traditional topdown building methods. A fast overlap test method between two slab cut balls is also proposed, requiring as few as
+28–99 arithmetic operations, including the transformation cost. Practical collision detection experiments confirm
+that our tree data structure is amenable for high performance collision queries. In all the tested benchmarks, our
+bounding volume hierarchy consistently gives performance improvements over the sphere tree, and it is also faster
+than the OBB tree in five out of six scenes. In particular, our method is asymptotically faster than the sphere tree,
+and it also outperforms the OBB tree, in close proximity situations.
+Keywords: bounding volumes, hierarchical data structures, collision detection, rigid body simulation, animation
+ACM CCS: I.3.5 [Computer Graphics] Computational Geometry and Object Modeling I.3.7 [Computer
+Graphics]: Three-Dimensional Graphics and Realism
+
+1. Introduction
+We introduce the bounding volume hierarchy (BVH) of slab
+cut balls. The name Slab Cut Ball (SCB) refers to a new
+type of bounding volume (BV) defined as the intersection
+of a sphere and the space between two parallel planes, also
+known as a slab. The idea behind the SCB is to combine
+the best features of OBBs, spheres, and k-DOPs. From the
+sphere, extremely efficient coarse tests are inherited. The
+ability to represent arbitrarily oriented flat areas tightly is derived from the OBB. The usage of the slab concept also stems
+from the k-DOP, however; we allow the slab to be oriented
+arbitrarily to improve tightness of fit. Note that the extents of
+the slab planes are limited by the sphere, which means only
+two circular cross-sections of the sphere are located on the
+actual boundary of the SCB volume. An example comparing
+the shape of the SCB to the other classical bounding volumes
+in 2D is shown in Figure 1.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and
+Blackwell Publishing Ltd. Published by Blackwell Publishing,
+9600 Garsington Road, Oxford OX4 2DQ, UK and 350 Main
+Street, Malden, MA 02148, USA.
+
+An SCB is represented by a center point and a radius defining the sphere, and a normal and two scalar values defining
+the orientation and the width of the slab. This means that the
+SCB improves on both the memory cost and transformation
+cost of OBBs. Additionally, the transformation problem of
+AABBs and k-DOPs for rigid body motion is avoided, since
+the slab is oriented arbitrarily. Other advantages are that the
+SCB of a point set can be constructed efficiently, and that
+overlap tests can be made very fast.
+It is evident that bounding volumes are very important in computer graphics applications. They have found
+extensive use in, for example, collision detection (CD)
+[GLM96, KHM∗ 98, LAM03, Eri05, LAM06, MO06, GO06],
+ray tracing [WHG84, Gla89, WBS07] and view frustum culling (VFC) [AM99, AM00]. The most popular
+types of BVs seem to be the AABB [WG92, vdB97,
+LAM01, LAM06], OBB [GLM96, BCG∗ 96, RKC02], sphere
+
+2379
+
+2380
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+[Hub93, Hub96, OD99], which fits well together with approximate collision response mechanisms [DO00, GO06],
+are based on spheres. Evidently, these approaches can also
+be used together with our SCB hierarchies, since a bounding
+sphere is directly available in each tree node as a part of the
+SCB definition. For the SCB volume, the rigid body transformation cost involves only the transformation of a point (the
+center of the sphere) and a normal vector (the orientation of
+the slab).
+As several authors have pointed out, the cost, T, of
+performing geometric queries using BVHs can be captured by the following cost function [GLM96, KHM∗ 98,
+WHG84]:
+T = Nv × Cv + Np × Cp + Nu × Cu .
+
+Figure 1: The slab cut ball as a new bounding volume (bottom right) in relation to its three classical ancestors, i.e., the
+OBB (bottom left), sphere (top left), and k-DOP (top right).
+The combination of a sphere and an arbitrarily oriented slab
+provides the means for tightness of fit, efficient overlap tests,
+and low memory requirements.
+
+[Qui94, PG95, Hub96, KZ05, MO06, GO06], and k-DOP
+[KHM∗ 98, Zac98, MKE03]. Other choices include the zonotope [GNZ03], pie slice [BCG∗ 96], cylinder [Ber04], ellipsoid [LWH∗ 07], VADOP [CS08], and convex hull [EL01,
+OL03].
+The idea of combining two or more simple shapes to
+form a new type of bounding volume has also been considered previously. Examples include the QuOSPO [He99],
+sphere–AABB intersection volume [KS97], spherical shell
+[KPLM98], capsule (line swept sphere) [LGLM99, Ebe01],
+and lozenge (rectangular swept sphere) [LGLM00, Ebe01].
+When compared to all these above mentioned bounding
+volume types, we have found the SCB to be an excellent
+container for rigid bodies (or rigid body parts), since it successfully combines the advantages of OBBs and spheres.
+The main feature of the OBB hierarchy is its ability to adapt
+tightly to the underlying geometry [GLM96]. By using only
+a single slab as a part of our volume definition, the SCB
+hierarchy also gains a similar ability to fit tightly around the
+objects, and moreover at a lower memory cost than for OBB
+trees.
+Furthermore, the sphere is highly attractive because various overlap tests and distance queries become extremely
+efficient. Therefore, sphere trees have been used extensively
+to accelerate rigid body collision detection [Qui94, PG95].
+For example, time-critical collision detection approaches
+
+(1)
+
+In the context of rigid body collision detection, Nv and Np are
+the number of BV-BV and primitive-primitive overlap tests
+with Cv and Cp costs per test, respectively. Nu is the number
+of transformed BVs due to rigid motion of the bodies, and Cu
+is the cost of transforming a single BV. As can be seen here,
+tight fitting BVs are attractive to lower Nv , which in turn leads
+to lower Np and Nu . However, simpler BVs give lower Cv and
+Cu , but generally they yield a looser fit, thereby increasing
+the number of tests. This is the well-known trade-off between
+tightness of fit and overlap test cost, and we argue that the
+SCB volume provides a highly attractive balance between
+these two seemingly opposing features.
+In the rest of this article, we present the details of our
+novel type of bounding volume hierarchy. Our main contributions are as follows: (1) We introduce a new bounding
+volume type to improve the performance of BVHs. (2) We
+propose an efficient algorithm for computing a tight-fitting
+SCB enclosing a point set (or a general polygonal model) in
+worst-case O(n) time. A fast O(n log n) top-down BVH construction method is also given. (3) An inexpensive SCB–SCB
+intersection test using only 99 arithmetic operations in the
+worst case is proposed. (4) Empirical evidence is given to
+illustrate the efficiency of our BVH, as compared to other
+common BVH types, for collision detection or interference
+detection between pairs of rigid bodies.
+
+1.1. SCB representation and memory cost
+We represent the SCB with a ball, B, and a slab, S. The
+ball is given by a center point, c, and a radius, r, and the
+slab by the normal, n, of the slab planes and the signed
+distances e and f from c to the planes along the normal
+direction. This is illustrated in Figure 2. The area, A, and
+volume, V, of an SCB are found by applying the area and
+volume formulas for spherical segments or frustums, which
+gives the following equations:
+A = 2π r(e − f ) + a 2 π + b2 π,
+
+(2)
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+2381
+
+2. Fast SCB Computation
+An SCB covering a polygonal model can be computed by using existing algorithms for computing the smallest enclosing
+ball and the minimum width of a point set, respectively. Optimal bounding spheres can, for example, be computed in expected O(n) time using the randomized algorithm by Welzl
+[Wel91, Gae99]. A reasonable tight sphere can also be computed very efficiently using Ritter’s method [Rit90]. However, Ritter’s method fails to compute tight-fitting spheres
+for some models, in particular models where the optimal enclosing sphere is uniquely defined by three or four supporting
+vertices.
+
+a
+e
+
+r
+
+n
+c
+
+r
+
+f
+b
+
+Figure 2: The SCB is defined by the sphere center c and
+radius r, the signed distances e and f to the slab planes measured from c and the normal vector n of the slab planes.
+
+V =
+
+π
+(e − f )(3a 2 + 3b2 + (e − f )2 ).
+6
+
+(3)
+
+We can simplify these equations, since the distances
+√ a and b are given by the Pythagorean Theorem as
+a = r 2 − e2 and b = r 2 − f 2 (see Figure 2). Thus,
+A = π 2r(e − f ) + 2r 2 − e2 − f 2 ,
+
+V =
+
+π
+(e − f )(3(2r 2 − e2 − f 2 ) + (e − f )2 ).
+6
+
+(4)
+
+(5)
+
+Regarding the memory cost of the SCB volume, 9 scalar
+values need to be stored. This can be compared to other volumes, e.g. the sphere, AABB, OBB, and 26-DOP, requiring
+4, 6, 15, 26 scalar values of storage, respectively. We note
+that the BV storage cost may be important not only for saving memory, but also for improving the cache hit rate during
+hierarchy traversals. Therefore, the low memory cost of the
+SCB is an attractive feature.
+If all the values are 4 bytes wide, the storage requirement
+of an SCB amounts to 9 × 4 = 36 bytes. However, we note
+that this can be reduced easily. For example, instead of storing e and f directly, we can store them as a fraction of the
+sphere radius using, for example, two bytes per value. Similarly, the normal of the slab can be quantized in the BV
+computation algorithm to make the components of the normalized normal, nx , ny , and nz , representable as two bytes
+per component. In this way, the total memory requirement
+for an SCB can be adapted to, for example, 26 bytes. If we
+want to pack BVH nodes efficiently with respect to common
+cache line sizes (32, 64, or 128 bytes), this leaves 6 bytes
+of extra storage for other necessary node data apart from the
+actual SCB.
+
+The problem of finding the optimal, i.e. the narrowest,
+slab is often referred to as computing the minimal width of a
+point set. There are theoretical solutions with time complexity O(n3/2+ε ) [AS96]. The earlier Houle-Toussant algorithm
+has a worst-case time complexity of O(n2 ) [HT88]. However, it seems to be quite usable in practice as demonstrated
+by several implementations [SSMJ99, GH01]. Additionally,
+Chan proposes (1 + ε)-factor approximation algorithms for
+the minimal width problem of a point set [Cha00].
+Clearly, SCBs can be computed by using previously proposed algorithms to find the smallest enclosing ball and the
+minimum width slab. Unfortunately, such a strategy would
+lead to a superlinear time complexity and the resulting volumes would not be minimum SCBs anyway. Computing the
+smallest possible SCB, i.e., minimizing the actual intersection volume would also be too expensive, since then the
+selection of the sphere and the slab cannot be made as two
+independent choices.
+Since our goal is to compute a tight-fitting SCB covering the point set defining a polygonal model in worst
+case O(n) time, we propose the BV construction algorithm
+shown in pseudocode in Figure 3. The first part of the algorithm computes a 26-DOP represented as a set of intervals, D = {[hi , li ]} with i ∈ [0, 12], while also storing the
+extremal or supporting vertex pairs E = {[hi , li ]} of the 26DOP, i.e., the vertex pairs in E are the points that span the
+slab planes of the 26-DOP (Line 1). Note that a fixed set of
+13 normal vectors with integer coordinates selected from the
+set {0, ±1} are used for faster computation of the 26-DOP
+(cf. [KHM∗ 98]). Thus, at most 26 unique extremal vertices
+of the model are selected. In Lines 3–4, we first compute an
+optimal enclosing sphere covering E using G¨artner’s minball implementation [Gae99] of Welzl’s algorithm [Wel91].
+Then, the sphere is grown to cover all points P of the model,
+if needed. However, when n ≤ 26, we instead compute an
+optimal enclosing ball directly of the polygonal model itself
+(Line 6). Note that this approach improves the tightness of
+fit of the spheres significantly compared to, for example, the
+popular Ritter’s algorithm [Rit90] in the general case.
+The remaining part of the algorithm focuses on finding
+a tight-fitting slab. First, we select the slab in the 26-DOP
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2382
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+n = 327323
+t = 65 ms
+
+n = 48485
+t = 9.5 ms
+
+n = 7282
+t = 1.5 ms
+
+n = 1600
+t = 0.4 ms
+
+Figure 3: Algorithm for computing an SCB enclosing a point
+set in worst case O(n) time.
+p∈E
+hi
+
+y
+
+Figure 5: Some models with their computed SCBs. The number of vertices of the models, n, and the SCB computation
+times, t, are also given.
+
+z
+li
+x
+Figure 4: Illustration of how the large triangles are
+formed for a given triangle mesh. For each extremal point
+pair (hi , l i ) ∈ E selected during the 26-DOP computation,
+a third point p ∈ E is selected that maximizes the distance
+to the infinite line though the points hi and l i .
+
+with minimum width as an initial slab (Line 7), which we
+then try to improve by considering the normal vectors of 13
+large triangles formed by an extremal point pair in E and
+an additional point p ∈ E (Lines 8–13), see the illustration
+given in Figure 4. Here p is always chosen as the point furthest
+away from the line through the current point pair (hi , li ) (Line
+9). Then the normalized normal of the constructed triangle is
+computed (Line 10). After this, the resulting slab width using
+this normal is computed in Line 11, and finally, the slab is
+saved, if it is the narrowest slab found so far (Lines 12–13).
+Optionally, as a last step in the algorithm, a user-defined
+error margin ε may be used to extend the slab width slightly
+to avoid underlying primitives to touch the slab planes.
+
+Note that this approach gives close to optimal spheres and
+a good approximation of the minimum width slab (in particular for rather flat objects). The results from using our method
+to compute the SCBs for some initial test models we used are
+shown in Figure 5. The execution times were measured using a single-threaded C++ implementation of the algorithm
+running on a computer with an Intel CPU T2600 2.16 GHz.
+As can be seen, the time grows linearly with the number of
+vertices, as expected. Note that these test models were randomly rotated before the computation to avoid conveniently
+aligned models, e.g. with respect to the fixed normal vectors
+used in the 26-DOP computation.
+Finally, note that it would be straightforward to either improve the tightness of fit of the SCBs or speeding up the
+computation time by using small variations of the algorithm
+proposed in Figure 3, since we can compute a k-DOP during SCB construction instead of a 26-DOP. For instance, by
+choosing k ∈ {6, 14, 26, 98} the trade-off between SCB quality and execution time can be adjusted efficiently. The effects
+of this, when it comes to computing tight fitting bounding
+spheres, have been investigated in another paper [Lar08], and
+similar results have been noticed also for the computation of
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+the width of the slabs. By choosing k = 26, a nice balance
+betweeen tighness of fit and computation time is reached,
+and the experimental result in Section 5 confirms that the
+SCBs computed by the algorithm in Figure 3 is of high quality. Another possible way to improve the tightness of fit of
+the computed SCBs would be to use a set of normal vectors
+that are more uniformly distributed in direction space than
+the normal vectors used here, which were mainly chosen for
+efficiency reasons.
+
+3. Hierarchy Construction
+The tree building strategy we use is a simple recursive
+O(n log n) top-down construction method. It is also a generic
+construction method in the sense that it utilizes no knowledge of the actual BV type used in the hierarchy nodes in
+the partitioning of the geometric primitives. Furthermore, no
+restrictive assumptions about the polygonal input model is
+made. For instance, a model represented by a polygon soup
+without topological information works fine.
+The construction proceeds as follows. Starting from the
+root node enclosing a complete polygonal model, we recursively split the geometric primitives in two subsets forming a
+left and right tree branch. The recursion proceeds until there
+is only a single primitive left, in which case a leaf node is
+created. The split heuristic we use is based on the in-place
+partitioning technique used in quicksort [Hoa62]. In our case,
+the pivot element is the split plane dividing the longest side
+of the axis-aligned box of the remaining primitives through
+the centroid of the box. The primitives are represented using
+an array of integers, with each integer being a polygon index.
+The polygon indices are then rearranged in-place into a left
+and right subset using the centroids of the primitives for comparisons with the pivot element. When the two subsets have
+been found, a BV of a specified type is computed for each
+subset and assigned to the child nodes. Such a split operation
+using the SCB as the BV type is exemplified in Figure 6.
+Note also that just as quicksort usually sorts remaining short
+
+Figure 6: The result of a geometry split operation during
+hierarchy construction. The split axis is shown with a dashed
+line. Note how the SCB volumes are able to align themselves
+with the underlying surface, as opposed to the spheres shown
+with dotted lines.
+
+2383
+
+sublists of constant length using, for example, insertion sort,
+we too switch to insertion sort in our partition strategy when
+there are less than 8 primitives left to partition.
+To ensure robustness as well as reasonably balanced hierarchies, however, we detect whenever the relative proportions
+of the primitives in their respective subset are worse than
+10% and 90%. In these cases, we redo the split using split
+planes through the remaining sides of the box in turn, starting
+with the second longest side. Should these split efforts also
+fail to be reasonably balanced, which seems to occur rarely
+in practice, our final choice is the split plane dividing the
+longest side of the box through the median of 7 randomly
+selected triangle centroids.
+Finally, since no clipping of geometric primitives occurs
+during the tree construction, the number of nodes in the
+produced BVH is linearly proportional to the number of
+geometric primitives. As an example, consider a complete
+binary tree structure, which has m leaves and 2m + 1 nodes
+in total. This linear storage cost of BVHs is very attractive,
+since alternative data structures for which primitive clipping
+is utilized, such as kd-trees and BSP-trees, may require superlinear storage.
+
+3.1. SCB convergence rate
+As argued by Gottschalk et al. [GLM96], the diameter of the
+BV is expected to halve as we descend one level of the hierarchy given that a binary tree is used. If at the same time the
+width, or thickness, of the BV is quartered, the convergence
+rate is quadratic. This is a very attractive feature of a BV,
+since it leads to asymptotically fewer BV-BV tests in collision queries in certain complex geometric situations, which
+is referred to as Parallel Close Proximity (PCP), meaning
+that every point of a surface is close to some point on the
+other surface. Such situations occur, for example, in virtual
+prototyping when fitting machine parts together.
+Although the theoretical analysis by Gottschalk et al.
+[GLM96] suggests a quadratic convergence rate for OBBs,
+it can also be applied for SCBs. However, as pointed out,
+several simplifications are made in the analysis, such as assuming only nearly flat surfaces (with a smooth curvature)
+and ignoring BV packing inefficiencies. Clearly, the SCB has
+fewer degrees of freedom (diameter and thickness) than the
+OBB (length, width, thickness), but this seems not to be a
+critical limitation given the mentioned assumptions. For sufficiently tessellated and smooth surface areas both the SCB
+and the OBB can become flat at the same rate. However, the
+packing efficiency of neighbouring BVs is in general worse
+for SCBs since they necessarily have circular cross-sections
+in parallel with the slab planes.
+In Figure 7, some visual examples are shown which illustrated how fast SCB trees can adapt to the underlying
+geometry of the model in comparison to sphere trees. In
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2384
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+Figure 7: The two leftmost columns illustrate the pruning power of SCBs versus spheres. Two tessellated sphere models are
+shown together with their BVH of SCBs (left) and BVH of spheres (middle). The levels shown are 5, 7, 9, and 11, respectively.
+As can be seen, the SCB hierarchy converges much faster to a tighter approximation of the mesh surface. For example, notice
+how the size of the gap between the two sphere models becomes large rapidly in the SCB case as we go deeper down in the
+hierarchies. The right column show the SCB tree for a complex skeleton hand model. The levels shown are 3, 7, 11, and 15
+respectively.
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+general, the true geometry convergence of a BVH is modeldependent and may vary drastically across different parts of
+a model. For closed meshes, the convergence for OBBs, or
+SCBs, may be linear in the upper levels of the hierarchy because the volumes cover mesh surfaces of high curvature,
+quadratic in subtrees covering nearly planar surfaces with a
+smooth curvature, and in the leaf nodes the thickness τ can
+be zero, or close to zero, for example, where the BV bounds
+a single polygon, giving an infinitely large BV aspect ratio
+improvement.
+Therefore, the performance of collision detection algorithms using BVHs are highly model- and scenario-specific
+and experimental evaluation is necessary. However, as is
+shown by our experimental results in Section 5, the SCB hierarchies are able to efficiently handle a full range of common
+situations. These include models in parallel close proximity,
+models at deep interpenetration, models barely touching each
+other, and models well separated.
+4. A Fast SCB–SCB Overlap Test
+The main idea behind the overlap test is to utilize three
+types of quick rejections, which boils down to simple separation conditions based on sphere–sphere, plane–sphere, and
+plane–plane relative locations, as shown in Figure 8. Denote
+the involved SCBs as A0 = {B0 , S0 } = {c0 , r0 , n0 , e0 , f0 }
+and A1 = {B1 , S1 } = {c1 , r1 , n1 , e1 , f1 }. Each SCB is also
+associated with a rigid body transformation matrix, which
+means A0 is transformed by M0 , and A1 by M1 . We choose
+to execute the overlap test by transforming A1 into the local
+space of A0 using the transformation
+M1→0 = M−1
+0 M1 .
+
+(6)
+
+Note that the calculation of M1→0 is an initial setup cost,
+which in the case of hierarchical CD, only needs to be computed once for an entire CD traversal of two hierarchies.
+The pseudocode given in Figure 9 shows the details of
+the overlap test. First the overlap status of the two balls B0
+and B1 are tested (Lines 1–2). Then follow two tests of the
+
+2385
+
+type sphere–slab, i.e., the overlap status of B0 and S1 (Lines
+3–4) as well as B1 and S0 (Lines 5–8) are examined based on
+computing simple sphere–plane distances. Finally, given that
+the orientations of the slabs are reasonably aligned, which is
+tested on Lines 9–10 and 17, a separation test for the two
+slabs S0 and S1 is executed (Lines 10–23).
+The constant a used in Lines 10 and 17 was set to 0.7 in
+our implementation. The reason for this is that the separation test between the two slabs only pays off when the angle
+given by the dot product between the normals of the slabs is
+reasonably small. Choosing a = 0.7 corresponds to executing this separation test only when the angle α is smaller
+than β = cos−1 0.7 ≈ 45.6 degrees, since n0 · n1 = cos α.
+Of course, other values of a can be chosen, but in our implementation, a = 0.7 was empirically found to be a good
+choice.
+To be able to do this last type of rejection test, the extent
+of at least one of the slabs has to be bounded. To bound
+S1 , we use a cylinder C1 with its main axis aligned with the
+normal n1 , and c1 as the bottom base point. The radius of the
+cylinder is simply r1 , and the height of the cylinder is either
+e1 or |f1 |, depending on which side is facing towards the slab
+S0 . A quick rejection can now be done given that the circular
+top of the cylinder does not reach the slab S0 . Then follows
+the corresponding test between the cylinder C0 and slab S1 .
+Note that there are four different cases for the overlap test
+between the cylinder and the slab depending on which sides
+of the SCBs are facing towards each other. Which case to
+apply is found by the conditional tests on Lines 10, 11, 17,
+and 18. The calculations needed for the actual cylinder–slab
+rejection test are very simple. Let us consider one of the four
+possible cases. From Figure 10, we see that
+p = c1 + e1 n1 ,
+
+(7)
+
+d = p · n0 ,
+
+(8)
+
+re = r1 sin α,
+
+(9)
+
+Figure 8: The three main types of distance measures used for simple overlap rejection in the overlap test: (A) Sphere–Sphere,
+(B) Plane–Sphere, and (C) Plane–Plane.
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2386
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+Figure 9: A fast conservative SCB–SCB overlap test algorithm.
+
+A0
+
+e0
+d
+
+n0
+
+α
+re
+
+(10)
+
+re = r1 1 − cos2 α,
+
+(11)
+
+re2 = r12 (1 − (n0 · n1 )2 ).
+
+(12)
+
+Therefore,
+
+A1
+c0
+
+cos α = n0 · n1 .
+
+r1
+p
+
+n1
+
+c1
+
+e1
+
+Figure 10: Illustration of the quick rejection test utilized between two reasonably aligned SCBs A0 and A1 . For clarity, both SCBs are here directly given in the same coordinate system (which is not the case in the pseudocode in
+Figure 9). First a cylinder is derived as a conservative approximation of A1 . Then this cylinder is tested for separation with A0 by considering the effective radius re of the
+cylinder.
+
+Now, given that d > e0 and (d − e0 )2 > re2 , we can conclude
+that there is no overlap.
+Table 1 gives an overview of the operation cost of the
+overlap test, which includes the cost of transforming the
+second SCB into the local coordinate system of the first
+SCB. Only simple arithmetic operations (add, sub, mul) and
+comparisons are used. Note that early outs are possible after
+either 28, 35, 60, and 82 operations. The worst case is 99
+operations and 13 comparisons.
+This can be compared to the OBB–OBB overlap test by
+Gottschalk et al., which requires 252 simple arithmetic operations and 15 comparisons in the worst case, including
+the transformation cost [GLM96]. In the best case, our test
+requires 28 operations and 1 comparison, compared to 49 operations and 1 comparison for the OBB test, assuming only
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+Table 1: SCB-SCB overlap test cost. The number of simple arithmetic operations (#op) and comparisons (#cmp) per listed task are
+given. The last column shows the possible exits or returns with the
+corresponding accumulated operation cost.
+
+Task
+
+#op
+
+#cmp
+
+Exit
+
+transform point
+sphere/sphere
+slab/sphere
+transform normal
+sphere/slab
+slab/cylinder
+cylinder/slab
+
+18
+10
+7
+15
+10
+22
+17
+
+1
+2
+2
+4
+4
+
+(28, 1)
+(35, 3)
+(60, 5)
+(82, 9)
+(99, 13)
+
+the midpoint and one axis is transformed before the first separating axis test is executed. Note that without the transform
+cost, our overlap test only requires 66 arithmetic operations
+in the worst case, and 10 operations in the best case. For
+OBBs, the corresponding operation cost is 189 operations in
+the worst case, and 26 in the best case. See Gottschalk’s PhD
+thesis for the details of the OBB–OBB overlap test [Got00].
+A potential drawback of our overlap test is that it
+is conservative, meaning that false positives are possible
+leading to deeper hierarchy traversals before the overlap
+status can be answered. Using conservative overlap tests,
+however, is a common technique in hierarchical collision
+detection [vdB97, KHM∗ 98, LAM03, LAML07], since it often speeds up the overlap test significantly, thereby giving
+an overall performance gain. Our experiments confirm that
+this is indeed the case using our conservative overlap test,
+even under really hard circumstances, such as parallel close
+proximity situations.
+As an alternative of using an enclosing cylinder as a safe
+approximation when calculating the effective radius, re , for
+the last type of rejection in the overlap test, the effective
+radius of the intersection volume itself could be considered.
+We note that this would reduce the number of false positives
+somewhat, but it would also make the overlap test more
+computationally expensive.
+
+5. Evaluation
+The algorithms presented have been implemented in C++
+and compiled using Microsoft Visual Studio 2005 with the
+standard release setting. The performance measurements
+were run single-threaded on a laptop machine with an Intel T2600 2.16 GHz CPU and 1 GBytes of RAM.
+The collision detection query takes two rigid bodies as
+input, where each body is represented by a triangle mesh (or
+a triangle soup) and a rigid body transformation matrix. The
+search for intersecting triangle pairs is performed by a recur-
+
+2387
+
+sive dual traversal of the BVHs associated with the models.
+The pseudocode for this traversal is given by Larsson [Lar09].
+In each recursive step, we descend in the hierarchy where the
+radius of the current bounding volume is the largest. We
+have tried other descent rules, based on maximum volume or
+area, or using only parts of the area or volume computation.
+However, descending in the subtree with the largest radius
+gave the best overall execution times in all our experiments.
+See Ericsson’s book for a further discussion of descent rules
+[Eri05].
+We have tested our methods on six different benchmark
+scenarios, which we refer to as Spheres, Knots, Horses,
+Hands, HorseHand, and Sledgehammers. Some sample images from these scenarios are shown in Figure 11. The first
+two test scenes are also repeated using two and three different levels-of-detail (LODs) of the triangular meshes, respectively. For each scenario, the execution times are measured
+for three different types of bounding volumes in the hierarchies. The used types are the SCB, ball (or sphere), and OBB.
+We call the resulting hierarchy types SCBTree, BallTree,
+and OBBTree, respectively. The first two of these types
+are implemented in our own system. For the comparisons
+with the OBBTree, the publicly available software package
+RAPID, version 2.01, by Gottschalk is used. Data for the
+models used in the experiments are given in Table 2. The
+results from all the CD benchmark tests are summarized in
+Table 3.
+The experimental setup for our first scenario called
+Spheres is described below. Two finely tessellated spheres
+with radii of 0.95 and 1.0 are moving straight through each
+other. Initially, their center points are located at (−1, 0, 0) and
+(1, 0, 0). Then during 500 frames of simulation, the sphere
+models are translated in equally sized steps along the x-axis
+towards each other while also rotating around their own local
+center point. In frame 250, their center points are coincident
+and there is PCP over the entire mesh surfaces. Note that
+a very similar test scenario was used by Gottschalk with
+the purpose of demonstrating the superiority of the OBB
+over simpler BV types in grazing or near grazing situations
+[Got00]. The sphere meshes are initially generated by subdividing an icosahedron. The scenario is run using two different
+LODs of the meshes, with either 20480 or 81920 triangles
+per sphere model. The average numbers of BV-BV tests and
+CD times over all frames are given in Table 3.
+Several interesting performance aspects are revealed by
+plotting Nv and the CD time for each frame of the simulation.
+The plots for the simplest LOD are given in Figure 12. As
+expected, Nv is large for the BallTree and the performance
+breaks down completely while near or in the PCP situation.
+Using SCBs requires approximately twice as many BV-BV
+tests in comparison to using OBBs, except while in PCP
+(frame 244-256), when all of a sudden SCBs require slightly
+fewer tests than OBBs. Over the entire scenario, the SCBTree
+is faster than the other BV types. Although the performance
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2388
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+Figure 11: Selected images from the benchmark scenarios Spheres, Knots, Horses, Hands, HorseHand, and Sledgehammers.
+The simplest LOD is shown for the Spheres scene, and the most complex LOD for the Knots scene.
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2389
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+Table 2: Data for the triangular meshes used in the benchmarks,
+where nv and np are the number of vertices and triangles respectively.
+
+totically faster than the BallTree. The speed-ups over the
+BallTree when using the SCBTree are 5.4, 7.4, and 10.2 over
+the three LODs. For the OBBTree the corresponding speedups are 3.2, 5.2, and 7.4. As can be seen, the SCBTree is
+faster than the OBBTree over all LODs. Note that no plots
+are given for this scenario since the value of Nv and Np stay
+the same in each query for a given hierarchy type. Therefore,
+the results given in Table 3 suffice. Interestingly, both Nv and
+Np are significantly smaller for both the SCBTree and the
+OBBTree as compared to the BallTree. For the OBBTree, we
+even note that Np = 0, which means that the knot models are
+found to be separated in the CD traversal without reaching a
+single leaf-leaf node pair with overlapping OBBs.
+
+Model data
+Model
+Sphere-L1
+Sphere-L2
+KnotA-L1
+KnotB-L1
+KnotA-L2
+KnotB-L2
+KnotA-L3
+KnotB-L3
+Horse
+Hand
+Sledgehammer
+
+nv
+
+np
+
+10242
+40962
+1764
+1836
+3430
+3570
+5488
+5712
+48485
+327323
+3350
+
+20480
+81920
+3528
+3672
+6860
+7140
+10976
+11424
+96966
+654666
+6620
+
+The third scenario includes two rotating horse models that
+are slowly moving apart from each other. The rotation is varied around all three principal coordinate axes by incrementing Euler rotation angles so that a variety of different relative
+poses between the models are tested. The scenario involves
+no close proximity situation (PCP or CCP), which would
+give an apparent advantage to the tighter bounding volume
+types. The average collision detection time per frame is 8.6
+ms using the BallTree and 8.4 ms using the OBBTree. Again,
+the SCBTree is faster than the other methods. It spends 5.8
+ms per frame on average, giving speed-ups of 1.5 and 1.4,
+respectively. See Figure 12 for a plot of Nv and the CD time
+per frame.
+
+profiles of the SCBTree and OBBTree are quite similar, we
+note that the OBBTree is actually slower than the BallTree
+during frames 20–140 and 360–480. On average, the speedup for the SCBTree is 2.4 compared to the BallTree, and 1.5
+compared to the OBBTree. In the PCP situation (frame 244256), the corresponding speed-ups are 29.7 and 1.7. Although
+the plots are not included here, very similar advantages for the
+SCBTree can also be seen for the second LOD. For example,
+in this case the SCBTree gives a speed-up of 38.6 compared
+to the BallTree and 1.7 compared to the OBBTree during the
+PCP situation (frame 244-256).
+
+In the fourth benchmark, a skeleton hand falls down
+through another skeleton hand. A substantial number of intersections occur, because of the high polygon count of the
+hand model. There is no case of close proximity situation
+(PCP or CCP) occurring in the scenario. The average CD
+time per frame is 101 ms using the BallTree and 83 ms using
+the OBBTree. Again, the SCBTree, which only required 62
+ms CD time per frame, is faster than the other methods. Plots
+with per frame data are given in Figure 12.
+
+In the second scenario, two intertwined knot models are
+rotated together during 500 frames of animation in such a
+way that their relative distance to each other remains the
+same during the whole animation. Since the two knots are
+close to each other along a three-dimensional curve, we call
+the geometric situation for Curve Close Proximity (CCP).
+We repeat the experiment using three different LODs, and
+as expected both the SCBTree and the OBBTree are asymp-
+
+In the fifth scenario, the horse model and the skeleton hand
+model are both rotated independently in such a way that the
+
+Table 3: Comparison of the average CD execution times, t, in ms, the average number of BV-BV tests, Nv and the average number of
+triangle–triangle tests, Np for the different types of BVHs and test scenes.
+
+BallTree
+Scene
+Spheres-L1
+Spheres-L2
+Knots-L1
+Knots-L2
+Knots-L3
+Horses
+Hands
+Horse-Hand
+Sledgehammes
+
+SCBTree
+
+OBBTree
+
+t
+
+Nv
+
+Np
+
+t
+
+Nv
+
+Np
+
+t
+
+Nv
+
+Np
+
+8.0
+16.4
+9.7
+12.5
+18.4
+8.6
+101.4
+8.1
+1.4
+
+99733
+200235
+68543
+121316
+175479
+93193
+1028875
+65385
+10806
+
+10585
+20776
+15503
+31703
+49840
+12709
+161923
+21044
+3620
+
+3.3
+6.5
+1.8
+1.7
+1.8
+5.8
+62.1
+2.8
+0.9
+
+21412
+42295
+13005
+14189
+14367
+39469
+387257
+17682
+4552
+
+2112
+4419
+63
+53
+33
+4773
+53083
+2903
+1215
+
+4.9
+9.2
+3.0
+2.4
+2.5
+8.4
+83.2
+4.1
+0.6
+
+13350
+24835
+8731
+9047
+9365
+23200
+239346
+9999
+1672
+
+1135
+2240
+0
+0
+0
+1748
+17522
+1259
+176
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2390
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+500000
+
+0.04
+
+Sphere
+SCB
+OBB
+
+450000
+
+Sphere
+SCB
+OBB
+
+0.035
+
+400000
+0.03
+0.025
+
+300000
+time (s)
+
+No. BV/BV tests
+
+350000
+
+250000
+200000
+
+0.02
+0.015
+
+150000
+0.01
+100000
+0.005
+
+50000
+0
+
+0
+0
+
+50
+
+100
+
+150
+
+200
+
+250
+frame
+
+300
+
+350
+
+250000
+
+400
+
+450
+
+500
+
+0
+
+50
+
+100
+
+150
+
+200
+
+250
+frame
+
+300
+
+350
+
+0.02
+
+Sphere
+SCB
+OBB
+
+450
+
+500
+
+Sphere
+SCB
+OBB
+
+0.018
+
+200000
+
+400
+
+0.016
+
+0.012
+time (s)
+
+No. BV/BV tests
+
+0.014
+150000
+
+100000
+
+0.01
+0.008
+0.006
+
+50000
+
+0.004
+0.002
+
+0
+
+0
+0
+
+100
+
+200
+
+300
+400
+frame
+
+500
+
+8e+006
+
+600
+
+700
+
+0
+
+300
+400
+frame
+
+500
+
+600
+
+700
+
+Sphere
+SCB
+OBB
+
+0.6
+
+6e+006
+
+0.5
+
+5e+006
+time (s)
+
+No. BV/BV tests
+
+200
+
+0.7
+
+Sphere
+SCB
+OBB
+
+7e+006
+
+100
+
+4e+006
+
+0.4
+0.3
+
+3e+006
+0.2
+
+2e+006
+
+0.1
+
+1e+006
+0
+
+0
+0
+
+50
+
+100
+
+150
+frame
+
+200
+
+600000
+
+250
+
+0
+
+300
+
+50
+
+100
+
+150
+frame
+
+200
+
+0.07
+
+Sphere
+SCB
+OBB
+
+300
+
+Sphere
+SCB
+OBB
+
+0.06
+
+500000
+
+250
+
+time (s)
+
+No. BV/BV tests
+
+0.05
+400000
+
+300000
+
+0.04
+0.03
+
+200000
+0.02
+100000
+
+0.01
+
+0
+
+0
+0
+
+50
+
+100
+
+150
+
+200
+frame
+
+250
+
+300
+
+350
+
+400
+
+0
+
+50
+
+100
+
+150
+
+200
+frame
+
+250
+
+300
+
+350
+
+400
+
+Figure 12: The number of BV/BV tests (left), and CD times per frame (right) for the benchmarks Spheres-L1 (top row), Horses
+(second row), Hands (third row), and HorseHand (bottom).
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2391
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+fingers of the hand hit the legs of the horse repeatedly over
+400 frames. Despite the long and thin shape of both the
+fingers and the legs (see row five in Figure 11), which may
+seem as an advantage for the OBB shape, the SCBTree is
+still the winner with an average CD query time of 2.8 ms,
+which gives speed-up factors of 1.5 and 2.9 compared to the
+OBBTree and BallTree, respectively. Plots with per frame
+data is given in Figure 12.
+The sixth scenario includes two reasonably tessellated
+sledgehammer models. Since the sledgehammer is a long
+and thin object, the tightness in the upper levels of the BVH
+will be superior in the OBBTree. The models are rotated independently during 600 frames while their centres of rotation
+are kept close to each other at all times during the simulation to produce many challenging geometric configurations
+for the looser fitting BV types (see row six in Figure 11).
+In Figure 13, the difficulties the SCB shape have to tightly
+approximate the sledgehammer in the upper levels of the
+BVH are visualized. Clearly, the Sledgehammers scenario
+seems problematic for the introduced bounding shape. But
+as the experimental results indicate the SCBTree is able to
+handle even this type of scene quite efficiently. On average,
+
+the OBBTree is 1.5 times faster than the SCBTree and 2.3
+times faster than the BallTree. Plots with per frame data is
+given in Figure 14.
+Finally, note that the sphere volumes used in the nodes of
+the BallTree in our experiments are as tight as the spheres
+produced by our SCB construction algorithm, since they are
+constructed using the first part of the algorithm (Lines 1–6)
+in Figure 3. For example, when we re-run the experiments
+after using Ritter’s sphere construction method instead when
+building the BallTree, the execution time increased by 18,
+2, 12, 10, 11, and 7 percent in the benchmarks Spheres,
+Knots, Horses, Hands, HorseHand, and Sledgehammers,
+respectively.
+
+6. Discussion
+While SCBs are able to tightly approximate many simple
+shapes, there are exceptions, such as long thin objects like
+a pencil or the spade shown in Figure 5. On the other hand,
+OBBs also show poor fitting in relation to certain simple
+shapes where SCBs excel, such as rather flat circular objects
+
+Figure 13: Visualizations of the levels 0–7 of the SCBTree for a rather uniformly tesselated long and thin model of a sledgehammer. The model has 6620 triangles. As expected in this case, the SCBTree has quite poor fitting BVs in the upper levels of
+the BVH.
+140000
+
+0.016
+
+Sphere
+SCB
+OBB
+
+120000
+
+0.012
+
+100000
+
+0.01
+80000
+
+time (s)
+
+No. BV/BV tests
+
+Sphere
+SCB
+OBB
+
+0.014
+
+60000
+
+0.008
+0.006
+
+40000
+
+0.004
+
+20000
+
+0.002
+
+0
+
+0
+0
+
+100
+
+200
+
+300
+frame
+
+400
+
+500
+
+600
+
+0
+
+100
+
+200
+
+300
+frame
+
+400
+
+500
+
+600
+
+Figure 14: The number of BV/BV tests (left), and CD times per frame (right) for the Sledgehammers scenario.
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2392
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+like plates or frisbees. In this study, we have assumed that
+the input meshes are finely tessellated, which means that the
+SCBs can adapt to the surface of the mesh tightly over surface
+areas with a smooth curvature. And as demonstrated by the
+benchmarks HorseHand and Sledgehammers presented in
+Section 5, finely tesselated long thin meshes or sub-meshes
+such as the legs of the horse or the shaft of the sledgehammer
+pose no severe problems for the SCBTree.
+Still, objects with long thin triangles, which arise in for
+example sparsely tessellated cones or cylinders, seem to be
+the main problem for SCBs. It would be easy to design a
+scenario where the advantage of OBBs for meshes with such
+long thin triangles would shine through. We see several possible solutions to this problem. One approach would be to
+allow several SCBs to tile themselves over a single polygon
+which would avoid too loose-fitting volumes. This solution
+has been suggested previously for sphere trees [MO06]. Unfortunately, this approach would somewhat defeat our goal of
+low memory consumption. Another way to handle the problem would be to use a hybrid hierarchy type in which both
+SCBs and OBBs are used to make it possible to approximate
+the long thin triangles with OBBs. However, this would make
+the implementation more complex and the memory requirement per node would differ depending of the type of volume
+used.
+A third solution would be to extend the SCB to use a sphere
+cut by 0–k optional slabs (0–2 slabs seem best). Clearly two
+slabs would be enough to give our volume the same kind of
+tightness of fit as for OBBs even for long thin objects. The
+value of k would be chosen individually per node during
+hierarchy construction to reach a specified quality metric.
+However, this would increase the storage cost, transformation
+cost, and overlap test cost (whenever k > 1). Furthermore,
+the memory size of the SCB would vary from volume to
+volume in the tree nodes. This would make cache efficient
+layout of the hierarchies in arrays more complex.
+A variation of this solution would be to select k number
+of slabs from a set of fixed orientations in model local space.
+Then during rigid body motion the slabs could still be rotated
+freely with the model. However, this would still increase
+the storage cost, but not as much as when arbitrary slab
+orientations are used. Unfortunately, in this case the volume
+would lose its ability to closely approximate even flat parts of
+the underlying meshes with severe performance implications
+in close proximity situations.
+Finally, rather than including a second arbitrarily oriented
+slab in the SCB, a somewhat similar effect can perhaps be
+achieved by orienting the slabs in parent/child nodes carefully
+in relation to each other when dealing with polygons with
+a problematic size and shape. In fact, it might always be
+a good idea to consider the orientation of the slab in the
+parent node when defining the slab orientations in the child
+nodes. This means that the minimal width, or narrowest,
+slab is not always the best choice. Controlling the relative
+
+orientation of the slabs between parent and child nodes for
+long thin objects in an intelligent way is left here as future
+work.
+7. Conclusions and Future Work
+With its low memory requirements, efficient overlap test,
+and the ability to rapidly converge into tight-fitting bounding volumes over smooth surface areas, we have good reasons to believe that the SCB is an attractive type of volume
+for BVHs. This has been confirmed by the results from our
+collision detection experiments between complex polygonal models which showed that the SCBTree gave a clear
+performance advantage over a wide range of scenarios. In
+particular, the results from the scenarios Spheres and Knots
+indicate that the SCBTree is asymptotically faster than the
+BallTree in PCP situations, since the speed-up is increasing
+when switching to finer LODs. Furthermore, the SCBTree
+is clearly faster than the OBBTree in these PCP situations
+as well, which is indeed noteworthy. Interestingly, since the
+SCBTree can be regarded as an extension of ball trees, which
+are widely used in areas such as computer graphics, computational geometry, robotics, and visualization, there is a large
+number of applications that could potentially benefit from our
+approach.
+In the future, we would like to examine the suitability of
+the SCB hierarchy for accelerating other types of geometric
+queries such as distance queries, ray tracing, view frustum
+culling, and occlusion culling. Also, generalization of the
+SCBTree to support efficient queries for some types of deformable bodies seems interesting. For example, for meshes
+with a fixed topology, deformed by vertex re-positioning,
+previously proposed BV refitting schemes could be utilized
+[LAM01, BSBL01, LAM06]. This would require an appropriate merging operation to compute a parent SCB given the
+SCBs of the children. For specific types of bounded deformations, the design of a sublinear SCB refitting algorithm
+could be considered (cf. [LAM03, JP04, KZ05]. Given that
+the refitting operation is able to produce SCBs of high quality, the resulting SCB trees may turn out to be successful also
+in deformable body simulation.
+Improving the hierarchy construction method would also
+be worthwhile. So far, we have only used a simple generic
+top-down tree construction method to build the BVHs. By designing specialized tree building heuristics taking the actual
+size and orientation of the SCB volumes into consideration
+during the tree creation process, for example, when the split
+axis is selected in a top-down tree building approach, or
+when grouping nodes together in a bottom-up tree building
+approach, we expect that hierarchies of higher quality can be
+created (cf. [Omo89]). Improved construction also involves
+efficient handling of large polygons, or long thin polygons,
+which are for example common in tessellations of some simple shapes such as cones or cylinders. For example, it may be
+preferable to support spheres cut by two cooperating slabs to
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+be able to tightly enclose problematic long and thin geometric
+primitives whenever encountered during BVH construction.
+This issue deserves further investigation. By improving the
+quality of the constructed hierarchies, Nv and Np in Equation
+(1) will be lowered even further.
+Further evaluation of various types of bounding shapes is
+also needed. In particular, comparing SCB trees with cylinder
+trees and different types of sphere swept volume trees would
+be interesting. In particular, the cylinder which has a low
+storage cost as well as the ability to be both flat and arbitrarily
+oriented seems attractive. In addition, it can become long and
+thin which may lead to more efficient representation of long
+thin geometric primitives (such as triangles with a small base
+and a giant height).
+Another alternative would be to switch to heterogeneous
+BVHs. By allowing several different types of enclosing
+shapes within the same hierarchy, the best fitting volume
+of a candidate set of BVs can be stored for each node. This
+may lead to superior tightness of fit in the approximating
+levels of the BVH. However, this would require a more sophisticated tree construction algorithm and it would also require efficient intersection tests for all possible combinations
+of BV pairs during the collision queries [Lar09]. In addition, it will also lead to an increased storage cost of the
+hierarchy.
+We also see several other opportunities to lower the
+memory consumption of our hierarchies than those outlined in Section 1.1. The simplest approaches include storing m polygons per leaf node instead of one, and/or switching to multiway trees with for example tertiary, quaternary, or
+even octonary tree nodes. For example, if a complete binary
+tree data structure is replaced by a complete octonary tree
+data structure, the number of internal nodes is reduced by
+a factor of seven [Lar09]. More aggressive memory saving
+can be achieved by storing the parameters defining the child
+volumes in relation to the parameters of their parents. Additionally, note that optimizing for speed on specific hardware
+involves fitting as many BVs as possible in a cache line/block.
+On a higher algorithmic level, it also involves designing cache
+aware or cache oblivious data structures and algorithms (see
+e.g. [YM06, Kas07]). Also, multi-core CPUs and parallel
+programming methods can be utilized to give our methods a
+further performance boost.
+Finally, we conjecture that the corresponding enclosing
+shape in 2D, i.e., the slab cut circle would be an excellent
+bounding shape in certain 2D graphics applications. In this
+case, it is clear that one slab suffices to tightly approximate
+long and thin shapes, even individual elongated geometric
+primitives. And similar to slab cut balls in 3D, slab cut circles can converge rapidly to two-dimensional shapes with a
+smooth curvature. Experimental comparison between trees
+of slab cut circles and trees of arbitrarily oriented rectangles
+[Bal81] would be interesting.
+
+2393
+
+Acknowledgements
+We would like to thank Bj¨orn Lisper for constructive comments on a draft version of this article. Also, we are grateful
+to the anonymous reviewers for their valuable feedback and
+comments.
+References
+[AM99] ASSARSSON U., M¨OLLER T.: Optimized View Frustum
+Culling Algorithms. Tech. rep., No. 99-3, Department of
+Computer Engineering, Chalmers University of Technology, March 1999.
+[AM00] ASSARSSON U., M¨OLLER T.: Optimized view frustum
+culling algorithms for bounding boxes. journal of graphics
+tools 5, 1 (2000), 9–22.
+[AS96] AGARWAL P. K., SHARIR M.: Efficient randomized algorithms for some geometric optimization problems. Discrete & Computational Geometry 16, 4 (1996), 317–337.
+[Bal81] BALLARD D. H.: Strip trees: A hierarchical representation for curves. Communications of the ACM 24, 5
+(1981), 310–321.
+[BCG∗ 96] BAREQUET G., CHAZELLE B., GUIBAS L. J.,
+MITCHELL J. S. B., TAL A.: BOXTREE: A hierarchical representation for surfaces in 3D. Computer Graphics Forum
+15, 3 (1996), 387–396.
+[Ber04] BEREG S.: Cylindrical hierarchy for deforming necklaces. International Journal of Computational Geometry
+& Applications 14, 1-2 (2004), 3–17.
+[BSBL01] BROWN J., SORKIN S., BRUYNS C., LATOMBE J.:
+Real-time simulation of deformable objects: Tools and
+application. In Proceedings of Computer Animation
+(November 2001).
+[Cha00] CHAN T. M.: Approximating the diameter, width,
+smallest enclosing cylinder, and minimum-width annulus. In SCG ’00: Proceedings of the 16th Annual Symposium on Computational Geometry (New York, NY, USA,
+2000), ACM Press, pp. 300–309.
+[CS08] COMING D. S., STAADT O. G.: Velocity-aligned discrete oriented polytopes for dynamic collision detection.
+IEEE Transactions on Visualization and Computer Graphics 14, 1 (2008), 1–12.
+[DO00] DINGLIANA J., O’SULLIVAN C.: Graceful degradation
+of collision handling in physically based animation. Computer Graphics Forum 19, 3 (2000), 239–248.
+[Ebe01] EBERLY D. H.: 3D Game Engine Design: A Practical Approach to Real-Time Computer Graphics. Morgan
+Kaufmann, 2001.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2394
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+[EL01] EHMANN S. A., LIN M. C.: Accurate and fast proximity queries between polyhedra using convex surface decomposition. Computer Graphics Forum 20, 3 (September
+2001), 500–510.
+[Eri05] ERICSON C.: Real-Time Collision Detection. Morgan
+Kaufmann, 2005.
+[Gae99] GAERTNER B.: Fast and robust smallest enclosing
+balls. In ESA ’99: Proceedings of the 7th Annual European
+Symposium on Algorithms (London, UK, 1999), SpringerVerlag, pp. 325–338.
+[GH01] G¨ARTNER B., HERRMANN T.: Computing the width of
+a point set in 3-space. In Thirteenth Canadian Conference
+on Computational Geometry (August 2001), pp. 101–103.
+[Gla89] GLASSNER A.: An Introduction to Ray Tracing. Academic Press, 1989.
+[GLM96] GOTTSCHALK S., LIN M. C., MANOCHA D.: OBBTree: A hierarchical structure for rapid interference detection. In SIGGRAPH ’96: Proceedings of the 23rd Annual
+Conference on Computer Graphics and Interactive Techniques (New York, NY, USA, 1996), ACM Press, pp.
+171–180.
+[GNZ03] GUIBAS L. J., NGUYEN A., ZHANG L.: Zonotopes as
+bounding volumes. In SODA ’03: Proceedings of the 14th
+Annual ACM-SIAM Symposium on Discrete Algorithms
+(Philadelphia, PA, USA, 2003), Society for Industrial and
+Applied Mathematics, pp. 803–812.
+[GO06] GIANG T., O’SULLIVAN C.: Approximate collision response using closest feature maps. Computer & Graphics
+30, 2 (2006), 423–431.
+[Got00] GOTTSCHALK S.: Collision Queries using Oriented
+Bounding Boxes. PhD thesis, 2000.
+[He99] HE T.: Fast collision detection using QuOSPO trees.
+In SI3D ’99: Proceedings of the 1999 Symposium on Interactive 3D Graphics (New York, NY, USA, 1999), ACM
+Press, pp. 55–62.
+[Hoa62] HOARE C. A. R.: Quicksort. The Computer Journal
+5, 1 (1962), 10–15.
+[HT88] HOULE M. E., TOUSSAINT G. T.: Computing the width
+of a set. IEEE Transactions on Pattern Analysis and Machine Intelligence 10, 5 (1988), 761–765.
+[Hub93] HUBBARD P. M.: Interactive collision detection. In
+IEEE Symposium on Research Frontiers in Virtual Reality
+(1993), pp. 24–31.
+[Hub96] HUBBARD P. M.: Approximating polyhedra with
+spheres for time-critical collision detection. ACM Trans-
+
+actions on Graphics (TOG) 15, 3 (1996), 179–
+210.
+[JP04] JAMES D. L., PAI D. K.: BD-tree: Output-sensitive
+collision detection for reduced deformable models. ACM
+Transactions on Graphics 23, 3 (2004), 393–398.
+[Kas07] KASIK D.: Efficient data reduction and cachecoherent techniques toward real-time performance. In
+SIGGRAPH ’07: ACM SIGGRAPH 2007 courses (New
+York, NY, USA, 2007), ACM.
+[KHM∗ 98] KLOSOWSKI J., HELD M., MITCHELL J., SOWIZRAL
+H., ZIKAN K.: Efficient collision detection using bounding volume hierarchies of k-DOPs. IEEE Transactions on
+Visualization and Computer Graphics 4, 1 (1998), 21–36.
+[KPLM98] KRISHNAN S., PATTEKAR A., LIN M. C., MANOCHA
+D.: Spherical shell: A higher order bounding bolume for
+fast proximity queries. In WAFR ’98: Proceedings of the
+3rd Workshop on the Algorithmic Foundations of Robotics
+(Natick, MA, USA, 1998), A. K. Peters, Ltd., pp. 177–
+190.
+[KS97] KATAYAMA N., SATOH S.: The SR-tree: An index structure for high-dimensional nearest neighbor queries. In
+SIGMOD ’97: Proceedings of the 1997 ACM SIGMOD
+International Conference on Management of Data (New
+York, NY, USA, 1997), ACM Press, pp. 369–380.
+[KZ05] KAVAN L., ZARA J.: Fast collision detection for skeletally deformable models. Computer Graphics Forum 24,
+3 (2005), 363–372.
+[LAM01] LARSSON T., AKENINE-M¨OLLER T.: Collision detection for continuously deforming bodies. In Eurographics
+Conference (September 2001), pp. 325–333.
+[LAM03] LARSSON T., AKENINE-M¨OLLER T.: Efficient collision detection for models deformed by morphing. The
+Visual Computer 19, 2-3 (2003), 164–174.
+[LAM06] LARSSON T., AKENINE-M¨OLLER T.: A dynamic
+bounding volume hierarchy for generalized collision detection. Computer & Graphics 30, 2 (2006), 451–460.
+[LAML07] LARSSON T., AKENINE-M¨OLLER T., LENGYEL E.:
+On faster sphere–box overlap testing. journal of graphics
+tools 12, 1 (2007), 3–8.
+[Lar08] LARSSON T.: Fast and tight fitting bounding spheres.
+In Proceedings of The Annual SIGRAD Conference
+(November 2008), pp. 27–30.
+[Lar09] LARSSON T.: Adaptive Bounding Volume Hierarchies
+for Efficient Collision Queries. PhD thesis, School of Innovation, Design and Engineering, M¨alardalen University,
+Sweden, January 2009.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Larsson & T. Akenine-M¨oller / Bounding Volume Hierarchies of Slab Cut Balls
+
+[LGLM99] LARSEN E., GOTTSCHALK S., LIN M. C., MANOCHA
+D.: Fast Proximity Queries with Swept Sphere Volumes.
+Tech. rep., Department of Computer Science, University
+of North Carolina at Chapel Hill, 1999.
+[LGLM00] LARSEN E., GOTTSCHALK S., LIN M. C., MANOCHA
+D.: Fast distance queries with rectangular swept sphere
+volumes. In Proceedings of IEEE International Conference on Robotics and Automation (2000), pp. 3719–3726.
+[LWH∗ 07] LIU S., WANG C. C. L., HUI K.-C., JIN X., ZHAO H.:
+Ellipsoid-tree construction for solid objects. In SPM ’07:
+Proceedings of the 2007 ACM Symposium on Solid and
+Physical Modeling (New York, NY, USA, 2007), ACM,
+pp. 303–308.
+[MKE03] MEZGER J., KIMMERLE S., ETZMUSS O.: Hierarchical techniques in collision detection for cloth animation.
+Journal of WSCG 11, (2003), 322–329.
+[MO06] MENDOZA C., O’SULLIVAN C.: Interruptible collision
+detection for deformable objects. Computer & Graphics
+30, 2 (2006), 432–438.
+[OD99] O’SULLIVAN C., DINGLIANA J.: Real-time collision
+detection and response using sphere-trees. In Spring
+Conference on Computer Graphics (SCCG’99) (1999),
+pp. 83–92.
+
+2395
+
+[Rit90] RITTER J.: An efficient bounding sphere. In Graphics Gems. A. Glassner (Ed.). Academic Press, 1990,
+pp. 301–303.
+[RKC02] REDON S., KHEDDARY A., COQUILLART S.: Fast continuous collision detection between rigid bodies. Computer Graphics Forum 21, 3 (September 2002), 279–
+288.
+[SSMJ99] SCHWERDT J., SMID M., MAJHI J., JANARDAN R.:
+Computing the width of a three-dimensional point set: An
+experimental study. Journal of Experimental Algorithmics
+4, (1999).
+[vdB97] VAN DEN BERGEN G.: Efficient collision detection of
+complex deformable models using AABB trees. journal
+of graphics tools 2, 4 (1997), 1–14.
+[WBS07] WALD I., BOULOS S., SHIRLEY P.: Ray tracing deformable scenes using dynamic bounding volume hierarchies. ACM Transactions on Graphics 26, 1
+(2007).
+[Wel91] WELZL E.: Smallest enclosing disks (balls and ellipsoids). In New Results and Trends in Computer Science,
+Lecture Notes in Computer Science 555, H. Maurer (Ed.).
+Springer, 1991, pp. 359–370.
+
+[OL03] OTADUY M. A., LIN M. C.: CLODs: Dual hierarchies for multiresolution collision detection. In SGP
+’03: Proceedings of the 2003 Eurographics/ACM SIGGRAPH Symposium on Geometry Processing (Aire-laVille, Switzerland, Switzerland, 2003), Eurographics Association, pp. 94–101.
+
+[WG92] WEBB R., GIGANTE M.: Using dynamic bounding
+volume hierarchies to improve efficiency of rigid body
+simulations. In Proceedings of the 10th International Conference of the Computer Graphics Society on Visual Computing : Integrating Computer Graphics with Computer
+Vision (1992), Springer-Verlag New York, Inc., pp. 825–
+842.
+
+[Omo89] OMOHUNDRO S. M.: Five Balltree Construction Algorithms. Tech. Rep. 89-063, International Computer Science Institute, Berkeley, California, November 1989.
+
+[WHG84] WEGHORST H., HOOPER G., GREENBERG D. P.:
+Improved computational methods for ray tracing. ACM
+Transaction on Graphics 3, 1 (1984), 52–69.
+
+[PG95] PALMER I. J., GRIMSDALE R. L.: Collision detection for
+animation using sphere-trees. Computer Graphics Forum
+14, 2 (1995), 105–116.
+
+[YM06] YOON S.-E., MANOCHA D.: Cache-Efficient Layouts
+of Bounding Volume Hierarchies. Computer Graphics Forum 25, 3 (2006), 507–516.
+
+[Qui94] QUINLAN S.: Efficient distance computation between
+non-convex objects. In Proceedings of the IEEE International Conference on Robotics and Automation (1994),
+pp. 3324–3329.
+
+[Zac98] ZACHMANN G.: Rapid collision detection by dynamically aligned DOP-trees. In Proceedings of the IEEE
+Virtual Reality Annual International Symposium (March
+1998), pp. 90–97.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

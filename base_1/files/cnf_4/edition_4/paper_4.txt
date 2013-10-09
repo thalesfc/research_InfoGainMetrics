@@ -1,0 +1,866 @@
+Dynamic Shader Generation for Flexible Multi-Volume Visualization
+¨
+Friedemann Roßler
+
+Ralf P. Botchen
+
+Thomas Ertl ∗
+
+Institute for Visualization and Interactive Systems
+¨ Stuttgart, Germany
+Universitat
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Figure 1: Example Setup I: Combination of a CTA (Computed Tomography Angiography) dataset and a related MRI (Magnetic Resonance
+Imaging) dataset of a human head. The MRI dataset provides the skin and brain tissue. It is vertically cut and the two halves are moved away
+from each other to get insight to the inner structures. The CTA dataset contains the skull and the vessels which are rendered with different
+transfer functions. Images (a-c) show three stages of an interactive multi-volume visualization session and image (d) represents the render
+graph which corresponds to the final configuration in (c).
+
+A BSTRACT
+Volume rendering of multiple intersecting volumetric objects is a
+difficult visualization task, especially if different rendering styles
+need to be applied to the components, in order to achieve the desired illustration effect. Real-time performance for even complex
+scenarios is obtained by exploiting the speed and flexibility of modern GPUs, but at the same time programming the necessary shaders
+turned into a task for GPU experts only. We foresee the demand for
+an intermediate level of programming abstraction where visualization specialists can realize advanced applications without the need
+to deal with shader programming intricacies.
+In this paper, we describe a generic technique for multi-volume
+rendering, which generates shader code dynamically from an abstract render graph. By combining pre-defined nodes, complex
+volume operations can be realized. Our system efficiently creates
+GPU-based fragment shader and vertex shader programs “on-thefly” to achieve the desired visual results. We demonstrate the flexibility of our technique by applying several dynamically generated
+volume rendering styles to multi-modal medical datasets.
+Index Terms: I.3.2 [Computer Graphics]: Graphics Systems—Interaction Techniques; I.3.3 [Computer Graphics]: Picture/Image
+Generation—- Display Algorithms; I.3.6 [Computer Graphics]:
+Methodology and Techniques—- Dynamic Shader Generation;
+1
+
+I NTRODUCTION
+
+Direct volume rendering has become a powerful and widely-used
+technique for effective visualization of 3D volumetric data in many
+fields. Driven by the rapid development of programmable highperformance graphics hardware (GPUs) for the consumer market,
+∗ Email:
+
+{roessler|botchen|ertl}@vis.uni-stuttgart.de
+
+IEEE Pacific Visualisation Symposium 2008
+4 - 7 March, Kyoto, Japan
+978-1-4244-1966-1/08/$25.00 ©2008 IEEE
+
+the variety and complexity of volume rendering techniques that
+focus on the interactive analysis of a single volume dataset has
+advanced significantly and has become an established field of research. However, the simultaneous analysis of multiple correlated
+datasets or several different regions of particular interest within a
+single complex volume is a more sophisticated problem. In this
+case, a prerequisite for a comprehensive analysis and a proper understanding of the volume data is not only the interactivity of the
+visualization technique but also an adequate visual representation.
+In order to gain insight into multiple intermixed complex shapes,
+abstraction is the key for communicating the underlying problem to
+the viewer. Reducing the information in the datasets to a level that
+represents only relevant features allows quick and intuitive understanding. This already led to a variety of GPU algorithms, that
+have been designed to address particular volume rendering problems [16, 11, 6]. Implementing algorithms for GPUs was based
+on assembler level for several years and therefore required programmers with specialized knowledge. Although the work has
+been eased by the release of high level shading languages like C
+for Graphics (Cg) or the OpenGL Shading Language (GLSL), the
+gap between expert programmers and visualization professionals is
+still widening, due to higher complexity and a wider range of algorithms. From a developer’s point of view, a system in which a
+modularized, new shading algorithm can be applied to many applications, would be a significant step forward. Such a modularization
+is also very helpful for the non-expert user, since the given modules
+can easily be combined without the need for detailed knowledge of
+the underlying techniques. In addition to that, the exploding size
+of datasets, and the necessity to combine a multitude of datasets in
+one scene, promotes the demand for systems that support a proper
+handling and processing of multi-volume data itself.
+In this work, we propose a dynamic GPU shader generation technique as a solution for this problem domain. We present a rendering framework which is able to handle multiple volume datasets
+that can be combined in one scene, and which allows for the rapid
+development of new visualization applications. It assembles var-
+
+17
+
+ious complex volume rendering styles from predefined pieces of
+code “on-the-fly” and assigns them to parts of one or more volumes. Therefore, we developed a flexible render graph, which can
+be freely configured from several modularized nodes, leaving the
+user on an abstract level, designing a multi-volume illustration (see
+Figure 1). The main contributions of our paper are:
+• The basic concept and implementation details of a dynamic
+shader generation framework in the context of multi-volume
+visualization.
+• A multi-volume visualization tool built on top of the framework, which provides the full flexibility of the render graph,
+without burdening the user with details about the underlying
+rendering and GPU techniques.
+• The applicability of the presented approach is illustrated by
+several use cases and examples in the field of medical multivolume visualization.
+The presentation of our work is composed as follows: Section 2
+outlines related work. In Section 3 a short introduction to the multivolume rendering problem is given. In Section 4 we present the
+basic ideas and functionality of the render graph concept and give
+a detailed example. Section 5 details the dynamic shader generation from a low-level point of view. In Section 6 we discuss implementation aspects of the multi-volume rendering framework and
+our visualization tool. Section 7 gives a detailed description of several medical application examples. In Section 8, we discuss some
+performance measurements and we conclude in Section 9.
+2 R ELATED W ORK
+In the last decade research on the field of GPU-based volume rendering has made significant progress and is deployed in many fields
+of application today. For a comprehensive overview of state-of-theart volume rendering techniques we refer the interested reader to
+Engel et al. [6].
+Many applications in scientific and medical visualization operate
+on multiple datasets rather than only on a single input dataset. A
+general approach for intermixing several volumes was proposed by
+Cai and Sakas [3]. They show three fundamental types of rendering
+pipelines for multi-volume data intermixing. Grimm et al. [8] designed a CPU-based ray-casting algorithm for direct multi-volume
+rendering, that handles single volume areas and regions where several volumes intersect separately. In [9], Hadwiger et al. show
+how segmented, volume datasets can be effectively visualized with
+modern graphics hardware, by applying different illustrative rendering modes to different structures. Bruckner et al. [1] presented a
+framework that integrates a number of non-photorealistic rendering
+styles that can be applied to multiple volumetric datasets to achieve
+traditional three-dimensional illustrations. In [21], Wilson et al.
+discuss the challenges for a combined visualization of several volumes, that are derived from different measurement techniques or
+numerical simulations. R¨oßler et al. [17] developed a GPU-based
+multi-volume visualization framework for the combined visualization of anatomical and functional brain images. Nadeau [14] and
+Chen and Tucker [5] propose different graph based schemes to
+model complex multi-volume scenes. In this paper, we present a
+similar concept, but focus on the applicability to GPU-based rendering.
+Several research results have been published in the area of dynamic GPU shader generation. McCool et al. [12] presented a
+shader algebra, with defined operators to manipulate shader programs and thus, facilitate deferred shading. Libraries like Brook [2]
+and Glift [10] provide abstract access layers to GPU memory and
+low level shader functionality. Chan et al. [4] give a solution
+to the partitioning problem of complex fragment shaders for programmable graphics hardware. A flexible method to combine single functions into a composed GPU shader program was proposed
+
+18
+
+by Folkeg˚ard et al. [7]. This technique dynamically creates shader
+programs by combining user-defined sections of code snippets to
+various shader algorithms. McGuire et al. [13] follow a similar
+approach, but propose an abstract shade tree for combining the
+shaders on a graphical level. Plate et al. [15] also use a graph layout
+to interactively define shaders for multi-volume rendering.
+Though, the latter two approaches allow the definition of shaders
+by an abstract graph, they still provide shading functionallity on
+a low level, demanding a deeper understanding of the underlying
+rendering and shading techniques. In contrast to that, our system,
+which is also based on a graph representation, wraps complex shading algorithms in single, freely combinable graph nodes, which allows the user to concentrate on the visualization result.
+3 M ULTI -O BJECT VOLUME R ENDERING
+For rendering a single volume dataset, there exist a number of GPUbased techniques, e.g. raycasting, splatting, and texture slicing,
+which numerically evaluate the continuous volume rendering integral. The basic idea of these techniques is to first sample the volume at certain sampling positions, then map the sampled values to
+color and opacity, and finally compose the resulting color values in
+correct depth order.
+If several intersecting volumetric objects should be visualized in
+a single image, it has to be decided how the different objects contribute to the final image. For this multi-volume rendering problem Cai and Sakas [3] determined three levels of volume intermixing. For image level intermixing, the volumes are rendered independently and the resulting images are combined by a compositing
+rule, which may take the opacity and depth value of the pixels into
+account. For accumulation level intermixing, the visual contributions of the volumes are combined step by step. At each sampling
+point the sample values of the different volumes are mapped independently to colors and opacities and then these values are accumulated to a single sample color. For illumination level intermixing
+the sample color is not intermixed from colors and opacities, but
+directly computed by a special multi-volume illumination model.
+While illumination level intermixing allows to produce physically inspired results like X-ray images, accumulation level intermixing is the most common approach for illustrative multi-volume
+visualization because it provides the possibility of applying independent transfer functions and shading styles to the different volumes. Furthermore, in contrast to image level intermixing, it leads
+to a correct depth cueing of the volumes.
+The compositing of the different volume samples at accumulation level is often performed by standard alpha blending with the
+recursive over operator:
+
+αout
+cout
+
+=
+=
+
+(1 − αi )αout + αi ,
+(1 − αi )cout + ci ,
+
+i = 1, · · · , n
+
+(1)
+
+ci and αi are the pre-multiplied color contribution and opacity of the
+i-th volume sample, and n is the total number of volumes. A problem of this operator is, that the resulting color and opacity depends
+on the order in which the volumes are applied. For this reason other
+operators have been proposed, which calculate a weighted sum of
+the single contributions. An example is the inclusive opacity operator of Cai and Sakas where the color values are weighted with their
+normalized opacity:
+n
+
+cout =
+
+αi
+
+∑ αsum ci ,
+
+i=1
+
+n
+
+with αsum =
+
+∑ αi .
+
+(2)
+
+i=1
+
+4 T HE R ENDER G RAPH C ONCEPT
+The fact that accumulation level intermixing permits an arbitrary
+combination of shading styles and transfer functions, leads to a
+large number of possible visualization algorithms for a given multivolume scene. Further on, the volume intermixing is performed on
+
+V1 Hand
+
+V2 Bucky Ball
+Scene Node
+Split V1/V2
+Condition V2
+
+Split V1/V1
+Skin Shader
+
+Bone Shader
+
+Iso Shader
+
+Transform
+
+Illumination
+
+Illumination
+
+Illumination
+
+DVR Shader
+
+Σ
+Resulting Sample Color
+
+Figure 2: The abstract render graph structure represents a scene of
+two volumes with different rendering styles applied.
+
+Figure 3: The resulting image of the applied render graph given in
+Figure 2 to the dual-volume scene.
+
+a per-sample level, which implies – in the context of GPU-based
+rendering – that for each of the visualization algorithms a specialized GPU shader has to be provided. Usually this complexity is
+coped with by providing a set of fixed shaders for predefined combinations of volumes and shading techniques.
+In order to overcome these restrictions and to provide full flexibility in GPU-based multi-volume rendering, we developed the
+so called render graph. This graph describes a complex multivolume shading algorithm by the combination of several render
+nodes. Thereby, each render node describes a certain part of the
+whole shading algorithm and the final shader code is automatically
+generated by the system due to the actual graph configuration. Unlike a classical scene graph, which permits the creation and manipulation of complex scenes, the render graph describes the visualization of a given multi-volume scene on the level of shading a
+single multi-volume sample, independent of the finally applied volume rendering technique. We provide three basic types of render
+nodes, which represent different stages of the shading process.
+
+Conditional Node In contrast to the splitter node, a conditional
+node performs a subdivision of the volume objects themselves.
+This means, during the rendering process only the branch is chosen
+for which the condition is true. These conditions are normally
+evaluated on basis of the actual fragment position and could for
+example describe the selection of a segmented structure or the
+clipping against an implicitly given geometry like a plane.
+
+4.1 The Scene Node
+The root of the entire render graph is always defined by a single
+scene node that represents the interface between the external description of the scene objects (i.e. the camera, light sources and
+volumes) and the graph itself. Therefore, this node collects the required information from these objects and passes it on to its children.
+4.2 Structural Nodes
+Starting from the scene node, all volumes are initially treated
+equivalent, regarding the shading process. To allow a separate
+handling of different volumes as a whole or just parts of them,
+structural nodes are introduced. These nodes do not directly
+contribute to the shading result, rather they provide capabilities
+to dynamically control the evaluation of the render graph by
+branching and manipulation. Three kinds of structural nodes are
+supported:
+Splitter Node The splitter node is used to divide the handling of the volumes into several branches. Therefore, an arbitrary
+number of groups can be created, where each group contains one
+or more volumes. Moreover, a volume can be placed in several
+groups simultaneously. Every group results in a new branch of
+the render graph. Thus, it is possible to define different rendering
+styles for different volumes or to combine several rendering styles
+for a single volume. This can be considered as a branching on
+object level.
+
+Transformation Node To spatially separate whole volumes
+or previously subdivided parts of them, it is possible to insert a
+transformation node into the render graph. This node implements
+an affine transformation which is applied to all volumes that are
+assigned to the actual branch. Thereby, volume displacement can
+be realized.
+4.3 Shader Nodes
+The third kind of nodes are the shader nodes, which exclusively
+implement low-level shading operations to compute the resulting
+image. The shader nodes can be placed anywhere in the render
+graph, and several shader nodes can be cascaded on a path from the
+root down to a single leaf of the graph. In this case, the successor
+either overwrites or manipulates the result of its preceding shader
+node.
+4.4 A Render Graph Example
+To clarify the abstract functionality of the render graph and its
+nodes, we describe a structural example for the computation of the
+resulting sample color in correspondence to Figure 2. Render nodes
+are represented by grey boxes. The colored lines describe the paths
+of the volumes, the black arrows indicate the parent-child relationship of nodes. Applying this graph to the given dual-volume scene,
+with volume V1 as the hand dataset and volume V2 as the bucky
+ball, results in the image shown in Figure 3.
+Starting at the scene node, which handles the attached volumes,
+their path leads through the graph in a top-down manner. The first
+splitter node Split V1/V2 divides the paths of both volumes into
+two branches, where the hand volume takes the left branch and the
+bucky ball takes the right one. Volume V1 hits another splitter node
+Split V1/V1. This node virtually splits the single path of the volume
+into two independent branches, that both work on the same hand
+volume, but lead to different shader nodes, indicated by the continuous lines and the dashed lines. The Skin Shader node in the left
+branch is responsible for the semi-transparent iso-surface rendering
+of the skin, while the Bone Shader node in the right branch performs a direct volume rendering of the bone structure in Figure 3.
+Both nodes are succeeded by illumination nodes, that manipulate
+
+19
+
+the previously calculated fragment sample color with lighting computation.
+Investigating the right branch of node Split V1/V2, volume V2
+encounters a conditional node Condition V2. This node splits the
+bucky ball into two halves using a clipping plane. The left branch
+hits an Iso Shader node, followed by an illumination node, resulting
+in a lighted iso-surface. The right branch runs into the transformation node Transform, translating and rotating this half, before the direct volume rendering node DVR Shader serves the unlighted color
+for this path. Finally, the contributions of the different branches are
+mixed according to the defined accumulation operation.
+5 DYNAMIC S HADER G ENERATION
+The goal of dynamic shader generation is to convert the abstract
+representation of the render graph into an especially adapted GPUbased shader program, that can be used for hardware accelerated
+rendering. For this purpose, we implemented a generic shader generation framework for OpenGL and the high-level shader language
+GLSL [18]. The advantage of GLSL (and other high level shader
+languages) is, that it permits the generation of structural C-like
+code, which is automatically optimized by the compiler with respect to the current hardware configuration.
+The basic idea of our shader generation approach is, that a single
+render node acts as a container that stores all needed information
+and dependencies to perform its desired task. Therefore, it provides
+a set of output variables, that either act as input for succeeding render nodes or as final output value for the actual volume sample. For
+each of these output variables the following information has to be
+given:
+1. Name and type: A unique name and a data type to permit
+correct access by other render nodes.
+2. Shader code part: Predefined code that implements the computation of the output variables.
+3. Input variables: Output variables from previous render nodes
+on which the computation of the actual output variable is
+based on.
+4. Externals: External parameters and textures that are needed
+for the output computation. They are passed to the shaders as
+uniform variables.
+5. Shader type: An output variable can either be calculated per
+vertex in the vertex shader and interpolated by the graphics
+hardware, or it has to be calculated per fragment in the fragment shader.
+6. Scope: A variable can either be valid for the whole scene, for
+a certain transformation, or for a specific volume.
+Which output variables a render node serves, depends highly on
+its type (see Section 4). The scene node for example provides all
+information of the given multi-volume scene to the other nodes of
+the graph. This is e.g. the actual camera matrix or the position of a
+light source. Additionally it serves the actual sample position and
+the volumes’ scalar values, gradients and curvatures at this position.
+To facilitate complex shading algorithms like pre-integration or isosurface shading, these values are also provided for the succeeding
+sample position along the viewing ray.
+A shader node generally computes the sample color for a single
+volume. There are two major types of shader nodes. Those which
+are computing the resulting color directly from the actual volume
+sample, e.g. direct volume rendering or isosurface shading, or those
+which are manipulating the previously computed sample color to
+apply for example illumination or ghosting effects.
+Structural render nodes do not directly contribute to the rendering result, which means that they usually do not provide any output
+variable that can be used by a succeeding node. Nevertheless, condition nodes have to provide a boolean condition variable for each
+
+20
+
+Render Graph
+
+Variable State
+
+Shader Programs
+
+Vertex
+Fragment
+
+First Pass
+
+Second Pass
+
+Figure 4: The two-pass shader generation algorithm. In the first pass
+the required variables are determined and saved in the variable state.
+In the second pass the shader programs are assembled from predefined code parts.
+
+outgoing branch, which indicates, if the related branch should be
+evaluated due to the applied condition. Furthermore a condition
+node may manipulate the actual volume gradient with respect to
+the distance to the clip surface as proposed in [20], to get correct
+illumination results in succeeding computations.
+5.1 Two-pass Shader Assembly
+Based on the definition of output variables, the related shader
+code, and the dependencies on input variables, it is possible to
+generate a specific shader program for computing the final color of
+a multi-volume sample. Therefore, the shader generation process
+is divided into two passes (see Figure 4). The first pass evaluates
+the graph and determines all output variables which have to be
+computed for the requested sample color. This information is
+stored in the so-called variable state, which is a structural copy
+of the render graph, that holds only the currently used variables
+and links to the original render graph nodes. In the second pass
+the pre-computed variable state is used to combine the associated
+shader code parts for the final shader program.
+First Pass The render graph is traversed in depth-first order
+to collect the variables, and for each render node an associated
+variable state node is created. When a leaf node of the render
+graph is reached, it is tested if it can provide the sample color
+and if positive, this variable is stored in the related variable state
+node. Furthermore, the applied input variables are stored in a list
+of required variables. On the way back to the root of the graph, this
+list is re-investigated for each passed node and servable variables
+are replaced by their associated input variables. If the actual render
+graph configuration defines a valid shader program, the list of
+required variables will be empty in the end.
+Branches of the render graph – originating from condition and
+splitter nodes – are evaluated independently on the way down. At
+the backward traversal the different lists of required variables are remerged to a single one. In addition, at splitter nodes it is determined
+which volumes are investigated at the different branches. Since the
+sample colors only have to be computed for still active volumes,
+this information is additionally stored in the related variable state
+at the leaf node and propagated to the required input variables. At
+conditional nodes, for each outgoing branch the related conditional
+variable is added to the required variables list and then processed
+just like the others.
+A transformation node plays a special role in the variable
+gathering pass. All variables with volume or transformation
+scope that are computed on the succeeding branch, have to be
+adjusted due to the defined transformation. The same has to
+be done for the required variables on the way up to the root.
+Additionally, if the same volume is examined multiple times on
+different branches with different transformations, it effectively
+has to be rendered multiple times at different positions. Thus,
+even the preprocessing – e.g. the slicing for slice-based volume
+rendering – is affected. To cope with this fact, all volumes
+
+that are actually active on a transformation node’s branch are
+shallowly cloned, which means that the clones point to the original
+volumes, and additional transformation matrixes are attached.
+Furthermore, the active volumes at the outgoing branch of a
+transformation node are replaced by their related clones. In the
+subsequent processing steps of shader generation and rendering, all
+volumes in the scene – originals and clones – are treated equivalent.
+Second Pass While the definition of render nodes and the generation of variables do not depend on a certain rendering technique,
+the code generation pass produces shader programs that are especially adapted to the applied rendering algorithm. Currently, our
+system supports slice-based volume rendering (see Section 6) and
+creates a corresponding vertex/fragment shader pair for the rendering of a single multi-volume slice. It is possible to generate a single
+shader program that processes all volumes in the scene at once, or
+separate shader programs for single volumes or programs for any
+combination of them.
+To assemble a shader program for a given set of volumes, the
+pre-computed variable state is traversed in depth-first order. At
+each variable state node the shader code parts, that are associated
+with the stored variables, are taken and, depending on the variable’s
+shader type, either added to the vertex or to the fragment shader.
+If a variable, that is computed in the fragment shader, depends directly on a variable in the vertex shader, this input variable is served
+automatically to the fragment shader by a varying variable. However, the number of varying components that can be used in a single GPU program is limited and depends on the graphics hardware.
+To overcome this restriction, the number of potential varying components is counted before assembling the shaders and, if the limit
+is exceeded, vertex shader variables are computed in the fragment
+shader as well.
+If a variable has either transformation scope or volume scope, its
+code segment is defined only once by the render node, but is appended to the shader several times for each requested transformation and/or volume respectively. To ensure the distinction of the different computations, the variable names are additionally extended
+by a unique per-volume postfix.
+If there are branches in the render graph, the shader code is assembled independently for each branch and finally combined. In
+order to avoid unnecessary computations, the code parts of variables of previous render nodes are always added to the shader as
+late as possible. If a variable is used in all outgoing branches of a
+structural node, it is placed before branching, but if it is only needed
+for a single branch, it is computed inside exclusively. Conditional
+branches are evaluated, if the associated conditions – represented
+by boolean condition variables – are satisfied. This is realized by
+nesting the branches inside if -statements. If a transformation node
+is placed somewhere below a conditional branch and the branching
+condition depends on the transformation, for each leaf of the outgoing subtree, the condition has to be evaluated as an independent
+if-branch in the shader code.
+After the traversal of the variable state graph, code for the accumulation of the color contributions (see Section 3) of the different
+volumes at the different branches is added to the fragment shader,
+to compute the final multi-volume sampling color.
+The generated GPU program is now ready for direct use in slicebased multi-volume rendering, which is presented in the next section. Nevertheless, the shader generator could easily be extended
+to the generation of shaders for GPU-based ray-casting like proposed by Stegmaier et al. [19]. The major change would be, that
+the shader generator has to nest the code for the computation for
+a single multi-volume sample into an enclosing loop for the ray
+traversal.
+
+V1
+
+V1
+
+V1
+
+V2
+
+V2
+
+V2
+
+Figure 5: Three types of multi-volume slice accumulation on the example of two overlapping proxy slices: Merge (left), Separate (middle), and Intersect (right). Each different colored region is processed
+by an individual shader. The gray square illustrates the intersection
+layer of the multi-volume slice.
+
+6
+
+I MPLEMENTATION
+
+For the implementation of dynamic shader generation and multivolume visualization we have developed an object oriented framework based on C++, OpenGL and GLSL. The framework consists
+of four major components: the scene description, the render graph,
+a multi-volume renderer, and the shader generator. While the scene
+description and the render graph is independent of the applied rendering technique, the renderer and the shader generator are adapted
+to the currently supported multi-volume rendering approach, which
+is based on 3D texture slicing with view-aligned slices. Therefore,
+the volumes in the multi-volume scene are primarily transformed
+into camera space and then the volume bounding boxes are equidistantly sliced along the viewing direction. This slicing leads to multivolume slices, each containing coplanar proxy slices of the different
+volumes in the scene. The sampling distance between the multivolume slices is chosen in relation to the volume with the smallest
+voxel size. For rendering, the multi-volume slices are processed in
+back-to-front order and their previously accumulated color contribution is blended with the over operator into the frame buffer. Since
+the shader generation system allows the assembly of shader programs for any combination of volumes in the scene, three different
+techniques for the multi-volume slice accumulation (see Figure 5)
+are considered:
+Merge (Fig. 5 left) This method merges the geometry of all existing proxy slices into a single hull, which is not necessarily
+convex. Then this hull is tessellated with gluTesselator of the
+OpenGL Utility Library (GLU) and the resulting triangles are
+rendered with a single shader, that accumulates the contributions of all n volumes within the multi-volume slice, requiring
+no shader switches at all.
+Separate (Fig. 5 middle) The separation technique is based on the
+strategy to handle each proxy slice separately. Here, no expensive merge of the volume slices is necessary. A single
+shader for each of the n volumes is assembled, resulting in n
+shader switches per multi-volume slice.
+Intersect (Fig. 5 right) The third technique goes one step further
+by handling each possible combination of intersecting volumes with a different shader. This method needs to divide the
+regions of intersecting volumes into single bounding polygons
+and needs to tessellate them. Regarding the shader switches,
+the upper limit is 2n due to the maximum number of possible
+combinations of n overlapping volumes.
+A further discussion of the advantages and disadvantages of the
+three accumulation techniques and some comparative performance
+results for different scenarios can be found in Section 8.
+Depending on the used multi-slice accumulation algorithm, the
+shader generator has to generate different sets of GPU shader programs. This is performed on the fly at the first time a certain combination of volumes appears and then the shader program is stored
+
+21
+
+herited for individual implementations. The extensions that have to
+be implemented in an inherited node class are basically restricted
+to the definition of the node’s output or condition variables with
+dependencies and their related code parts (see Section 5) and to the
+implementation of the prepareGL method. To permit the interactive
+manipulation of the render node, additionally an individual manipulation dialog for the render node view has to be provided. Then,
+the new node can be directly used and combined with any other
+available render node.
+7
+
+Figure 6: A screen shot of the multi-volume visualization tool, showing the Setup I.
+
+in a map for later re-use. So, only if the render graph configuration changes or another slicing technique is chosen, the shader programs are discarded and re-generated during the rendering of the
+next frame.
+Before rendering can be finally performed, the required hardware resources like volume textures or color lookup tables have
+to be reserved and the uniforms have to be set. For this purpose,
+each render node has to provide a prepareGL method, where it
+can realize its individual setups for OpenGL-based rendering.
+Since the uniform values may change between two consecutive
+frames, the preparation is performed for each frame and each used
+multi-volume shader program by traversing the render graph and
+calling the nodes’ individual prepareGL methods.
+Based on the presented multi-volume visualization framework,
+we have built a visualization tool, that provides full flexibility for
+generating meaningful representations of the investigated datasets.
+It facilitates to intuitively build up the render graph on an abstract
+graphical level, completely decoupling the operator from the complex process of information handling and shader generation. This is
+demonstrated in the accompanying video1 for the interactive configuration of the example graph given in Figure 2.
+The graphical user interface (GUI) of the system consists of three
+views (see Figure 6). The major render view shows the visualization
+results due to the actual scene and render graph configuration and
+provides interactive manipulation of the camera position with the
+mouse. The two other views are placed above each other on the left
+hand side of the render view. The lower render graph view presents
+the render graph as a hierarchical tree. The graph in a whole can be
+manipulated by appending and deleting nodes. It is also possible to
+insert nodes at a higher level of the graph, because deleted branches
+are stored in a clip-board and can be re-inserted later. If a node
+of the render graph is selected, the above render node view shows
+an individual dialog for the manipulation of the nodes’ individual
+parameters. Changes in the node or graph view are directly mapped
+to the underlying render graph and the resulting effects to the multivolume visualization are shown immediately in the render view.
+To facilitate the easy generation of meaningful multi-volume visualizations we have already implemented a couple of render nodes
+for several volume shading, illustration and clipping techniques.
+Some examples are presented in the next section. Further on, it
+is possible to extend the system to new techniques by integrating
+new render nodes. While the scene node, the transformation node
+and the splitter node (see Section 4) have fixed functionality, there
+exist basic shader node and condition node classes that can be in1 www.vis.uni-stuttgart.de/˜roessler
+
+22
+
+A PPLICATION
+
+A typical scenario for multi-volume rendering is medical visualization and illustration. On the one hand, several scans with
+different imaging modalities are often taken of a single patient,
+to get comprehensive information about anatomical structures
+and functional processes. On the other hand, a single dataset
+usually contains a couple of different structures which can best be
+emphasized by different transfer functions and shading techniques.
+Thus, to demonstrate the applicability and flexibility of the
+presented multi-volume rendering framework, we have applied
+our visualization tool to several different medical use cases, which
+are detailed in the following. The visualization results of the four
+example setups and the corresponding render graphs are shown in
+Figure 1 and Figure 7 respectively.
+Diagnosis The first use case is an example in the area of neuroradiological diagnosis for the detection of malformations of cerebral
+blood vessels. Therefore a CTA (Computed Tomography Angiography) scan of the patient’s head is taken, which is a CT technique,
+where a contrast agent is injected to emphasize the vessel structure in the resulting images. In addition, an MRI (Magnetic Resonance Imaging) scan, that accentuates the brain tissue, is used, to
+get the patient specific relationship between the blood vessels and
+the anatomical structure of the brain. The CTA and the MRI scans
+are co-registered in a preprocessing step before visual diagnosis.
+Figure 1 shows an example visualization (Setup I) of this
+two-volume scene. Images (a-c) illustrate different visualization
+steps during the render graph configuration, and Image (d) shows
+the render graph that corresponds to the final result in (c). The
+goal of the visualization is to present the intracranial brain vessels
+in relation to the surrounding skull and in the context of the brain
+structure. Therefore, the visualization path of the two volumes is
+first split into one branch for the MRI volume and two branches
+for the CT volume by a splitter node. Then, the MRI volume,
+which contains the skin and the brain tissue, is rendered with a
+direct volume rendering (DVR) node and the surface structure is
+emphasized by the combination of a cartoon shading node and
+a lighting node, which performs Phong shading. To get insight
+into the inner structures, the MRI head is divided vertically by a
+plane condition node and the two halves are rotated and moved
+away from each other by two tranformation nodes. The first
+branch of the CT volume is responsible for the visualization of the
+skull. For this purpose a DVR node with a transfer function that
+extracts the bone tissue and a standard Phong shading is applied.
+On the second CT branch the vessel structure inside the skull is
+extracted. Primarily, a so-called sphere condition node is applied,
+which approximates the brain volume by a sphere and cuts away
+all vessels outside this sphere. Then, a DVR node with a transfer
+function for the vessels is attached and finally the vessels are
+emphasized by cartoon and Phong shading.
+Analysis Another application area of medical multi-volume
+visualization is the analysis of functional processes inside the
+human body, that are measured by functional imaging methods,
+e.g. fMRI (functional MRI). This is a special MRI technique,
+that measures the activation of the brain. It is for example used
+
+(a)
+
+(b)
+
+(c)
+
+Figure 7: Example Setups II-IV and the corresponding render graphs: Setup II in image (a) shows a DVR shaded functional MRI (fMRI) dataset
+combined with the anatomical brain MRI data rendered as illuminated semi-transparent isosurface and a single 2D slice of the whole head as
+context information, Setup III in image (b) shows the combination of an illuminated DVR shaded MRI head with a ghosting method applied to see
+the inside. The interior brain is rendered as illuminated isosurface with a 3D LIC computation applied, to emphasize the curvature. For Setup IV
+in image (c) the upper half of the head is cut away, to lay open the brain, which is segmented and colored due to a functional brain atlas.
+
+by cognitive neuroscientist to study the relationships between
+cognitive tasks and the involved brain regions. To get an impression of the localization of the functional processes, the functional
+brain images are usually fused with a corresponding anatomical
+reference dataset.
+An example for fMRI volume visualization is given in Figure 7 (a) (Setup II), which shows a multi-volume scene consisting
+of an fMRI activation dataset, a corresponding anatomical MRI
+dataset of the head, and a third dataset which contains the
+explicitly segmented brain of the anatomical MRI volume. To
+visualize the relation between the three datasets, three different
+shading techniques are applied. The activation volume is rendered
+with DVR and a special transfer function, that color codes the
+activation values. The brain dataset is visualized by an illuminated
+semi-transparent iso-surface, to show the brain surface without
+occluding the activation inside. Finally, a single orthogonal slice of
+the complete MRI volume is extracted by a slice node to provide
+the anatomical context of the scene.
+Illustration Illustrative volume rendering techniques become
+more and more important in medical volume visualization (e.g.
+[1, 9]), because they permit to emphasize significant information
+in the datasets, while nonrelevant information is suppressed.
+While the major application of illustrative volume rendering is the
+creation of illustrations for presentation and education, it can also
+be used for diagnostic analytic purposes.
+Figure 7 (b) and (c) show two illustrative medical multi-volume
+visualizations that are generated with our framework. Both present
+a two-volume scene of a MRI dataset of a human head and the explicitly segmented brain. In the first example (Figure 7 (b)) (Setup
+III) the whole MRI volume is shaded with DVR and illuminated
+with Phong shading. Additionally, a ghosting node is appended,
+which subsequently increases the transparency of the fragments
+
+with respect to the center and radius of a predefined sphere. By
+this, the inside brain becomes visible, which is rendered as an illuminated isosurface with an additional 3D LIC (line integral convolution) computation on the surface to emphasize the curvature. This
+is a flow visualization technique, which is applied to the previously
+computed curvature field of the brain dataset.
+In the second illustrative example (Figure 7 (c), Setup IV), the
+brain is subdivided into several functional regions due to a given
+brain atlas. Therfore, the MRI head is again shaded with DVR and
+illuminated with Phong, but with another transfer function as in the
+first example. The upper half of the head is cut away by a plane
+condition node, which is placed in front of the DVR node. The
+brain is initially shaded with DVR, with a gray value transfer function applied and also illuminated. Then, a tag condition node is
+attached, which takes an additional tagged volume – the brain atlas
+– that assigns an unique region id to each voxel. The tag condition
+node permits the definition of tag groups and for each group a new
+outgoing branch is generated. In the given example, recolor nodes
+are attached to each of theses branches, which multiply the previous
+gray values of the fragments with a pre-defined color.
+8
+
+R ESULTS
+
+AND
+
+D ISCUSSION
+
+We have tested the rendering performance of our system for each
+of the four example setups. Thereby, CTA and MRI datasets used
+for Setup I have both a resolution of 256x256x120 voxels, the head
+and the brain dataset for Setup II, III, and IV have a resolution of
+181x217x181 voxels, and the fMRI activation volume in Setup II
+has a resolution of 40x48x34. Table 1 shows the measured results
+with respect to the presented multi-volume slicing techniques. Depending on the complexity of the applied render graph and the total number of volumes in the scene the advantages of the different techniques are accentuated. As can be clearly seen, the separation method dominates for most cases in terms of performance,
+
+23
+
+Table 1: Performance of all three multi-volume slicing techniques on a
+5122 viewport given in frames per second (fps). Measurements have
+been performed on a NVIDIA GeForce 8800 GTS graphics board
+with 512 MB memory.
+
+Datasets
+Setup I (a)
+Setup I (c)
+Setup II
+Setup III
+Setup IV
+
+Merge
+
+Separate
+
+Intersect
+
+35
+16
+123
+7.7
+24
+
+48
+40
+201
+8.4
+28
+
+44
+11
+141
+8.5
+34
+
+but with the significant drawback of the restriction of the accumulation functionality to standard GPU blending operations. If more sophisticated accumulation functions are required, the two other slicing techniques are the only choice, which have the disadvantage of
+high cost for the additional tesselation. Nevertheless, the intersect
+method can even outperform the separate approach if the bounding
+boxes of all volumes are co-aligned, as can be seen for setup III and
+setup IV. This is caused by less effort for rasterization, since each
+sample is only processed once. For setup I (a) and Setup II to IV,
+merge is slower than intersect due to two reasons. First, each volume is sampled for the whole proxy geometry and unneeded samples are computed in non-overlapping regions. Second, it has to be
+tested for each sample whether it belongs to a volume or not. In
+setup I (c) the advantage turns over to merge, because of the exponentially raising effort for tesselating the overlapping proxy geometries, needed by the intersect approach. Summarizing, the choice of
+the slicing technique highly depends on the graph configuration and
+the desired quality of the visualization result.
+Regarding the system’s complexity, the effort for shader generation has also to be taken into account. It is linear with respect to the
+number of volumes and the number of render nodes, because each
+node has to be processed two times for each volume. Since the total
+number of volumes and render nodes is rather small, the generation
+time is minimal in contrast to the rendering performance. Another
+aspect is the complexity of the generated shader programs, which
+is also linearly increasing with the number of volumes and render
+nodes. Additionally, it depends on the single complexities of the
+applied shading algorithms, e.g. the LIC computation in setup II
+is very expensive and thus, highly effecting the frame rates. Nevertheless, the performance tests in the context of neuro sciences
+and neuro surgery have shown, that the system provides interactive
+framerates even for complex scenarios. So, it fits well to a wide
+range of medical problems and allows our clinical partners to create
+meaningful and comprehensive visualizations in an intuitive way.
+9
+
+C ONCLUSION
+
+AND
+
+F UTURE W ORK
+
+Combined multi-volume rendering of different modalities is a powerful method for illustrating complex structures in the data. However, programming these shader techniques is a very complicated
+and time consuming task. With the help of the dynamic shader
+generation technique presented in this work, hardware shading has
+advanced to a more modular and flexible procedure. By combining
+various specified shader nodes, a user without experience in shader
+programming can easily mix these techniques to achieve the desired
+visual result. We have shown the power of our approach for specific
+medical application datasets and different multi-volume slicing approaches. In its current state, the system already supports several
+shading methods and clipping techniques. In the future the system
+should be extended to GPU-based raycasting and we want to investigate the problem of multi-volume accumulation, with respect to
+its applicability and correctness.
+
+24
+
+ACKNOWLEDGEMENTS
+We would like to thank P. Hastreiter (Neurocenter, University of Erlangen) and M. Knauff (Experimental Cognitive Psychology Unit,
+University of Giessen) for providing data sets of their daily practice.
+Furthermore, we thank M. Krone and S. Hrnjadovic for implementing GUI features and some basic render node functionality.
+R EFERENCES
+[1] S. Bruckner and M. E. Gr¨oller. Volumeshop: An interactive system
+for direct volume illustration. In Proceedings of IEEE Visualization
+2005, pages 671–678, 2005.
+[2] I. Buck, T. Foley, D. Horn, J. Sugerman, K. Fatahalian, M. Houston,
+and P. Hanrahan. Brook for gpus: stream computing on graphics hardware. In Proceedings of SIGGRAPH ’04, pages 777–786, 2004.
+[3] W. Cai and G. Sakas. Data intermixing and multi-volume rendering.
+Computer Graphics Forum, 18(3):359–368, 1999.
+[4] E. Chan, R. Ng, P. Sen, K. Proudfoot, and P. Hanrahan. Efficient partitioning of fragment shaders for multipass rendering on programmable
+graphics hardware. In HWWS ’02: Proceedings of the ACM SIGGRAPH/EUROGRAPHICS conference on Graphics hardware, pages
+69–78, 2002.
+[5] M. Chen and J. V. Tucker. Constructive volume geometry. Computer
+Graphics Forum, 19(4):281–293, 2000.
+[6] K. Engel, M. Hadwiger, J. M. Kniss, C. Rezk-Salama, and
+D. Weiskopf. Real-Time Volume Graphics. AK Peters, 2006.
+[7] N. Folkeg˚ard and D. Wessl´en. Dynamic code generation for realtime
+shaders. In Proceedings of SIGRAD 2004, pages 11–15, 2004.
+[8] S. Grimm, S. Bruckner, A. Kanitsar, and E. Gr¨oller. Flexible direct
+multi-volume rendering in interactive scenes. In Vision, Modeling,
+and Visualization 2004, pages 379–386, 2004.
+[9] M. Hadwiger, C. Berger, and H. Hauser. High-quality two-level volume rendering of segmented data sets on consumer graphics hardware.
+In Proceedings of IEEE Visualization 2003, pages 301–308, 2003.
+[10] A. E. Lefohn, S. Sengupta, J. Kniss, R. Strzodka, and J. D. Owens.
+Glift: Generic, efficient, random-access gpu data structures. ACM
+Transanction on Graphics, 25(1):60–99, 2006.
+[11] A. Lu, C. J. Morris, D. S. Ebert, P. Rheingans, and C. D. Hansen.
+Non-photorealistic volume rendering using stippling techniques. In
+Proceedings of IEEE Visualization 2002, pages 211–218, 2002.
+[12] M. McCool, S. Du Toit, T. Popa, B. Chan, and K. Moule. Shader
+algebra. ACM Transaction on Graphics, 23(3):787–795, 2004.
+[13] M. McGuire, G. Stathis, H. Pfister, and S. Krishnamurthi. Abstract
+shade trees. In Symposium on Interactive 3D Graphics and Games,
+2006.
+[14] D. R. Nadeau. Volume scene graphs. In VVS ’00: Proceedings of the
+2000 IEEE symposium on Volume visualization, pages 49–56, 2000.
+[15] J. Plate, T. Holtk¨amper, and B. Fr¨ohlich.
+A flexible multivolume shader framework for arbitrarily intersecting multi-resolution
+datasets. IEEE Transactions on Visualization and Computer Graphics,
+13(6):1584–1591, 2007.
+[16] P. Rheingans and D. Ebert. Volume illustration: Non-photorealistic
+rendering of volume models. IEEE Transactions on Visualization and
+Computer Graphics, 7(3):253–264, 2001.
+[17] F. R¨oßler, E. Tejada, T. Fangmeier, T. Ertl, and M. Knauff. Gpubased multi-volume rendering for the visualization of functional brain
+images. In Proceedings of SimVis 2006, pages 305–318, 2006.
+[18] R. J. Rost and J. M. Kessenich. OpenGL Shading Language. AddisonWesley, 2003.
+[19] S. Stegmaier, M. Strengert, T. Klein, and T. Ertl. A Simple and Flexible Volume Rendering Framework for Graphics-Hardware–based
+Raycasting. In Proceedings of the International Workshop on Volume
+Graphics ’05, pages 187–195, 2005.
+[20] D. Weiskopf, K. Engel, and T. Ertl. Interactive Clipping Techniques
+for Texture-Based Volume Visualization and Volume Shading. IEEE
+Transactions on Visualization and Computer Graphics, 9(3):298–312,
+2003.
+[21] B. Wilson, E. B. Lum, and K.-L. Ma. Interactive multi-volume visualization. In ICCS ’02: Proceedings of the International Conference
+on Computational Science-Part II, pages 102–110, 2002.
+
+

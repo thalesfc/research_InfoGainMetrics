@@ -1,0 +1,851 @@
+DOI: 10.1111/j.1467-8659.2010.01811.x
+Pacific Graphics 2010
+P. Alliez, K. Bala, and K. Zhou
+(Guest Editors)
+
+Volume 29 (2010), Number 7
+
+Multi-Resolution Cloth Simulation
+Yongjoon Lee 1
+
+Sung-eui Yoon 1
+1
+
+Seungwoo Oh 2
+
+Duksu Kim 1
+
+Sunghee Choi 1
+
+KAIST (Korea Advanced Institute of Science and Technology)
+2 CLO Virtual Fashion Inc.
+
+Abstract
+We propose a novel, multi-resolution method to efficiently perform large-scale cloth simulation. Our cloth simulation method is based on a triangle-based energy model constructed from a cloth mesh. We identify that solutions
+of the linear system of cloth simulation are smooth in certain regions of the cloth mesh and solve the linear system
+on those regions in a reduced solution space. Then we reconstruct the original solutions by performing a simple interpolation from solutions computed in the reduced space. In order to identify regions where solutions are
+smooth, we propose simplification metrics that consider stretching, shear, and bending forces, as well as geometric collisions. Our multi-resolution method can be applied to many existing cloth simulation methods, since our
+method works on a general linear system. In order to demonstrate benefits of our method, we apply our method
+into four large-scale cloth benchmarks that consist of tens or hundreds of thousands of triangles. Because of the
+reduced computations, we achieve a performance improvement by a factor of up to one order of magnitude, with
+a little loss of simulation quality.
+Categories and Subject Descriptors (according to ACM CCS): I.3.5 [Computer Graphics]: Computational Geometry
+and Object Modeling—Physically based modeling
+
+1. Introduction
+Cloth simulation has been extensively researched in order
+to achieve realistic simulations of various fabrics. Since
+most fabrics are very flexible and do not have elasticity, the
+meshes resulted from realistic cloth simulations can have
+highly detailed features such as wrinkles. Therefore, the resolutions of meshes used for high-quality cloth simulations
+are typically very high enough to capture such detailed features. However, using such high resolution meshes can cause
+significantly slow simulation performances, especially since
+the time complexity of most high-quality cloth simulations
+is higher than linear functions with the number of vertices of
+the mesh [GHF∗ 07].
+Many orthogonal approaches have been proposed to accelerate the performance of cloth simulation. At a high level,
+they include allowing larger time steps [BW98], GPU-based
+parallelization [Gre03], wrinkle synthesis [WHRO10], faster
+collision detection [KHH∗ 09,GKJ∗ 05], and multi-resolution
+approaches [VB05].
+Existing multi-resolution techniques [VB05, HPH96]
+achieve a higher simulation performance by providing adaptive meshes. These techniques identify mesh regions that
+require high accuracy and use more high resolutions only
+for those regions instead of using a uniformly refined mesh.
+However, existing multi-resolution techniques do not attempt to simplify mesh regions where can be represented
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+(a)
+
+(b)
+
+Figure 1: The left figure shows simulation of a dress in a woman,
+who is not shown in this figure. The right figure shows the multiresolution mesh used to perform the simulation at a particular
+frame. The original dress mesh has 25 K vertices. By simplifying
+dynamically smooth regions of the dress mesh, our method achieves
+9 times performance improvement by reducing 73.8% of the vertices
+of the original mesh.
+
+2226
+
+Y. Lee et al. / Multi-Resolution Cloth Simulation
+
+with lower resolutions while providing plausible simulation
+quality. Moreover, these techniques have been designed only
+for mass-spring models and are not directly applicable to
+more general cloth models [BW98, CK02, GHF∗ 07] that are
+widely used for high-quality cloth simulation.
+Main contributions: In this paper we propose a novel multiresolution cloth simulation method that simplifies linear system that do not require a high resolution, in order to improve
+the performance of cloth simulation while maintaining the
+simulation quality. We design our multi-resolution approach
+for a triangle-based energy model with implicit Euler integration. We identify that solutions of the linear system of
+cloth simulations are smooth in certain regions and solve the
+linear system in a reduced solution space. Then we construct
+the original solutions by performing a simple interpolation.
+In order to identify regions whose solutions for the linear
+system are smooth, we use simplification metrics that consider various forces and geometric collisions. We have implemented our method and applied it to various cloth benchmarks consisting of up to 100 K vertices. With a little loss
+of simulation quality, our method achieves the performance
+improvement by a factor of up to one order of magnitude
+with our tested benchmarks.
+2. Related Work
+In this section we review prior work on cloth simulation and
+its various acceleration techniques.
+2.1. Cloth Simulation
+The cloth simulation has been extensively researched
+and good surveys [CK05] are available. Since Breen et
+al. [BHW94] proposed a particle based cloth model, the
+mass-spring model has been widely used for efficient and realistic cloth simulation. Provot [Pro96] introduced a simple
+mass-spring model and an explicit integration-based solver.
+Although this method runs interactively, it suffers from unstable behaviors as the time step becomes large. For a robust cloth simulation even with large time steps, Baraff and
+Witkin [BW98] developed an implicit integration method.
+Choi and Ko [CK02] improved the stability and quality of
+simulation by introducing an immediate buckling model.
+Also, Bridson et al. [BFA02] proposed a robust method that
+handles various contacts. Goldenthal et al. [GHF∗ 07] addressed the over-stretched problem of cloth based on constrained Lagrangian mechanics to constrain the distance between particles. Wang et al. [WHRO10] recently proposed
+an example-based wrinkle synthesis technique, which combines fine wrinkles with coarse cloth simulation. Aguiar
+et al. [dASTH10] presented a learning-based approach to
+model the dynamic behavior of clothes and used it for efficient cloth simulation.
+2.2. Adaptive Cloth Simulation
+Many adaptive techniques have been proposed to improve
+the performance and quality of cloth simulations. Hutchinson et al. [HPH96] and Zhang et al. [ZY01] proposed adaptive cloth simulation methods based on the mass-spring
+
+model. These methods treat the mass-spring model of a cloth
+as a mesh and refine a portion of the mesh that requires
+a higher mesh resolution. However, these methods showed
+much lower simulation quality compared to using a uniform
+mesh that has a higher resolution. Villard et al. [VB05] also
+proposed an adaptive meshing method. This method preserved the force momentum during the refinement of the
+adaptive mesh and thus achieved a simulation quality similar to that of the original cloth simulation that use uniform meshes. However, all these prior adaptive techniques
+are based on the mass-spring model and are not easily applicable to other types of cloth models (e.g., triangle-based
+energy models [BW98]) that can show high cloth simulation
+quality.
+2.3. Adaptive Techniques in Other Fields
+Adaptive techniques have been extensively studied in various simulations. Grinspun et al. [GKS02] addressed adaptive simulation for finite element methods by refinement of
+basis functions. An et al. [AKJ08] use optimized cubatures
+to reduce the size of various linear equation systems. Their
+method requires a training set to compute optimized cubatures.
+Losasso et al. [LGF04] use an octree data structure to simulate water and smoke efficiently. They discretize the linear
+system on an unrestricted octree grid so that they reduce the
+size of the linear system. Agarwala [Aga07] apply this idea
+to constructing a seamless large-scale image panorama that
+requires solving the Poisson equation. He reduces the size of
+the linear system drastically, since the solutions for the Poisson equations are smooth. Our method is inspired by this
+adaptive method that reduces the size of the linear system by
+merging smooth solutions into one.
+2.4. Multigrid Methods
+Multigrid methods have been widely used in many different simulations. Its main idea is to accelerate the convergence of a basic iterative method, accomplished by solving a problem with regularly, coarser domains in multiple
+levels. However, these multigrid methods have not been actively employed in cloth simulation, mainly because the simulated cloth meshes have many fine details such as wrinkles. Müller [Mül08] simulated clothes with a hierarchical multigrid solver for a position-based dynamics. Oh et
+al. [ONW08] applied the physically faithful standard v-cycle
+multigrid to cloth simulation. Our method shows more efficiency than this standard multigrid method for cloth simulation.
+3. Overview
+In this section, we give an overview of our approach to efficiently simulate large-scale clothes.
+3.1. Issues of Large-Scale Cloth Simulations
+Cloth is highly constrained because of inextensibility and
+collision constraint. The reality of cloth simulation depends
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2227
+
+Y. Lee et al. / Multi-Resolution Cloth Simulation
+
+4. Adaptive Cloth Simulation
+
+Smoothness
+of velocity
+In-plane
+deformation
+
+simplify
+
+Out-plane
+deformation
+Collision
+status
+
+Figure 2: This figure shows an overview of our approach. We consider a mesh region to be dynamically smooth, if the mesh region
+has smooth in-plane deformations (e.g., stretching and shearing),
+smooth out-of-plane deformation (e.g., bending), and smooth velocities at the current frame. Given a cloth mesh, we check whether
+a mesh region is dynamically smooth and its collision status is not
+changed from the previous frame. If so, we simplify the linear equations related to dynamically smooth regions, leading to a higher performance for cloth simulation.
+
+on how well we satisfy these constraints. Many cloth simulations construct constraints-integrated linear systems and
+then use a solver to obtain adequate solutions for those linear systems. Iterative solvers like conjugate gradient [HS52,
+She94] have been widely used to solve those linear systems.
+For a large-scale cloth, we find that even iterative solvers
+like the preconditioned conjugate gradient (PCG) can take
+a huge amount of time, since PCG, one of most efficient iterative solvers, has a time complexity of O(n1.5 ) to solve a
+3n × 3n linear system. For example, solving a linear system
+for a cloth mesh consisting of 100 K vertices takes about 20
+seconds on our test machine.
+3.2. Our Approach
+The main idea of our approach is to reduce the size of linear system by utilizing the smoothness of solutions of the
+system (Sec. 4.1) with adaptive meshes. First, we construct
+the original linear system with a high-resolution cloth mesh.
+This original linear system contains the full information of
+the high-resolution cloth mesh. Then we consider various
+forces and collisions to simplify the solutions of portions of
+the cloth mesh, leading to a reduced linear system (Sec. 4.2
+and Sec. 4.3). We then solve the simplified linear system in
+a reduced solution space and reconstruct the original solutions based on a simple linear interpolation from the solutions computed in the reduced space (Sec. 4.4). Finally, we
+employ an error correction with a few iterations on the residual equation to reduce high-frequency error (Sec. 4.5). The
+overview of our approach is shown in Fig. 2.
+Notations Throughout the paper, we use italic capital letters
+to denote triangles (T ), bold capital letters to denote matrices (M), bold small letters to denote vectors (v), and italic
+small letters to denote scalars (s). Superscript(t ) indicates the
+frame number.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+We assume in this paper that cloth simulation method uses a
+triangle-based energy model constructed from a cloth mesh,
+integrated with the well-known implicit Euler integration
+method [BW98]. However, our method can be easily extended to other types (e.g., mass-spring model) of energy
+models and other integration methods, if one can design a
+linear system from those cloth models and integration methods.
+The implicit Euler integration for the triangle-based energy model from a cloth mesh gives the following linear
+equations [BW98]:
+M−h
+
+∂f
+∂f
++h
+∂v
+∂x
+
+∆v = h ft + h
+
+∂f t
+v ,
+∂x
+
+(1)
+
+where h is a length of time step, M is a mass matrix, f is
+a force vector, x and v are position and velocity vectors defined for each vertex of the cloth mesh, and ∆v is a difference
+between two velocities of vt+1/2 and vt † .
+Eq. (1) can be rewritten as the following standard linear
+system using the fact that ∆x = h · vt+1/2 :
+A∆x = b
+
+(2)
+
+We perform our simplification method in the space of ∆x,
+instead of ∆v, since ∆x is likely to be smooth for regions of
+the cloth mesh, even though ∆v varies for those regions.
+4.1. Dynamically Smooth Regions
+Even though the cloth mesh can have very complex geometric shapes such as wrinkles, velocities ∆x on portions of the
+mesh can vary smoothly.
+In order to identify mesh regions that can be simplified
+with our method, we decompose the mesh into the following
+two regions: dynamically smooth and complex regions. Intuitively speaking, a mesh region belongs to the dynamically
+smooth regions, if all the vertices of the mesh region have
+similar velocities ∆x.
+Fig. 3 shows an example of the cloth mesh with regions
+that can be classified as dynamically smooth regions and
+thus can be simplified with our method. In this example, a
+ball collides with a cloth and pushes it. Fig. 3-(b) shows velocities of each vertex, each of whose x, y, and z components is visualized in the red, green, and blue channels respectively. In the example cloth mesh, region 2 that has very
+smooth geometry and also has very smooth velocities. Also,
+region 1 that has a wrinkled region, a complex geometry,
+also has similar velocities. Therefore, region 1 and 2 can be
+classified as dynamically smooth regions. However, region 3
+that has different velocities is classified as the dynamically
+complex region and thus is not simplified in our method.
+† vt+1/2 is an updated velocity with the information (e.g., velocities, forces and Jacobians) of frame t. vt+1 is then calculated with
+vt+1/2 and the collision information of frame t.
+
+2228
+
+Y. Lee et al. / Multi-Resolution Cloth Simulation
+
+v0
+
+T
+
+T1
+
+v3
+T2
+
+v1
+
+TT00
+
+v4
+
+v5
+
+T
+
+Simplification
+cut
+
+T3
+
+T0
+
+T2
+
+T1
+
+T3
+
+v2
+
+(a)
+
+(b)
+
+Figure 4: The left figure shows the Loop subdivision on a triangle
+T to create its four child triangles T0 , T1 , T2 , and T3 . The right figure shows our multi-resolution hierarchy constructed from the Loop
+subdivision.
+
+(b)
+
+(a)
+
+Figure 3: In the left figure (a), a ball collides with a cloth
+mesh. The right figure (b) shows the velocities of the mesh,
+each of whose x, y, and z components maps to the red, green,
+and blue channels respectively.
+
+Once we identify dynamically smooth regions, we simplify linear equations related to those regions and solve solutions for the simplified equations in a reduced space, ∆y,
+instead of the original space ∆x. Then, ∆x that are simplified
+into ∆y can be computed by interpolating elements of ∆y.
+For this, we introduce a transformation matrix, S, that transforms a reduced space, ∆y, to the solution space, ∆x of the
+original linear equations. As a result, Eq. 2 is transformed
+into the following equation:
+AS∆y = b,
+
+(3)
+
+where ∆x = S∆y, and ∆y is a vector of length O(m), which
+is much smaller than the length O(n) of the vector ∆x.
+4.2. Construction of Multi-Resolution Representation
+In order to efficiently perform the simplification on the dynamically smooth regions, we utilize a multi-resolution representation built from an input cloth mesh.
+We apply the Loop subdivision [Loo78] to the input
+coarse mesh in order to create a high-resolution mesh for
+a high-quality cloth simulation. The Loop subdivision of a
+triangle T creates its four child triangles, T0 , T1 , T2 , and T3
+(Fig. 4). We use T0 to denote the center child triangle, and
+T1 , T2 , and T3 to denote the other child triangles.
+Based on this parent-child relationship, we construct a
+multi-resolution forest whose root nodes correspond to triangles of the input cloth mesh by recursively performing the
+Loop subdivision a few times (e.g., 3 or 4 times) before running the cloth simulation.
+At each runtime simulation step, we maintain a simplification cut that approximates the original high-resolution cloth
+mesh. The simplification cut is initialized with all the leaf
+nodes of the multi-resolution hierarchy and thus represents
+the original high-resolution mesh. Then, as we traverse triangles (i.e. nodes) of the simplification cut, we get four sibling
+triangles and check whether we can simplify them into their
+common parent triangle in our multi-resolution hierarchy,
+
+according to our simplification metrics that define the dynamically smooth regions. This operation can be efficiently
+performed by traversing our multi-resolution representation
+in a bottom-up manner.
+4.3. Simplification Metrics
+In order to identify dynamically smooth regions, we present
+simple simplification metrics. Intuitively speaking, as more
+different forces are applied to a region, it is likely that vertices of the region will have more different accelerations at
+the current frame. There are three major forces that are important to cloth simulations: shear, stretching, and bending
+forces. In explicit Euler method, we can easily calculate acceleration for each vertex by calculating M−1 f. However,
+we cannot use these forces directly as a measurement of acceleration in the implicit Euler method; as in Eq. 1, ∆v is
+multiplied by A that consists of the mass matrix M and the
+Jacobian matrix ∂f/∂x.
+Instead, we propose to identify dynamically smooth regions based on geometric information computed at the current and previous frames. Because we perform our simplification method in the space of velocity (∆x), we consider
+both the velocity of the previous frame and the difference of
+geometric features between the previous and current frames,
+as an estimation for the acceleration in the current frame to
+determine whether a region is dynamically smooth or not.
+Intuitively speaking, if the differences of geometric features
+(e.g., dihedral angles and shapes) of triangles of a mesh region between two consequent frames are similar, then we
+can conclude that the triangles of the mesh region had similar accelerations and thus it is also likely that accelerations
+of those triangles are similar even in this frame assuming the
+frame-to-frame temporal coherence. More specifically, we
+check velocities of triangles to find whether they have similar velocities, followed by checking geometric differences
+caused by shear, stretch, and bending forces.
+Velocity Suppose that we consider four triangles, T0 , T1 , T2
+and T3 , in the simplification cut, to see whether we can simplify them for their parent triangle T shown in Fig. 4. For
+each edge of T , we compare the velocity vector of its midpoint (e.g., v3 in Fig.4) with the average velocity vector from
+the velocity vectors of its two endpoints (e.g., v0 and v1 in
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2229
+
+Y. Lee et al. / Multi-Resolution Cloth Simulation
+
+In-plane deformation In-plane deformation on cloth
+meshes is governed by stretch and shear forces. If strong
+in-plane forces are exerted on a triangle, those forces deform the triangle along the in-plane direction. For estimating
+stretch and shear forces, we check the difference of stretch
+factor (wu , wv ) and shear factor (wu+v , wu−v ) during a time
+step [BW98]. We can calculate wu and wv of triangle Ti jk
+consisting of vertices i, j, k as
+(wu wv ) = x j − xi xk − xi
+
+u j − ui uk − ui
+
+−1
+
+,
+
+where xi is the position of vertex i in the world coordinate,
+ui is the rest position of vertex i in the 2D-domain coordinate. We can calculate wu+v , wu−v by wu+v = wu + wv , and
+wu−v = wu − wv [CK02, ONW08]. We then define our simplification metrics for stretching and shearing at frame t as
+follows :
+t
+Mstretch
+(T ) = A(T )
+
+t
+Mshear
+(T ) = A(T )
+
+∆|wtu | + ∆|wtv |
+h
+
+∆|wtu+v | + ∆|wtu−v |
+,
+h
+
+where A(T ) is the area of triangle T and ∆|wt | = |wt | −
+|wt−1 |. Since as the area of a triangle becomes larger and
+the difference becomes larger at a unit time, there are more
+stretching and shearing forces on the triangle, we consider
+them in our simplification metrics.
+Out-of-plane deformation In order to estimate the difference of the bending force between two neighboring triangles, we consider the difference of the dihedral angle of
+those two neighboring triangles at the previous and current
+frames. We use ∠t T j to denote the angle between two triangles T0 and T j at frame t, shown in Fig. 4. Then the simplification metric for the bending force of a triangle T at frame t
+is defined as the following:
+t
+Mbend
+(T ) = max A(T )
+j=1,2,3
+
+t
+
+∆∠t T j
+,
+h
+t−1
+
+L2 norm of mean
+Variance
+
+0.14
+0.12
+Error (mm)
+
+Fig. 4). If these two velocities are similar in terms of the
+magnitude and direction of these two velocities, we further
+check in-plane and out-of-plane deformations for the simplification. Otherwise, we do not simplify the four triangles.
+Then, we fetch other four triangles in the simplification cut
+and continue to check them for the simplification.
+
+0.16
+
+0.1
+
+(b)
+
+0.08
+0.06
+0.04
+0.02
+
+0
+
+10 20 30 40 50 60 70 80 90 100
+
+Number of iterations for the error correction
+(a)
+
+Figure 5:
+
+(a) Mean and variance of errors caused by our approach. The variance of errors is drastically reduced by a few iterations of our error correction method. (b) and (c) show errors before
+and after performing the error correction step with 10 iterations respectively. x, y, and z components of errors map to red, green, and
+blue respectively.
+
+4.4. Computing Simplified Solutions
+We first construct the transformation matrix S according to
+our simplification metrics, by traversing our multi-resolution
+hierarchy in a bottom-up manner. Then we compute solutions of the linear system defined in a reduced solution space.
+Formulating the transformation matrix S We traverse our
+multi-resolution hierarchy in a bottom-up manner to construct the simplification cut that represents the simplified
+cloth mesh at the current frame. Once we compute the simplification cut, then we can formulate the transformation matrix S. The original solutions in the space of ∆x can be represented by a weighted sum of simplified solutions computed
+in the space of ∆y. For example, suppose that we simplify
+four sibling triangles, T0 , T1 , T2 , and T3 , shown in Fig. 4 into
+their parent triangle T . Once we compute solutions for v0 ,
+v1 , and v2 for the parent triangle T , then the solution of v3
+can be computed by the average of solutions of v0 and v1 ;
+solutions of other vertices v4 and v5 can be computed in a
+similar manner.
+Solving the reduced linear system In order to solve the linear system of Eq. 3 that is defined in the reduced solution
+space, we multiply ST to both sides of the equation, resulting in the following equation:
+ST AS∆y = ST b.
+
+t
+
+where ∆∠ T j is the difference between ∠ T j and ∠ T j .
+The area of a triangle A(T ) is also considered as in the inplane deformation.
+Collisions Our simplification metrics for shear, stretch, and
+bending forces are based on the frame-to-frame temporal coherence. However, once we have self-collisions within the
+cloth mesh or inter-collisions between the cloth mesh and
+other objects, the frame-to-frame temporal coherence is not
+satisfied. Also, the frame-to-frame coherence breaks even
+when collisions among meshes are resolved. Therefore, we
+do not simplify vertices or triangles at the moment when
+their collision states are changed.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+(c)
+
+(4)
+
+T
+
+The size of S AS becomes 3m × 3m, where m is the number of vertices of the simplified cloth mesh. We use PCG to
+solve Eq. 4. Computing ST AS can be done quickly, since A
+and S are sparse. For a cloth that consists of 20 K triangles,
+computing ST AS takes only 10 ms to 15 ms, while solving
+the original linear system takes 500 ms to 1000 ms.
+4.5. Error Correction
+We approximate the original solution, ∆xsol , of Eq. 2, as
+the product of S and the solution, ∆ysol of Eq. 4. However,
+S∆ysol is not exactly the same as ∆xsol , resulting in error, e.
+
+2230
+
+Y. Lee et al. / Multi-Resolution Cloth Simulation
+
+memory. For collision detection, we use a hybrid parallel
+continuous collision detection method [KHH∗ 09]. To handle
+collisions, we use the velocity filtering with the repulsion
+force method as proposed by Bridson et al.’s [BFA02].
+We test our method with four different benchmarks (Fig.
+6). Our two benchmarks are simple cases: draping a rectangular cloth with two fixed points (Fig. 6-(a)), a cloth draping
+on a ball (Fig. 6-(b)), a walking woman in a dress (Fig. 6(c)), and a walking man in trousers (Fig. 6-(d)).
+(b)
+
+(a)
+
+In order to define dynamically smooth regions, we use
+the following thresholds. If the magnitudes of two velocity vectors are within 10% difference and their angle is less
+than 0.056π, we consider them to be similar. Also, we use
+0.0001m2 /s as a thresholds for both Mstretch and Mshear , and
+0.0013πm2 /s as a threshold for Mbend . We perform 5 to 10
+iterations for the error correction; we use 5 iterations for subdivision level 3, and use 10 iterations for subdivision level 4.
+
+(d)
+
+(c)
+
+Figure 6: This figure shows our tested benchmark models: a rectangular shape cloth (a), a cloth with a ball (b), a walking woman in
+a dress (c), and a walking man in trousers (d).
+
+Especially, it is likely that the error becomes bigger when we
+have collisions, which breaks the frame-to-frame coherence.
+The error e consists of high-frequency errors (e.g., bumps
+and unrealistic wrinkles) and low-frequency errors (e.g., the
+overall shape of cloth). Artifacts caused by high-frequency
+errors look more unpleasant than those caused by lowfrequency errors.
+In order to reduce errors, especially visually unpleasant
+high-frequency errors, we perform error correction with the
+residual equation. We formulate the residual equation of Eq.
+2 as the following:
+Ae = b − AS∆y.
+
+(5)
+
+As we perform iterations with PCG on Eq. 5, highfrequency errors drastically decrease with only a few iterations [Wes92]. Fig. 5-(a) shows the mean and variance of
+errors on a frame of one of our benchmarks. Note that the
+variance of errors are drastically reduced by only a few iterations.
+5. Results
+We have implemented our method on a PC with a 3.0GHz
+Intel CPU, an NVIDIA GeForce 8800 GTX, and 2GB main
+
+We use 0.01s time step size for simulating benchmarks
+shown in Fig. 6-(a) and 6-(b). However, we use 0.001s time
+step size for simulating benchmarks shown in Fig. 6-(c) and
+6-(d), since these two benchmarks have complex contacts
+between the cloth meshes and walking characters. Initial
+cloth meshes in these benchmarks are designed in low resolutions and thus are inappropriate for high-quality cloth simulation. Therefore, we perform the Loop subdivision recursively 3 or 4 times to the base mesh. Also, during the refinement process, we build our multi-resolution hierarchy as
+mentioned in Sec. 4.2.
+Table 1 shows the average simulation time (excluding
+time spent on collision detection and handling) of our
+method and PCG with tested benchmarks. Overall our
+method achieves 8 times on average with all the tested
+benchmarks and up to 13 times performance improvement
+over using PCG with the original linear system. Also, as the
+complexity of cloth meshes increases, we observe that our
+method shows higher performance improvements over PCG.
+Although our method approximates the solutions of the original linear equations, we found that there are little noticeable
+visual artifacts and the simulation results of our method is
+similar to those computed by PCG.
+Our method has four main components: 1) initializing
+and setting up the linear equation (Init), 2) performing the
+simplification and constructing the transformation matrix
+(Simp), 3) performing PCG in the reduced solution space
+(Solve), and 4) performing the error correction (EC). We
+measure how much each component takes over the total simulation time. Solve takes the biggest portion (e.g., 40% to
+50%) and other components take similar portions.
+We also measure how many triangles of each subdivision
+level are used in the benchmark of the walking woman with
+a dress that has the subdivision level of 4 in the original highresolution mesh. 68% and 22% of triangles of the simplified
+cloth mesh have subdivision levels of 3 and 4 respectively.
+Other triangles are drastically simplified to have subdivision
+levels of 1 and 2.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2231
+
+Y. Lee et al. / Multi-Resolution Cloth Simulation
+Scene
+Figure 6-(a)
+Figure 6-(b)
+Figure 6-(c)
+Figure 6-(d)
+
+Subd. Mat.
+No. vertices
+Total Ratio Iter. Average time of our method (ms)
+PCG
+level
+/ No. triangles frames (%)
+Init Simp Solve EC Total
+(ms)
+3
+silk
+5k/13k
+300
+11.61 5
+16.8 14.3
+34.0 15.0
+80.1
+471.8
+4
+silk
+20k/52k
+300
+3.73 10
+69.3 59.0
+54.6 111.3 294.2 3805.2
+3
+cotton
+9k/22k
+300
+25.04 5
+17.0 14.5
+86.9 13.4 131.8 1018.9
+4
+cotton
+24k/61k
+300
+12.33 10
+70.2 58.9 336.9 109.7 575.7 4312.3
+3
+silk
+46k/90k
+6000 26.18 5
+89.0 68.3 273.3 74.2 504.8 2867.2
+4
+silk
+121k/240k
+6000 11.92 10 356.8 282.9 1562.9 542.7 2745.3 23055.2
+3
+leather
+62k/122k
+6000 16.05 5 119.4 97.3 391.5 84.2 692.4 7695.5
+
+Table 1: This table shows the model complexity, material type, the subdivision level to compute the highest resolution, the average simplification ratio in terms of the number of vertices, and the total number of frames for each tested benchmark. We also show the average simulation
+time for our method and PCG applied to the original linear system. Init – Initializing and setting up the linear system of Eq.2; Simp – Performing the simplification and constructing the transformation matrix; Solve – Solving Eq.4 with PCG; EC – Performing the error correction.
+Iter is the number of iterations for the error correction, PCG is time spent on performing PCG to the original linear system of Eq. 2.
+
+5.1. Discussion
+Time complexity The error correction has O(kn) time complexity [She94], where n is the number of vertices in the
+original high-resolution mesh and k is the number of iterations for the error correction. Therefore, the time complexity
+of our overall approach is O(m1.5 + kn), where m is the number of vertices in the simplified mesh. In practice, m is much
+smaller than n (e.g., less than 30% of n for our benchmarks)
+and we use only 5 to 10 iterations for the error correction.
+As a result, we are able to observe 8 times performance improvement on average over using PCG to the original linear
+system.
+Comparison with the standard multigrid method The
+main difference between our method and the standard multigrid is that our method uses adaptive meshes for the simplification according to our simplification metrics, whereas
+the multigrid uses uniform regular grids with v- or w-cycles.
+Such uniform grids may require many iterations for each
+step of v- or w-cycles for fine deformations of clothes.
+Therefore, our method can converge to a solution faster than
+the multigrid method in a short amount of time. To verify
+this, we show simulation results (Fig. 7) computed from our
+method and the standard v-cycle multigrid method [Wes92].
+Given the same computation time, our method produces a
+simulation result (Fig. 7-(b)) that is similar to one computed
+by solving the original linear equation with PCG (Fig. 7-(a)),
+while the multigrid method shows very different result (Fig.
+7-(c)). To achieve similar simulation quality, the multigrid
+(Fig. 7-(d)) takes much more time than ours (Fig. 7-(b)).
+Limitations We assume that an input high resolution mesh
+for our method is computed by performing the Loop subdivision to a coarse mesh. We chose this approach, mainly
+because existing cloth meshes are not designed in highresolutions and performing the Loop subdivision produces
+such high quality cloth meshes while facilitating to construct our multi-resolution hierarchy. However, one can simplify an arbitrary input high-resolution mesh by using the
+well-known edge-collapse simplification operator based on
+our simplification metrics. We have performed error correction steps with a few iterations (e.g., 5 to 10), in order to
+mainly reduce the visually unpleasant high-frequency errors
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+(b)
+
+(a)
+
+(d)
+
+(c)
+
+(a)
+PCG
+
+Solver
+Num. of iterations
+on smoothing
+Elapsed time(ms) 4312.3
+
+(b)
+(c)
+(d)
+Our method Multigrid Multigrid
+-
+
+15
+
+150
+
+575.7
+
+574.9
+
+3488.7
+
+Figure 7: The four images show the simulation results on cloth
+with a ball (Fig. 6-(b)) on a frame 25. For adjusting the simulation
+quality of the multigrid, we modify the number of fixed iterations of
+the smoothing process with the standard V-cycle, as shown above in
+the table.
+
+in an efficient manner. However, low-frequency errors may
+remain and thus it is possible to have artifacts on the simulation results.
+6. Conclusion
+We have designed an efficient multi-resolution cloth simulation technique. We identify dynamically smooth regions
+and simplify those regions in order to improve the simulation
+performance without deteriorating the simulation quality. In
+order to identify such dynamically smooth regions, we have
+proposed simplification metrics that consider geometric con-
+
+2232
+
+Y. Lee et al. / Multi-Resolution Cloth Simulation
+
+tacts as well as various forces that govern energy-based cloth
+models. As a result, we were able to observe 8 times performance improvement on average with the tested benchmarks
+over running the PCG to the original linear system.
+There are many avenues for future research directions. In
+our current method, we have only designed multi-resolution
+approach for solving the linear system of cloth simulation.
+We believe that we can further improve the performance of
+the cloth simulation by applying multi-resolution collision
+detection method [YSLM04] without generating unpleasant
+visual artifacts. Also, we would like to improve the performance of our method by utilizing parallel many-core CPUs
+and GPUs. Since the main bottleneck of our method is on
+performing PCG with the linear system even in the reduced
+solution space, GPU-based parallel solvers [BFGS03] can
+further improve the performance of our method. Currently,
+we do not utilize any temporal coherences when we compute the simplified solutions. We believe that we can further
+improve the performance of our method by utilizing temporal coherences in a similar manner used in progressive deforming meshes [HCC06]. Finally, we would like to support tearing within our method. Since tearing of clothes requires high-resolution on the tearing boundary, we believe
+that our multi-resolution framework is very promising to
+support such effects.
+Acknowledgment
+We would like to thank anonymous reviewers for
+their constructive feedbacks. This project was supported in part by MKE/MCST/IITA [2008-F-033-02],
+MKE/IITA u-Learning, MKE digital mask control,
+MCST/KOCCA-CTR&DP-2009, KRF-2008-313-D00922,
+KMCC, BK, DAPA/ADD (UD080042AD), MKE/KEIT
+[KI001810035261], and MSRA.
+References
+[Aga07] AGARWALA A.: Efficient gradient-domain compositing
+using quadtrees. ACM Trans. on Graphics 26, 3 (2007), 94. 2
+[AKJ08] A N S. S., K IM T., JAMES D. L.: Optimizing cubature
+for efficient integration of subspace deformations. ACM Trans.
+on Graphics 27, 5 (2008), 165. 2
+[BFA02] B RIDSON R., F EDKIW R., A NDERSON J.: Robust treatment for collisions, contact and friction for cloth animation. Proc.
+of ACM SIGGRAPH (2002), 594–603. 2, 6
+[BFGS03] B OLZ J., FARMER I., G RINSPUN E., S CHRÖDER P.:
+Sparse matrix solvers on the gpu: conjugate gradients and multigrid. ACM Trans. on Graphics 22, 3 (2003), 917–924. 8
+[BHW94] B REEN D., H OUSE D., W OZNY M.: Predicting the
+drape of woven cloth using interacting particles. Proc. of ACM
+SIGGRAPH (1994), 365–372. 2
+[BW98] BARAFF D., W ITKIN A. P.: Large steps in cloth simulation. Proc. of ACM SIGGRAPH (1998), 43–54. 1, 2, 3, 5
+[CK02] C HOI K.-J., KO H.-S.: Stable but responsive cloth. Proc.
+of ACM SIGGRAPH (2002), 604–611. 2, 5
+[CK05] C HOI K.-J., KO H.-S.: Research problems in clothing
+simulation. Computer-Aided Design 37, 6 (2005), 585–592. 2
+[dASTH10] DE AGUIAR E., S IGAL L., T REUILLE A., H ODGINS
+J. K.: Stable spaces for real-time clothing. In Proc. of ACM
+SIGGRAPH (2010). 2
+
+[GHF∗ 07] G OLDENTHAL R., H ARMON D., FATTAL R.,
+B ERCOVIER M., G RINSPUN E.: Efficient simulation of inextensible cloth. ACM Trans. on Graphics 26, 3 (2007), 49. 1,
+2
+[GKJ∗ 05] G OVINDARAJU N., K NOTT D., JAIN N., K ABAL I.,
+TAMSTORF R., G AYLE R., L IN M., M ANOCHA D.: Collision
+detection between deformable models using chromatic decomposition. ACM Trans. on Graphics 24, 3 (2005), 991–999. 1
+[GKS02] G RINSPUN E., K RYSL P., S CHRÖDER P.: Charms: A
+simple framework for adaptive simulation. Proc. of ACM SIGGRAPH (2002), 281–290. 2
+Nvidia : Cloth simulation.
+[Gre03] G REEN S.:
+http://developer.nvidia.com/object/demo_cloth_simulation.html,
+2003. 1
+[HCC06] H UANG F.-C., C HEN B.-Y., C HUANG Y.-Y.: Progressive deforming meshes based on deformation oriented decimation and dynamic connectivity updating. In ACM Symp. on Computer Animation (2006), pp. 53–62. 8
+[HPH96] H UTCHINSON D., P RESTON M., H EWITT T.: Adaptive refinement for mass/spring simulations. In 7th Eurographics
+Workshop on Animation and Simulation (1996), pp. 31–45. 1, 2
+[HS52] H ESTENES M. R., S TIEFEL E.: Methods of conjugate
+gradients for folving linear systems. Journal of Research of the
+National Bureau of Standards 49, 6 (1952), 409–436. 3
+[KHH∗ 09] K IM D., H EO J.-P., H UH J., K IM J., YOON S.-E.:
+HPCCD: Hybrid parallel continuous collision detection. Computer Graphics Forum (Pacific Graphics) 28, 7 (2009). 1, 6
+[LGF04] L OSASSO F., G IBOU F., F EDKIW R.: Simulating water
+and smoke with an octree data structure. ACM Trans. on Graphics 23, 3 (2004), 457–462. 2
+[Loo78] L OOP C.: Smooth subdivision for surfaces based on triangles. Master’s thesis, University of Utah, 1978. 4
+[Mül08] M ÜLLER M.: Hierarchical position based dynamics.
+Workshop on Virtual Reality Interaction and Physical Simulation
+(2008), 13–14. 2
+[ONW08] O H S., N OH J., W OHN K.: A physically faithful multigrid method for fast cloth simulation. Journal of Visualization
+and Computer Animation 19, 3-4 (2008), 479–492. 2, 5
+[Pro96] P ROVOT X.: Deformation constraints in a mass-spring
+model to describe rigid cloth behavior. In Graphics Interface
+(1996), pp. 147–154. 2
+[She94] S HEWCHUK J. R.: An introduction to the conjugate gradient method without the agonizing pain. Manuscript., 1994. 3,
+7
+[VB05] V ILLARD J., B OROUCHAKI H.: Adaptive meshing for
+cloth animation. Engineering with Computers (2005), 243–252.
+1, 2
+[Wes92] W ESSELING P.: An Introduction to Multigrid Methods.
+John Wiley & Sons, Chichester, 1992. 6, 7
+[WHRO10] WANG H., H ECHT F., R AMAMOORTHI R.,
+O’B RIEN J.: Example-based wrinkle synthesis for clothing
+animation. In Proc. of ACM SIGGRAPH (2010), pp. 1–8. 1, 2
+[YSLM04] YOON S., S ALOMON B., L IN M. C., M ANOCHA D.:
+Fast collision detection between massive models using dynamic
+simplification. In Eurographics Symposium on Geometry Processing (2004), pp. 136–146. 8
+[ZY01] Z HANG D., Y UEN M. M.-F.: Cloth simulation using
+multilevel meshes. Computers & Graphics 25, 3 (2001), 383–
+389. 2
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+

@@ -1,0 +1,841 @@
+Eurographics/ IEEE-VGTC Symposium on Visualization 2009
+H.-C. Hege, I. Hotz, and T. Munzner
+(Guest Editors)
+
+Volume 28 (2009), Number 3
+
+Accelerating Volume Raycasting using Proxy Spheres
+B. Liu, G. J. Clapworthy and F. Dong
+Department of Computer Science & Technology, University of Bedfordshire, UK
+
+Abstract
+In this paper, we propose an efficient solution that addresses the performance problems of current single-pass
+GPU raycasting algorithms. Our paper provides more control over the rendering process by introducing tighter
+ray segments for raycasting, while at the same time avoiding the introduction of any new rendering artefacts. We
+achieve this by dynamically generating, on the GPU, a coarsely fitted proxy geometry, composed of spheres, for
+the active blocks. The spheres are then rasterised into two z-buffers by a single rendering pass. The resulting two
+z-buffers are used as the first-hit and last-hit points for the subsequent raycaster. With this approach, only the valid
+ray segments between the two z-buffers need to be sampled during raycasting. This also provides more coherent
+parallelism on the GPU due to more consistent ray length and avoidance of the overheads and dynamic branching
+of performing checks on a per-sample basis during the raycasting pass.
+Our technique is ideal for dynamic data exploration in which both the transfer function and view parameters need
+to be changed frequently at runtime. The rendering results of our algorithm are identical to the general cube-based
+proxy geometry algorithm, but the performance can be up to 15.7 times faster. Furthermore, the approach can be
+adopted by any existing raycasting system in a straightforward way.
+Categories and Subject Descriptors (according to ACM CCS):
+Generation—Viewing Algorithms
+
+1. Introduction
+Volume rendering techniques are important for medical visualisation. They provide a crucial means for performing
+visual analysis of a patient’s anatomy for diagnosis, preoperative planning, and surgical training. Thanks to its flexibility, experts agree that GPU-based raycasting is the stateof-the-art technique for interactive volume rendering.
+The recent gains in arithmetic capability and memory
+bandwidth of the latest GPUs have substantially outpaced
+those of their CPU counterparts. Moreover, this performance
+gain has been achieved alongside significantly reduced item
+cost, so the massively parallel architectures of GPUs are increasingly within the reach of average consumers.
+While recent raycasting systems achieve interactive frame
+rates on high-end hardware, further acceleration would allow the use of more complex rendering techniques, e.g., advanced illumination effects, which usually consume valuable
+rendering time. To allow such additional effects to be intec 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+I.3.3 [Computer Graphics]: Picture/Image
+
+grated without loss of interactivity, it is important to optimise
+rendering performance.
+Our method gains efficiency by ignoring empty or inactive
+blocks that do not contribute to the final image. The remaining blocks (the active blocks) are extracted by a GPU stream
+compaction and are then rasterised to produce the first-hit
+and last-hit points for the subsequent raycaster, which can
+employ any existing GPU-based raycasting infrastructure, irrespective of whether it uses adaptive or regular sampling.
+Many splat-based volume rendering approaches have
+been published previously; however, our novel approach
+uses splats to speed up raycasting-based volume rendering.
+In summary, our technique has the following advantages:
+1. Due to the simplicity of using proxy spheres, our ray
+setup algorithm is very efficient and produces very tight
+ray segments. This provides increased speed in the resulting raycasting, often by an order of magnitude.
+2. In contrast to previous methods, our algorithm works well
+not only for arbitrary discontinuous viewing changes, but
+
+840
+
+B. Liu, G. Clapworthy and F. Dong / Accelerating Volume Raycasting using Proxy Spheres
+
+also for interactive changes of transfer function, without
+loss of speed, to support dynamic data exploration.
+3. Our algorithm introduces no image artefacts - all the rendering results of our method are identical to those produced by the general cube-based proxy geometry.
+2. Related Work
+GPU-based raycasting was introduced by Kruger and Westermann [KW03]. It uses a cube proxy geometry (the dataset
+bounding box) to specify the start points and end points for
+the rays, as shown in Figure 1.
+Hadwiger et al. [HSS∗ 05] implemented single-pass GPU
+raycasting in a fragment program (the raycaster), but this
+method uses the CPU to cull the empty blocks at runtime.
+Furthermore, whenever the transfer function is changed, the
+many bounding faces of all the active blocks that are adjacent to inactive blocks, need to be reconfigured or set up
+by the CPU at runtime. These intensive CPU operations for
+culling and triangle configuration represent a bottleneck for
+dynamic data exploration, in which the transfer function is
+changed frequently at runtime. Hong et al. [HQK05] used
+a similar cube proxy geometry for object-order raycasting
+in which all the front and back faces of the cubic blocks
+were projected on to the image plane to set up rays for casting. However, such techniques require 4 rendering passes for
+each active block, so the rendering contexts are switched
+three times during the cube proxy geometry rasterisation,
+which may result in performance loss on current GPUs. In
+contrast, our method needs only one pass of rasterisation for
+all the sphere proxy geometry.
+Vidal et al. [VMD08] implemented a kd-tree based
+scheme to remove empty spaces at the preprocessing stage.
+But this stage consumes about 4 seconds for 5123 data sets,
+and this preprocessing must be redone whenever the transfer
+function is changed. As a result, it is also not suitable for
+dynamic data exploration.
+Polygon-assisted raycasting technique [LNM06] can
+adapt to only limited changes of the transfer function, since
+it generates an accurate polygonal isosurface as proxy geometry using Marching Cubes - this is usually too time consuming, and then it restricts raycasting to those parts of the rays
+that lie inside the proxy geometry. In contrast, our method
+does not need to generate the accurate polygon isosurface
+(that is, up to 15 triangles for each voxel, as in [DZTS08]).
+Instead, we rasterise a proxy sphere (a GL_POINT primitive) for each active block - this is much more efficient to
+compute than the Marching Cubes isosurface.
+In a recent paper, Mensmann et al. [MRH08] proposed
+a new accelerating method by using occlusion frustums as
+proxy geometry that is obtained from a previously rendered
+frame. In comparison, our sphere proxy geometry produces
+much tighter ray segments, as shown in Figure 1. More detailed comparison will be made in Section 5.2.
+
+All of the above approaches (including ours) employ
+object-order empty-space skipping, i.e., determining the
+valid ray segments before the raycaster is launched. However, there exists another category of approach: image-order
+empty-space skipping [LLYM04, Lju06, GMI08], i.e., deciding, within the raycasting loop, to skip individual samples or adaptively adjust the sampling density by accessing
+some pre-computed multiresolution representation, such as
+octrees, to select a proper level of detail (LOD).
+These two contrasting approaches can complement each
+other. Image-order empty-space skipping demands that
+checks are performed essentially on a per-sample basis during the raycasting loop. This may result in incoherent dynamic branching between neighbouring pixel shaders, and
+the resulting overhead on current GPUs is not negligible. As
+the complex adaptive sampling and the per-sample checks
+are inside the raycaster, the parallel executions of neighbouring pixel shaders may diverge at runtime, leading to underutilisation of the GPU parallel computing ability. Objectorder empty-space skipping, on the other hand, involves no
+per-sample checks within the raycasting loop, so its raycasting fragment program is much simpler and has better local
+coherence between multiple parallel GPU cores.
+D
+
+C
+B
+A
+
+Figure 1: A ray casting through a volume dataset. A and D are the
+start and end points on the volume bounds; B and C are the first-hit
+and last-hit points. The ray segments produced by our algorithm,
+−
+→ −
+−
+→
+→
+[MRH08] and the benchmark are BC, BD and AD, respectively.
+
+3. Problem Analysis of GPU based Raycasting
+The two determining factors for raycasting performance are
+the application resolution (resulting in higher fill rates for
+higher resolution) and the number of steps taken for each
+ray computation. Since the first factor is determined by the
+needs of the users in their particular application, this paper
+concentrates on the second factor.
+The basic idea of GPU-based raycasting is to store the
+entire volume in a single 3D texture, and drive a fragment
+program that casts rays into the volume. The range of depths
+between the positions at which a ray enters and exits the volume is computed per frame in a ray setup stage before the
+actual raycaster is launched. In the simplest case, that is the
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+841
+
+B. Liu, G. Clapworthy and F. Dong / Accelerating Volume Raycasting using Proxy Spheres
+
+benchmark, the range is obtained by rasterising the front and
+back faces of the volume bounding box, respectively.
+The only expensive stage of the rendering pipeline is the
+actual raycasting loop, which iteratively steps through the
+volume. Its calculation time is mainly influenced by the ray
+length, as this controls the number of steps (for a given sampling density), so we shall seek to shorten the ray length to
+improve performance.
+Moreover, many medical applications require the rendering parameters, such as transfer function, viewing parameters (translation, rotation and zooming), etc., of the visualisation to be adjustable by the user at runtime to allow dynamic
+data exploration.
+Raycasters of the image-order empty-space skipping type
+(using adaptive sampling and LOD schemes [LLYM04,
+Lju06, GMI08]) can be combined easily with our method to
+handle an out-of-core dataset, as our approach simply provides them with tighter ray segments at the ray setup stage,
+that is, before their particular raycasters are launched.
+4. The New Algorithm
+Our algorithm is inspired by Qsplat [RL00], which progressively displays large meshes by a multiresolution hierarchy
+representation of bounding spheres. These spheres can be
+computed and rendered as GL_POINT primitives very efficiently, making it suitable for visualising large meshes. In
+this paper, the bounding sphere idea will be employed to accelerate GPU raycasting.
+Using the volume bounding box to set up rays is a bruteforce approach that is normally too conservative, since volume datasets tend to be rather coarse, having many inactive
+voxels, such as air, that occupy a large proportion of the total volume but make no contribution to the final result. Our
+method is motivated by this feature, which will allow us to
+skip the large majority of the inactive blocks by rapidly extracting the active blocks on the GPU and then rasterising
+their bounding spheres as point primitives to produce tighter
+ray segments for raycasting. The reduction in ray length addresses the major bottleneck of raycasting and our results
+demonstrate a significant improvement in performance.
+4.1. Overview of the new algorithm
+At preprocessing time, a block structure texture is created this has to be done just once. At runtime, for each frame our
+method can be divided into the following 2 stages: the ray
+setup stage and the actual raycasting pass:
+1. All the active blocks are extracted (based on the current
+transfer function) by exploiting GPU stream compaction;
+and then their bounding spheres (used as the coarselyfitted proxy geometry) are rasterised into two z-buffers in
+a single rendering pass.
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2. The raycasting pass is then launched - for each fragment
+we enforce a tighter ray segment, defined by the range
+between the two z-buffers.
+change
+transfer function
+
+volume
+texture
+
+TF
+texture
+
+Tmin
+
+rasterisation
+pass
+
+build
+HistoPyramid
+block
+structure
+
+change view
+parameter
+
+HistoPyramid
+texture
+
+raycasting
+pass
+
+two
+Zbuffers
+
+final
+image
+
+Figure 2: Runtime flowchart. The two ellipses represent user interaction. The red box represents all the computations on GPU.
+The spheres represent the data and textures stored in video memory.
+The green arrows designate data flow. The blue box, containing the
+rasterising and raycasting passes, is executed constantly for each
+frame, while the HistoPyramid building takes place only when the
+transfer function is changed.
+Figure 2 shows a runtime flowchart of our algorithm. In
+the following 3 subsections, we shall provide greater detail
+about the individual stages.
+4.2. Building a block structure during preprocessing
+For efficient culling of the inactive subvolumes, a uniform
+block structure is built along with the original volume.
+Bgranu is the granularity of the block in voxels (each block
+contains Bgranu 3 voxels). Bgranu may be 1, 2, 4, 8 or 16.
+We will later show that different datasets may need different granularity for optimal performance. The block structure
+is stored as a single-channel 3D texture, each texel of which
+stores the maximum density value, Dmax , of all the voxels in
+the corresponding block.
+Transfer functions (no matter whether 1D or 2D) are normally composed of a few segments or widgets [KKH01], as
+shown in Figure 3. We use the minimum density value of the
+leftmost segment or widget as a threshold, Tmin , to cull the
+blocks: when Dmax of a block is less than Tmin , the block will
+be skipped as inactive, since it does not make any contribution to the final image; otherwise, the block will be extracted
+as an active block.
+4.3. Ray setup stage
+4.3.1. Extracting active blocks on the GPU
+Whenever the transfer function changes, we extract all the
+new active blocks by an efficient GPU stream compaction
+algorithm, HistoPyramid [ZTTS06], which runs in parallel
+
+842
+
+B. Liu, G. Clapworthy and F. Dong / Accelerating Volume Raycasting using Proxy Spheres
+
+opacity
+
+projects. The diameter (in screen-space) of the disk will be
+used as gl_PointSize for hardware rasterisation.
+
+gradient
+
+Tmin
+
+intensity
+
+Tmin
+
+intensity
+
+Figure 3: The top figure shows a 1D transfer function using 3 segments to classify data; the bottom figure shows a 2D transfer function (based on intensity and gradient magnitude) using 3 scalable
+and translatable box widgets overlaid on a histogram of a volume
+data. Tmin is the minimum intensity value of the leftmost widget.
+
+on the GPU to reduce a sparse matrix with N elements to a
+list of its M active entries.
+
+During the rasterisation, we exploit dual-depth peeling
+[BM08], which performs depth peeling in both back-to-front
+and front-to-back directions simultaneously, so that two layers (one from the front and another from the back) can be
+peeled in each pass. This is implemented by using a minmax depth buffer (in an RG32F texture format) and using MIN blending to perform the depth comparison. In this
+way, we need only one rasterising pass to obtain the two zbuffers (the front-most layer and the back-most layer). This
+is a great improvement over the traditional depth-peeling
+[Eve01] which peels only one layer at a time.
+4.4. Raycasting pass
+Then the two z-buffers, together with their corresponding xy
+coordinates are used as the first-hit and last-hit points (vilsualsed in Figure 4) to launch the subsequent GPU raycasting.
+
+We first create a 2D basis texture for the pyramid from the
+block structure texture. From this basis texture, the HistoPyramid algorithm builds the upper-level textures of the pyramid in a bottom-up, layer-by-layer fashion. Each texel at the
+bottom level has a bool value (0 or 1) representing whether
+the block is active or not (depending upon a comparison of
+Tmin with Dmax ). Each texel in an upper level is assigned the
+sum of the four corresponding texels in the level immediately below it. The single texel at the top level of the pyramid
+texture stores the total number, M, of active blocks extracted.
+4.3.2. Rasterising active blocks as proxy spheres
+In order to reduce the vertex and geometry operations of all
+the bounding faces of the active blocks, we use bounding
+spheres, instead of cubes, as the proxy geometry for block
+rasterisation. As noted earlier, previous methods [HSS∗ 05]
+[HQK05] rasterise each active block as a cube with 12 triangle primitives, which involves many more vertex operations
+and more complex vertex connecting and primitive assembling than ours, since only one vertex operation is needed
+for our proxy sphere rasterisation.
+In total we need only one rendering pass to retrieve and
+rasterise all the active blocks, as below.
+Each active block triggers only one vertex shader via its
+index. The position (in object-space) of the active block can
+be retrieved by traversing the HistoPyramid using the index
+of the block. After the vertex shader has retrieved the block
+position, the block is rasterised as a single rendering primitive (GL_POINT), that is a disk with a properly computed
+radius and centre in screen-space. The explicit equations to
+compute the disk, which are both accurate and easy to implement, can be found in [LCD09]. The disk must cover all
+of the pixels on to which the bounding sphere of the block
+
+Figure 4: The first 2 rows show the rasterising results of the proxy
+spheres at 3 different levels of block granularity (Bgranu =16, 8 and
+2, respectively, from left to right) with the first-hit points shown in
+the top row and the last-hit points shown in the middle row. The
+bottom row shows the final rendering results from our method (left)
+and the benchmark (right); the rendering quality of the two methods
+is identical, but the former (43.6fps) is 5.2 times faster than the latter
+(8.5fps).
+
+Once these valid ray segments have been found, one can
+use any existing raycasting algorithm - even a CUDA implementation is doable. For our testing, we chose to implement
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+B. Liu, G. Clapworthy and F. Dong / Accelerating Volume Raycasting using Proxy Spheres
+Bgranu
+1
+2
+4
+8
+
+#
+316313
+55225
+12081
+3340
+
+t1
+21.6
+3.87
+1.64
+1.16
+
+t2
+16.6
+18.23
+22.56
+29.61
+
+fps
+26.2
+45.3
+41.4
+32.5
+
+s
+8.19
+14.2
+12.8
+10.2
+
+Table 1: Timing analysis. # represents the number of the active
+blocks extracted; t1 is the timing (in msec) for the ray setup stage
+including HistoPyramid building and proxy sphere rasterisation; t2
+is the timing for the raycasting pass; s is the speed-up factor over
+the benchmark, whose framerate is 3.2fps. The framerates here are
+for the rightmost image of Figure 6.
+
+basic raycasting in a fragment program using regular sampling with front-to-back traversal and early ray termination.
+For each marching step, we sample the volume texture using
+trilinear interpolation, apply the transfer function, compute
+Phong lighting by on-the-fly gradient calculation, and finally
+perform the compositing.
+One thing to be emphasised is that the use of GL_POINT
+for the proxy sphere rasterisation results in a thin disk in
+screen space (shown as the green lines in Figure 5), rather
+than a solid 3D sphere. So, in order to achieve a conservative
+ray segment that covers all the active voxels, we need to expand the two z-buffers along the ray direction by a distance
+R, which is the radius of the bounding spheres of the blocks.
+
+843
+
+From Figure 6 and Table 1 we can see that with a smaller
+Bgranu , the proxy spheres fit the shape of the volume data
+more closely so the timing for raycasting will be shorter,
+however, the timing for the ray setup will then be longer
+since more active blocks have to be extracted and rasterised.
+In contrast, a larger Bgranu leads to longer raycasting times
+(due to the more coarsely fitted proxy geometry produced)
+but shorter ray setup times.
+To maximise performance, an optimal value of Bgranu
+should be selected for each different dataset. This requires
+only the change of the single parameter, Bgranu , which can
+take one of 5 different values. For the vertebra data, we found
+the sweet point to be at Bgranu = 2, for which the performance was 14.2 times faster than the benchmark algorithm.
+5. Results and Discussion
+The techniques presented were implemented using
+OpenGL/GLSL on an AMD 2.3GHz PC, and an NVIDIA
+GeForce GTX280 graphics card with 1 GB video memory.
+All images in this paper were rendered at 1024 × 1024
+screen resolution. The comparisons for the various test cases
+were rendered under precisely the same view configurations
+shown in the corresponding figures throughout the paper.
+5.1. Performance analysis
+
+D
+A
+
+B
+
+E
+-
+
+C
+-
+
+Figure 5: The original two z-buffers store C and D as lying on
+the two green lines, which are the rasterising results of the two red
+spheres. For each fragment A on the image plane, we need to expand
+C backwards along the ray by a distance R, and expand D forwards
+by the same distance R. As a result, the final first-hit and last-hit
+points will be B and E, respectively, which lie on the two blue lines.
+
+4.5. Selection of Bgranu
+Table 1 provides some timings to help analyse the impact
+of selecting different Bgranu on the overall performance of
+our algorithm. Here we assume that the transfer function is
+changed constantly for every frame, so we will rebuild the
+HistoPyramid for each frame.
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+We tested our algorithm with different sparse and dense data
+sets, and the results are shown in Figure 7 and Table 2. Here,
+we have assumed that both the transfer function and the view
+parameters are changed at every frame. Different block granularity values, Bgranu , were chosen for different data sets for
+optimal performance. To evaluate the speed-up factor, we
+use the cube-based proxy geometry algorithm as a benchmark, which was also adopted in [MRH08]. Our algorithm
+and the benchmark use an identical raycaster, with uniform
+sampling and the same stepping distance; the only difference lies in the ray setup stage that generates the valid ray
+segments.
+As expected, the greatest speed-ups were achieved with
+large, but sparse, data sets such as vertebra, though even for
+dense objects with little empty space, such as head (transparent) and feet (transparent), some speed-up was obtained. The
+amount of empty space depends upon the transfer function
+and thus so does the speed-up, as shown with the feet and
+head data set, where different transfer functions to show the
+skin and bone structures were applied. Speed-up is most obvious for high-resolution data sets and high-quality rendering, where the cost of sampling empty voxels is very high,
+but the cost of our ray setup is not proportionally high, since
+we can flexibly adjust the parameter Bgranu to reduce the ray
+setup overhead.
+Further, the cost of the raycasting pass is strongly dependent upon the viewport size, but the cost of our ray setup
+
+844
+
+B. Liu, G. Clapworthy and F. Dong / Accelerating Volume Raycasting using Proxy Spheres
+
+Figure 6: The rasterising results (first-hit points) at 4 different block granularities (Bgranu =8, 4, 2 and 1, respectively), and the final rendered
+results. The timings are shown in Table 1. The dataset used here is vertebra, whose resolution is 5123 .
+
+data set
+vertebra
+aneurism
+feet(transparent)
+feet(bone)
+backpack
+engine(transparent)
+engine(interior)
+stagbeetle
+stent
+head(transparent)
+head(bone)
+
+size
+5123
+2563
+2563
+2563
+5122 × 373
+2562 × 128
+2562 × 128
+8322 × 494
+5122 × 256
+5122 × 306
+5122 × 306
+
+Bgranu
+2
+1
+4
+2
+4
+4
+1
+8
+8
+8
+4
+
+#
+55225
+81164
+69335
+108293
+19060
+25183
+92049
+29508
+37651
+59982
+86018
+
+cube
+3.2
+6.3
+7.9
+8.5
+5.6
+6.6
+5.1
+5.3
+4.7
+6.0
+6.6
+
+our
+45.3
+43.3
+21.0
+43.6
+53.1
+22.0
+50.4
+55.1
+25.6
+18.4
+26.2
+
+s
+14.2
+6.87
+2.66
+5.2
+9.5
+3.33
+9.88
+10.4
+5.45
+3.07
+3.97
+
+Table 2: Performances (in fps) for different data sets using our
+method (changing both the transfer function and the viewing parameters continuously) and the benchmark. The columns also indicate
+Bgranu , the number (#) of active blocks extracted, and the resulting
+speed-up factor s of our method over the benchmark (cube). All the
+frame rates here are for the images in Figures 4, 6 and 7.
+
+stage is not, so we can use a high-resolution viewport, such
+as 10242 , without introducing obvious overheads. It can thus
+be seen that the technique scales well with increases in viewport size and the resolution of the 3D data set.
+Table 2 suggests that, as a rule of thumb, for low resolution data, Bgranu should be given a low value, but a higher
+values should be selected when the resolution of the data is
+greater.
+5.2. Comparison with the most related method
+In this section, the advantages of our approach, as compared
+to previous work, are discussed. Comparisons in the following 4 aspects are made against the latest GPU-based proxy
+geometry optimizing algorithm [MRH08].
+1. [MRH08] can handle only coherent changes in view parameters as arbitrary view changing may cause it to degenerate into the brute-force method of using volume
+bounds to assist ray setup, due to view frustum motion
+when new objects enter the view frustum. Our method
+never degenerates in this way.
+2. The proxy geometry in [MRH08] depends upon a previously rendered frame to supply first-hit points. Thus,
+
+whenever the transfer function is changed, the first-hit
+points become invalid. As a result, a costly brute-force
+raycasting pass has to be run to recalculate them, which
+means the algorithm cannot handle dynamic changes of
+transfer function. In contrast, our method can handle both
+arbitrary changes to the viewing parameters and frequent
+changes to the transfer function for dynamic data exploration without loss of performance, as shown in Table 2.
+3. The reliance on a previous frame in [MRH08] also introduces quality inaccuracy: if the previous raycasting pass
+did not have a sufficiently high sampling rate and consequently some fine details were missed, then the first-hit
+points obtained from it may be incorrect, and the later
+frames will inherit incorrect first-hit points for raycasting,
+which will continue to produce inaccurate results. In a
+clinical situation, this could be serious. To avoid this possibility, we adopted a conservative approach (a bounding
+sphere can always fully enclose an active block), which
+can guarantee that the ray segments produced cover all of
+the active voxels, removing the possibility of any inaccuracy.
+4. [MRH08] produces only the first-hit points, but not the
+last-hit points. This is particularly inefficient for transparent rendering, in which many fragments that do not accumulate sufficient alpha components to reach the opacity
+threshold will keep executing until they reach the volume
+bounds.
+In order to compare performance with [MRH08] under
+circumstances most favourable to it, i.e., fixed transfer function, we can skip the HistoPyramid-building step (since the
+active blocks do not change anymore), and only execute the
+blue box in Figure 2. Under these conditions, the new performance is shown in Table 3. The statistics show that performance in Table 3 is slightly faster than in Table 2, while
+it can still handle arbitrary view changing.
+As [MRH08] used a same kind of benchmark (uniform
+sampling and cube proxy geometry) for measuring speed-up
+factors, we can compare Table 3 with the table in their paper.
+For similar data sets, we achieved greater speed-up factors
+than those reported in their paper (for example, their highest
+speed-up factor is 2.49 for vertebra, while ours is 15.7 for
+the same data). This is because our proxy sphere method is
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+B. Liu, G. Clapworthy and F. Dong / Accelerating Volume Raycasting using Proxy Spheres
+data set
+vertebra
+aneurism
+transparent feet
+feet(bone)
+backpack
+transparent engine
+engine(interior)
+stagbeetle
+stent
+head(transparent)
+head(bone)
+
+size
+5123
+2563
+2563
+2563
+5122 × 373
+2562 × 128
+2562 × 128
+8322 × 494
+5122 × 256
+5122 × 306
+5122 × 306
+
+Bgranu
+2
+1
+4
+2
+2
+4
+1
+8
+8
+8
+4
+
+#
+55225
+81164
+69335
+108293
+88209
+25183
+92049
+29508
+37651
+59982
+86018
+
+cube
+3.2
+6.3
+7.9
+8.5
+5.6
+6.6
+5.1
+5.3
+4.7
+6.0
+6.6
+
+our
+50.2
+47.5
+21.3
+45.3
+61.0
+22.3
+56.2
+58.1
+26.2
+18.7
+26.6
+
+s
+15.7
+7.5
+2.7
+5.3
+10.9
+3.38
+11.02
+10.96
+5.57
+3.12
+4.03
+
+Table 3: Performances (in fps) for different data sets using our
+method (with fixed transfer function and changing only the viewing
+parameters constantly) and the benchmark.
+
+cheaper than their occlusion frustum method, which involves
+many triangle constructions (similar to the costly shadow
+volume algorithm) using a geometry shader, which has been
+proved by many experiments to be less efficient than a vertex
+or pixel shader on current hardware.
+
+5.3. Memory usage
+Our method needs to store two 3D textures (the original
+volume data texture and the block structure texture), a 2D
+HistoPyramid texture and two z-buffers of viewport size. If
+Bgranu = 1, the block structure is not necessary, since the
+original volume will be used instead. Each z-buffer (in 32bit float format) consumes 1K ×1K ×4 = 4MB. We use 8-bit
+integers for the bottom 4 levels of the HistoPyramid texture,
+while all the upper levels are in 32-bit integer format.
+
+6. Conclusion and Future Work
+We have presented a GPU-based method for accelerating
+volume raycasting. By exploiting proxy sphere rasterisation,
+we can achieve a speed-up factor of up to 15.7 without introducing any inaccuracy.
+Our algorithm is particularly suitable for rendering volume data of objects such as aneurisms for two reasons:
+firstly, such volumes are coarse and have many empty voxels, which can be skipped very efficiently; secondly, the
+aneurism-like objects have many silhouettes, which will
+cause the length of ray segments in a local area to be inconsistent and hence reduce the efficiency of parallel implementation on SIMD pipelines [LNM06]. Previous methods
+have coped poorly with such a situation, but for our method
+it is made straightforward by enforcing tighter ray segments
+for the raycasting.
+Another attractive feature of our algorithm is that it allows
+dynamic data exploration, which means not only arbitrary
+changes of viewing parameters but also constantly changing
+of the transfer function at runtime.
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+845
+
+The technique can be easily integrated into any existing GPU-based raycasting infrastructure, as it requires no
+changes within the raycaster (our algorithm simply provides
+it with tighter ray segments). Hence, our approach acts as a
+general acceleration technique and will make more complex
+visualisations possible, while maintaining interactivity.
+In future work, we shall integrate some more complex
+advanced illumination effects and out-of-core data exploration into our raycaster, to take advantage of the speed-up
+achieved for higher quality interactively rendering which has
+not been possible before.
+Acknowledgments
+This work was partially supported by the European Commission under the FP6 projects LHDL: Living Human Digital Library (IST-2004-026932) and Aneurist: Integrated
+Biomedical Informatics for the Management of Cerebral
+Aneurysms (IST-2004-027703)
+References
+[BM08] BAVOIL L., M YERS K.:
+Order independent transparency with dual depth peeling, 2008.
+http://developer.download.nvidia.com/SDK/
+10.5/opengl/src/dual_depth_peeling/doc/
+DualDepthPeeling.pdf.
+[DZTS08] DYKEN C., Z IEGLER G., T HEOBALT C., S EIDEL H.P.: High-speed marching cubes using histopyramids. Computer
+Graphics Forum 27, 8 (Dec. 2008), 2028–2039.
+[Eve01] E VERITT C.: Interactive Order-Independent Transparency. Research report, NVIDIA Corporation, 2001.
+[GMI08] G OBBETTI E., M ARTON F., I GLESIAS G UITIÁN J.: A
+single-pass GPU ray casting framework for interactive out-ofcore rendering of massive volumetric datasets. The Visual Computer 24, 7-9 (July 2008), 797–806.
+[HQK05] H ONG W., Q IU F., K AUFMAN A.: GPU-based objectorder ray-casting for large datasets. In Volume Graphics 2005
+(2005), pp. 177–185.
+[HSS∗ 05] H ADWIGER M., S IGG C., S CHARSACH H., B UHLER
+K., G ROSS M.: Real-time ray-casting and advanced shading of
+discrete isosurfaces. Computer Graphics Forum 24, 3 (2005),
+303–312.
+[KKH01] K NISS J., K INDLMANN G., H ANSEN C.: Interactive
+volume rendering using multi-dimensional transfer functions and
+direct manipulation widgets. In Proceedings IEEE Visualization
+2001 (2001), pp. 255–262.
+[KW03] K RÜGER J., W ESTERMANN R.: Acceleration Techniques for GPU-based Volume Rendering. In Proceedings IEEE
+Visualization 2003 (2003), pp. 287–292.
+[LCD09] L IU B., C LAPWORTHY G., D ONG F.: Fast isosurface
+rendering on a gpu by cell rasterisation. Computer Graphics Forum, to appear. (2009).
+[Lju06] L JUNG P.: Adaptive sampling in single pass GPU-based
+raycasting of multiresolution volumes. In Volume Graphics 2006
+(2006), pp. 39–46.
+[LLYM04] L JUNG P., L UNDSTRÖM C., Y NNERMAN A.,
+M USETH K.: Transfer function based adaptive decompression
+for volume rendering of large medical data sets. In IEEE Symposium on Volume Visualization and Graphics (2004), pp. 25–32.
+
+846
+
+B. Liu, G. Clapworthy and F. Dong / Accelerating Volume Raycasting using Proxy Spheres
+
+feet(transparent)
+
+aneurism
+
+backpack
+
+stagbeetle
+
+engine(transparent)
+
+engine(interior)
+
+stent
+
+head(bone)
+
+head(transparent)
+
+Figure 7: Rendering results for different dense and sparse data sets. See performance statistics in Table 2 and Table 3
+
+[LNM06] L EUNG W., N EOPHYTOU N., M UELLER K.: SIMDaware raycasting. In Volume Graphics 2006 (2006), pp. 59–62.
+[MRH08] M ENSMANN J., ROPINSKI T., H INRICHS K. H.: Accelerating volume raycasting using occlusion frustums. In
+IEEE/EG International Symposium on Volume and Point-Based
+Graphics (2008), pp. 147–154.
+[RL00] RUSINKIEWICZ S., L EVOY M.: Qsplat: a multiresolution
+point rendering system for large meshes. In SIGGRAPH 2000
+
+(2000), pp. 343–352.
+[VMD08] V IDAL V., M EI X., D ECAUDIN P.: Simple emptyspace removal for interactive volume rendering. J. Graphics
+Tools 13, 2 (2008), 21–36.
+[ZTTS06] Z IEGLER G., T EVS A., T HEOBALT C., S EIDEL H.-P.:
+On-the-fly point clouds through histogram pyramids. In VMV06
+(2006), pp. 137–144.
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

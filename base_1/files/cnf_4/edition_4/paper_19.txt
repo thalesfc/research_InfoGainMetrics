@@ -1,0 +1,978 @@
+Multi-resolution Volume Rendering of Large Time-Varying Data using
+Video-based Compression
+Chia-Lin Ko*,1 Horng-Shyang Liao*,+,2 Tsai-Pei Wang*,3 Kuang-Wei Fu*,4 Ching-Yao Lin+,5 Jung-Hong Chuang*,6
+*
+
+Department of Computer Science, National Chiao Tung University
++
+
+National Center for High-performance Computing
+
+ABSTRACT
+We present a new framework that combines the hierarchical
+multi-resolution representation with video-based compression to
+manage and render large scale time-varying data. In the
+preprocessing step, the proposed method first constructs a multiresolution hierarchy using octree structure for each individual
+time step, and then applies a motion-compensation-based
+prediction to compress the octree nodes. During rendering stage,
+the data is decompressed on-the-fly and rendered using hardware
+texture mapping.
+The proposed approach eliminates the
+hierarchical decompression dependency commonly found in the
+conventional hierarchical wavelet representation methods, which
+leads to a more efficient reconstruction of data along the time axis.
+The system provides the user with a spatial region-of-interest
+(ROI) to adjust the spatial level-of-detail (LOD) selection, and a
+temporal ROI which is a sub-region only for frequent update
+during playback. With a suitable control of both ROIs, our
+system can reach an interactive playback frame rate. This allows
+the user to observe the dynamic nature of large time-varying data
+sets.
+CR Categories and Subject Descriptors: I.3.6 [Computer
+Graphics]: Methodology and Techniques – Graphics data
+Structures and data types.
+Additional Keywords: volume visualization, level-of-detail,
+time-varying volume rendering, volume compression, wavelet,
+motion-compensation.
+1
+
+INTRODUCTION
+
+As computer storage and scanning precision rapidly increases,
+scientific measurements and simulations can generate large timevarying data set that have hundreds or thousands of time steps,
+and each time step may contain billions of voxels. Although
+direct volume rendering with 3D hardware texture mapping [3, 23]
+can render volumetric data efficiently, the limited size of the
+texture memory makes it difficult to maintain an interactive frame
+rate for very large data sets. Therefore, several multi-resolution
+schemes for static [11, 22, 2] or time-varying data [17] have been
+proposed. These methods construct a multi-resolution hierarchy
+that represents different resolutions for different regions. They
+can adjust the data resolution to render the interesting or important
+1
+
+e-mail:clko@csie.nctu.edu.tw
+e-mail:hsliao@nchc.org.tw
+3
+e-mail:wangts@cs.nctu.edu.tw
+4
+e-mail:kwfu@cs.nctu.edu.tw
+5
+e-mail:chingyao@nchc.org.tw
+6
+e-mail:jhchuang@cs.nctu.edu.tw
+2
+
+IEEE Pacific Visualisation Symposium 2008
+4 - 7 March, Kyoto, Japan
+978-1-4244-1966-1/08/$25.00 ©2008 IEEE
+
+regions with high accuracy, while other regions are rendered with
+lower accuracy.
+To further reduce the storage and data
+transmission bandwidth, some wavelet compression schemes have
+been proposed [6, 19]. These methods recursively apply wavelet
+transform to compress the data and result in a multi-resolution
+hierarchical wavelet representation.
+For time-varying data sets, users may want to not only navigate
+a specific time step with certain spatial or temporal LOD, but also
+directly observe the temporal variations in the data. However,
+current hierarchical wavelet compression schemes, such as the
+wavelet-based time-space partitioning (WTSP) tree [19], are not
+suitable for this purpose since the reconstruction of the data
+usually requires a hierarchical decompression process that
+demands many additional disk loadings and reconstruction
+overhead.
+In order to reduce the reconstruction overhead, we propose a
+video-based multi-resolution volume rendering method that aims
+to efficiently reconstruct current volume data set from previous
+one with much less hierarchical traverse by using temporal
+coherence and motion-compensation-based prediction in adjacent
+time steps. For interactive playback, spatial and temporal ROI are
+proposed for the controlling of interaction. Common caching and
+pre-loading techniques are also implemented to support
+performance speed-up.
+2
+
+RELATED WORK
+
+The shear-warp factorization proposed by Lacroute and Levoy
+[8] is the most efficient software-based technique for direct
+volume rendering. The basic idea is to use object-aligned textured
+slices to substitute the expensive tri-linear interpolation by
+bilinear interpolation. This technique is later adapted to exploit
+2D-texture hardware and achieve an interactive frame rate [15].
+Later, the usage of hardware 3D texture mapping algorithm [3, 23]
+allows for more flexibility as well as higher image quality. There
+are several advanced shading techniques proposed in recent years,
+such as lighting [12], shadows [1], high quality post-classification
+using a pre-integration technique [5], and gradient magnitude
+modulation [18]. Current 3D hardware can also support these new
+techniques.
+The idea of multi-resolution volume rendering is to provide a
+spatial hierarchy with which resolution can be adapted to render
+interesting or important regions with higher accuracy and other
+regions with lower accuracy. LaMar et al. [11] described an
+octree-based multi-resolution approach for interactive volume
+rendering. They also use spherical shells to reduce visual artifacts
+for 3D texture mapping. A similar technique is proposed by
+Boada et al [2]. Their hierarchical representation benefits nearly
+homogeneous regions and less interested regions. Weiler et al.
+[22] addressed the prevention of discontinuity artifacts between
+different levels of detail. Their approach allows consistent
+interpolation between levels. Guthe et al. [6] applied wavelet
+transform to compress the data and constructed a multi-resolution
+hierarchical wavelet representation. Their approach is able to
+
+135
+
+support walkthroughs of large data sets in real time on a
+conventional PC.
+In multi-resolution volume rendering, LOD selection is a key
+point for rendering quality. Many methods have been also
+proposed to obtain a good trade-off between the quality and speed.
+LarMar et al. [11] and Guthe et al. [6] used view-dependent
+criteria. Pinskiy et al. [13] and Plate et al. [14] used ROI. Shen et
+al. [17] and Wang and Shen [19] used data error metrics. Ljung et
+al. [10], Wang and Shen [20], and Wang et al. [21] used imagebased quality metrics.
+For time-varying volume data, Guthe and Straßer [7] introduced
+an algorithm that uses the 3D wavelet transform to encode each
+individual volume, and then applies a motion-compensation-based
+prediction between adjacent time steps. Sohn et al. [16] proposed
+a volumetric video system that borrows the idea of MPEG
+compression to efficiently exploit the spatial and temporal
+coherence. However, their algorithm is not focused on large data
+set. In our algorithm, we extend the above methods to large timevarying data set by adding LOD, caching, and pre-loading into
+consideration.
+For large time-varying volume data, Linsen et al. [9] proposed a
+four-dimensional multi-resolution approach for time-varying
+volume data. Their scheme treats temporal and spatial dimensions
+equally in a single hierarchical framework. The hierarchical data
+organization is based on a subdivision scheme that only doubles
+the overall number of grid points in each subdivision step. This
+fact leads to fine granularity and high adaptivity. Shen et al. [17]
+proposed the time space partitioning (TSP) tree that captures both
+the spatial and temporal coherence of the underlying data. It
+allows the user to request spatial and temporal data resolutions
+independently with separate error tolerances. Ellsworth et al. [4]
+later provided a hardware volume rendering method using the
+TSP tree. They also proposed color-based error metrics to
+improve the selection of data blocks to be loaded into texture
+memory. Wang and Shen further applied wavelet transform to the
+TSP tree and proposed the wavelet-based time-space partitioning
+(WTSP) tree method [19]. They first built a wavelet tree
+hierarchical representation [6] for each individual time step, and
+then for the high-pass filtered coefficients from the corresponding
+spatial node along the time axis, they applied 1D wavelet
+transform to form a binary tree. Although WTSP tree method
+supports flexible spatial-temporal multi-resolution data browsing,
+their hierarchical 1D wavelet compression of the spatial node
+along the time axis is not suitable for interactive playback.
+3
+
+4
+
+COMPRESSION SCHEME
+
+In this session we describe our preprocessing stage. The input
+is a time-varying volume data set, V = {V1, V2 … VT}, where T is
+the number of time frames. In this stage, we first construct a
+multi-resolution data hierarchy for each time frame, and then
+apply our compression scheme on each hierarchy. Each time
+frame is classified as either an I-frame or a P-frame. The
+compression of an I-frame is independent of the other frames
+while the compression of a P-frame is dependent on its previous
+frames.
+Figure 1 illustrates the whole compression process. The
+compression scheme consists of the following three steps:
+1. Subdivide the volume data of each time frame into a
+sequence of blocks.
+2. For each volume data, recursively apply the 3D wavelet
+transform to all blocks and construct a hierarchical wavelet
+representation.
+3.
+a.
+For an I-frame volume, store the high-pass filtered
+coefficients and the low-pass filtered root block.
+The high-pass filtered coefficients are encoded
+before they are stored.
+b.
+For a P-frame volume, apply motioncompensation-based prediction to each node in the
+hierarchy with respect to its spatially
+corresponding node in the previous frame. The
+resulting difference data and motion vectors are
+then encoded and stored.
+
+SYSTEM OVERVIEW
+
+Our algorithm consists of a preprocessing stage and a run-time
+rendering stage. In the preprocessing stage, each time step (frame)
+of the data set is classified as either an intra-coded frame (I-frame)
+or a predictive frame (P-frame). This is similar to the group-ofgroup structure used in the MPEG video coding schemes. For
+each I-frame, we apply the hierarchical wavelet transform to
+construct a multi-resolution hierarchical wavelet representation.
+Then, the high-pass filtered coefficients are encoded and stored in
+the disk. Any kind of wavelet transform for encoding and
+decoding can be used. Here we choose Haar wavelet for the
+efficiency and simplicity reasons. For each P-frame, we first use
+the hierarchical wavelet transform to construct a multi-resolution
+hierarchical representation and then apply motion-compensationbased prediction to the low-pass filtered data. The resulting
+difference data and motion vectors are encoded and stored.
+In the rendering stage, the data are decompressed on-the-fly and
+rendered using hardware 3D texture mapping. The system
+provides the user with a spatial ROI for supporting spatial LOD
+selection, and the selection of a temporal ROI to choose only a
+sub-region for frequent update during playback. We also propose
+
+136
+
+caching and pre-loading mechanisms. Caching is applied to Iframes so that previously reconstructed data blocks can be reused
+when the LOD selection is changed. Pre-loading is applied to Pframes in order to distribute the workload of each frame more
+evenly.
+
+Figure 1: The compression process.
+In the following subsections, we will describe in detail how we
+compress I-frame data and P-frame data.
+4.1
+I-frame Compression
+We compress an I-frame using the wavelet-tree method [6].
+First, we divide the volume data of this frame into a sequence of
+blocks. Let’s assume that each block has N voxels with the
+dimension being nx × ny × nz, where nx, ny, and nz are all integers
+of powers of 2. We apply 3D wavelet transform to each block,
+resulting in N/8 low-pass filtered coefficients and 7N/8 high-pass
+filtered coefficients. The low-pass filtered coefficients from eight
+adjacent blocks are collected and grouped into a new block of size
+
+Figure 2: Construction of the wavelet tree.
+
+Figure 4: The compression of P-frame.
+
+Figure 3: The compressed wavelet tree of an I-frame.
+
+Figure 5: Motion-compensation-based prediction for a block
+node.
+
+N, as shown in Figure 2. Then we repeat the wavelet transform
+and low-pass coefficients grouping process recursively until only
+one single block is left. The procedures above produce an octree.
+Each node of the octree corresponds to a data block of N voxels
+and contains a set of high frequency coefficients that can be used
+to reconstruct the block from its parent node. The resolution of a
+child node is twice as high (in each dimension) as that of its
+parent node. We keep all the high-pass filtered coefficients, as
+well as the low-pass filtered coefficient of the root node, as shown
+in Figure 3. The data blocks can be recovered by applying topdown inverse-wavelet transform recursively.
+To reduce the total storage requirement of the coefficient, a
+common approach is to compare the high-pass filtered coefficients
+resulting from the wavelet transform against a pre-defined
+threshold. The high-pass filtered coefficients are mapped to zero
+if they are smaller than the threshold. In our implementation, we
+set the threshold to zero, leading to a lossless compression. The
+high-pass filtered coefficients are then encoded using run-length
+encoding combined with a fixed Huffman encoder, an approach
+similar to [6]. The coefficients are first mapped to positive values:
+positive coefficients are mapped to odd values (c → c × 2 − 1)
+while negative coefficients are mapped to even values
+(c → c × ( − 2)). The encoding model is defined as follows: A run
+of zero coefficients is marked by a leading 0 bit. The following
+nzero bits store the number of consecutive zeros. This results in 1
+to 2n zeros encoded in nzero+1 bits. Any other coefficient is stored
+by using npos bits and a leading 1 bit, with npos being the minimum
+number of bits needed to represent the coefficient using a predefined Huffman code table.
+4.2
+P-frame Compression
+For each P-frame, we construct an octree hierarchy using the
+same method as for an I-frame, with the difference being that we
+only keep the low-pass filtered coefficients. For each node of the
+octree, we apply motion-compensation-based prediction from its
+corresponding spatial node in the previous frame, as illustrated in
+Figure 4. The steps of the motion-compensation-based prediction
+algorithm are described as follows:
+
+1.
+
+2.
+
+3.
+
+5
+
+We further subdivide a node (a block with N voxels) into
+micro-blocks, which are used for motion-compensationbased prediction. The size of micro-block is lx × ly × lz. In
+our implementation, value of 4 or 8 for each dimension is
+a suitable choice.
+(a) For each micro-block, we locate the best match, i.e.
+with minimum mean squared error, within the
+corresponding spatial node of the previous frame. The
+displacement of the micro-block to its best match is called
+a motion vector, as indicated in Figure 5. We store the
+motion vector and the differences between a micro-block
+and its best match. (b) Sometimes a good match cannot be
+found – the prediction error exceeds a certain acceptable
+level. In this case each voxel of the micro-block is
+predicted from its neighboring voxels. If the result of this
+neighboring voxel prediction has smaller mean squared
+error, we store the predicted differences of each voxel.
+Again, it is possible to reduce storage by thresholding the
+differences computed above. We also set this threshold to
+zero in our implementation to allow lossless compression.
+The differences are also encoded using run-length
+encoding combined with a fixed Huffman encoder.
+RENDERING
+
+In this section, we describe the run-time decompression and
+rendering of our system. We start from a LOD selection, which
+chooses a list of blocks (octree nodes) to be rendered, then
+describe the decompression and reconstruction scheme for the
+selected blocks and explain how to render the volume data using
+hardware texture mapping, and finally, describe a caching and
+pre-loading mechanism that helps to achieve better performance.
+5.1
+Level-Of-Detail Selection
+In our system, the spatial LOD selection is decided by
+considering both ROI and view-dependent parameters. The ROI
+is specified by a 3D bounding box. Users can change the size of
+the bounding box and move the bounding box arbitrarily to adjust
+the LOD selection. This method provides an intuitive and flexible
+way to specify LOD selection.
+
+137
+
+In order to reduce the number of updated blocks between time
+steps and achieve interactive playback, the user can also choose
+only a sub-region as the temporal ROI for per-frame update. This
+temporal ROI is another 3D bounding box that can be controlled
+in the spatial space by the user. When the temporal ROI is
+enabled, the system first decides the spatial LOD, and then only
+the data blocks that are selected by the temporal ROI will be
+updated at every time step. Blocks that are outside the temporal
+ROI are only updated at every I-frame
+5.1.1
+Spatial LOD Selection
+The spatial LOD selection chooses a list of blocks from the
+octree hierarchy for rendering. In order to avoid texture
+swapping-in and swapping-out in a single rendering pass, the total
+size of the selected blocks should not exceed the capacity of
+texture memory in the graphics hardware. Usually the user may
+want to set a maximum total block size MLOD for this spatial LOD
+selection. We provide a scalar factor s such that
+MLOD =sMTEX,
+(1)
+where MTEX is the maximum available texture memory of the
+graphics hardware and the value of s is between 0.0 and 1.0.
+Higher values of s give better rendering quality, while lower
+values of s allow faster rendering or playback. Users can change
+the value of s at run-time.
+The spatial LOD selection algorithm is achieved by traversing
+the octree with a priority queue. Each node i of the octree
+hierarchy has a priority value PLOD(i). The priority value is given
+by considering the ROI and the distance to the viewer position.
+More specifically, we have
+PLOD(i)=C1PROI(i)+C2PVIEW(i),
+(2)
+where C1 and C2 are weighting coefficients, PROI(i) is a priority
+value of ROI, and PVIEW(i) is a priority value of viewing. We set
+PROI(i) to 1 for blocks inside the ROI and
+PROI(i)=1/(1+DROI(i))
+(3)
+for block outside of the ROI, where DROI(i) is the distance
+between the ROI and block i. We also define
+PVIEW(i)=1/(1+DVIEWER(i)),
+(4)
+where DVIEWER(i) is the distance between view point and block i.
+In the beginning of the LOD selection, we create an empty
+priority queue and insert the root node r of the octree into the
+queue with priority PLOD(r). Then we successively fetch the node
+with the highest priority from the queue, and insert its eight child
+nodes into the queue. If a leaf node is reached, we remove this
+leaf node from the priority queue and put it into another queue
+which stores the nodes to be rendered. This procedure stops when
+the total block size of the priority queue and rendering queue
+reaches the maximum size MLOD. Then we move all the nodes in
+the priority queue into the rendering queue. All the nodes in the
+rendering queue will be used for rendering.
+5.1.2
+Temporal ROI
+Because rendering performance will go down if too many data
+need to be updated for every time step, we provide another
+temporal ROI. The blocks inside the temporal ROI will be
+updated every time step, while the others will be updated only at
+every I-frame. End user can change the range of the temporal
+ROI arbitrarily at run-time.
+5.2
+Decompression
+For an I-frame, after we have decided the nodes to be rendered
+according to the spatial LOD selection, we use 3D wavelet
+decompression method to restore the original data of each chosen
+node from disk. Our decompression procedure starts from the
+root and ends in target nodes. For a P-frame, we keep the same
+spatial LOD selection as the last I-frame and construct each Pframe from its previous frame by motion-compensation. That is,
+
+138
+
+we only need to load the difference values of each node from disk
+and then add them to the already decompressed node of the
+previous frame to obtain that node of the current frame.
+5.3
+Rendering of Blocks
+To render the selected blocks, we use texture-based volume
+rendering. We draw all the blocks in a back-to-front order. The
+order can be established by enforcing a back-to-front traversal
+order of the octree. For each block, a 3D texture is created and
+loaded into the texture memory. We place view-aligned slices
+into the block (see Figure 6 for an example) and render these
+slices in a back-to-front order. Alpha blending delivers the
+volume integrals along viewing rays for all the pixels on the
+screen.
+To obtain a higher rendering quality, we provide pre-integrated
+volume rendering [5]. The pre-integrated volume rendering
+requires more texture fetching to render the slices, hence it will
+consume more time for rendering. End user can enable or disable
+this feature.
+
+Figure 6: Rendering with view-aligned slices.
+5.4
+Caching and Pre-Loading
+The most time-consuming part of our system occurs while
+transmitting and reconstructing data blocks. To further enhance
+performance, we propose using caching and pre-loading
+mechanisms. Caching is applied to I-frames to help reusing
+previously reconstructed data blocks when the LOD selection is
+changed. Pre-loading is applied to P-frames to distribute the
+workload of each frame more evenly. We allocate a pre-defined
+amount of extra main memory and texture memory for caching
+and pre-loading.
+5.4.1
+Caching
+In I-frame, user may often change the spatial ROI bounding box
+to adjust spatial LOD selection. Some of the data blocks that are
+currently useless may become useful in the future. To save the
+time for loading and reconstructing these data blocks, we cache all
+the decompressed data blocks in main memory during I-frame.
+We give each cached block i a deleting priority PDEL(i). If we run
+short of memory, we delete the data blocks that have the highest
+PDEL(i). We define the deleting priority PDEL(i) for each block i as:
+PDEL(i)=W1L(i)+W2C(i)+W3F(i),
+(5)
+where W1, W2, and W3 are weighting coefficients. We now define
+L(i), C(i), and F(i) as follow:
+1.
+L(i): This function considers the likelihood of a block
+node being visited. A block node will be visited for
+decompressing child nodes more often when it is closer
+to the root of the octree hierarchy. Thus, we define L(i)
+
+2.
+
+3.
+
+of block node i as their depth in the octree. The root
+node is at depth zero.
+C(i): This function is defined using a least recently used
+(LRU) scheduling scheme. We give each decompressed
+block in memory a counter C(i) that is initially set to zero.
+Every time when spatial LOD selection is changed, the
+counter C(i) of each block is updated to C(i)=C(i)+1 if
+block i is not used and 0 if block i is used. That is, the
+least recently used blocks will get higher deleting priority.
+F(i): This term is adjusted automatically for the blocks
+that are swapped in and out frequently. If we find that a
+data block is swapped in and out frequently, it may be
+better to cache this block for performance consideration.
+We define a loading counter S(i) for each block of the
+octree hierarchy. S(i) is initially set to zero. Every time
+when a block i is loaded from disk and decompressed
+into memory, the value of S(i) is increased by 1. Then
+the value of F(i) can be calculated as:
+if S(i)>STHRE, F(i)=-(S(i)-STHRE),
+(6)
+else, F(i)=0,
+where STHRE is a pre-defined threshold value. Thus, if a
+block is swapped in and out too frequently, i.e.
+S(i)>STHRE, we will decrease its deleting priority.
+
+We have explained the mechanism for caching data in main
+memory. The caching of texture memory is the same as the one
+of main memory, except that we do not consider the effect of
+visiting likelihood L(i), since it is not necessary to visit these
+blocks in texture memory for decompressing child nodes. The
+deleting priority PDEL(i) for each block i of texture memory is
+defined as:
+PDEL(i)= W2C(i)+W3F(i).
+(7)
+5.4.2
+Pre-Loading
+When temporal LOD is enabled, data blocks that are within the
+temporal ROI are updated at every time step, while others are
+updated at every I-frame only. It means that the workload of Iframe is usually much heavier than the workload of P-frame, and
+this causes an obvious delay during playback when encountering
+an I-frame. To distribute the workload more evenly, at P-frames,
+we can pre-load the data blocks of the next I-frame in advance.
+This will make the playback smoother.
+6
+
+RESULTS
+
+The algorithm has been implemented in C++ and OpenGL. All
+benchmarks were performed on a Window platform PC with
+2.4GHz Intel core 2 processor with 2GB main memory, and an
+nVidia GeForce 8800 GTX graphics card with 768MB video
+memory. The performance testing uses window size 800 × 600.
+6.1
+Data Sets
+The time-varying data set used in our testing is Turbulent
+Combustion Simulation data set from the Institute of Ultra-Scale
+
+Visualization (IUSV). This data set is made available by Dr.
+Jacqueline Chen at the Sandia National Laboratory through
+SciDAC IUSV. The original data set consists of five floating
+variables. For simplicity reason, we convert the floating variables
+into 16-bit integers. We take one of the variables named "chi" as
+our test data set, named Jet-chi. There are 480 × 720 × 120
+voxels and a total of 122 time frames. The data size of each time
+frame is 79.1MB, and the total size of 122 time steps is 9.42GB.
+Another data set, named Jet-large (see Figure 7), is obtained by
+up-sampling Jet-chi to form a larger data set.
+It has
+960 × 1440 × 240 voxels in each time frame, and a total of 64 time
+frames. The data size of each time frame is 632 MB, and the total
+size of 64 time frames is 39.5 GB.
+6.2
+Preprocessing Results
+In Jet-chi data set, we choose the block size to be
+128 × 256 × 32 and each block is of size 2MB. This leads to a 3level hierarchy octree with 73 nodes. In Jet-large data set, we
+choose the block size to be 128 × 256 × 32, and each block is of
+size 2MB. This leads to a 4-level hierarchy octree with 585 nodes.
+For simplicity and efficiency reasons, we use Haar wavelet
+transform with lifting scheme in all our tests. We first test the
+compression ratio with different numbers of I-frames in Jet-chi
+data set. The result is depicted in Table 1. Lossless compression
+scheme is used. It shows that our P-frame compression is slightly
+better than the conventional wavelet-tree (I-frame) methods.
+Table 1: Compression ratio of Jet-chi.
+No. of
+13:109
+25:97
+61:61
+I-frame : P-frame
+Total size
+1.85GB
+1.87GB 1.92GB
+Compression ratio 5.091:1
+5.037:1 4.906:1
+
+122:0
+2.02GB
+4.663:1
+
+We also implement the algorithm of WTSP tree [19] for
+comparison. For Jet-large data set, with the same compression
+parameters our algorithm obtains a higher compression ration than
+WTSP tree algorithm, as shown in Table 2.
+Table 2: Comparison of Jet-large’s compression.
+Our algorithm
+WTSP tree
+Compressed size
+1.22 GB
+3.96GB
+Compressed ratio 32.38:1
+9.97:1
+Although Table 1 shows that the compression ratio of our
+algorithm is better than WTSP tree, we also observe that the Pframe compression does not enhance compression ratio as much
+as in the regular video compression. This result may be probably
+caused by the fact that Jet-chi data set does not behave like rigid
+body motion, and hence the variation between two consecutive
+frames is much more than that in general video. As a result, the
+temporal coherence is much harder to catch and the motioncompensation-based prediction is not as effective as in general
+video system.
+6.3
+Run-Time Rendering Results
+During rendering, the selected blocks are decompressed on-thefly and then uploaded to texture memory for rendering. In all the
+following tests, we set the maximum available texture memory
+MLOD as 512MB for spatial LOD selection.
+
+Figure 7: Rendering result of the Jet-large data set.
+
+6.3.1
+Decompression Time
+Here we test the decompression efficiency of the proposed
+method and WTSP tree method using Jet-large data set. We
+measure the decompression time and disk loading bandwidth in
+our system and in the WTSP tree method. In Figure 8, the LOD
+selection chooses a set of blocks of size 10 to 20 MB. In Figure
+
+139
+
+8(a), we compare the decompression time of our algorithm with
+WTSP tree method. With a set of blocks of size 10 to 20 MB for
+the LOD selection, Figures 8(a) and 8(b) depict the compression
+time and the corresponding disk loading bandwidth, respectively,
+for the proposed method and WTSP tree method. Figure 9
+illustrates the result of the same testing for a different LOD
+selection -- a set of blocks of size about 40 to 50 MB. Note that
+the decompression time includes disk I/O to fetch compressed
+data, decoding the compressed bit streams, and the reconstruction
+of data blocks. The rendering results are identical in both
+methods. We assume that we do not have additional memory
+space to cache intermediate nodes in the binary time tree of
+WTSP tree method, so we also disable the caching and preloading mechanism in our system. This allows the comparison
+between WTSP tree and our algorithm be made under similar
+conditions, albeit the worst case for both algorithms.
+From the comparison results shown in Figure 8 and 9 we can
+see that the decompression of our system is obviously faster than
+that of the WTSP tree method, mainly due to the fact that WTSP
+tree requires a lot of extra overhead to traverse the binary time
+tree. This problem is worse when there are more time steps. In
+our algorithm, even without additional memory space, we can still
+decompress the data blocks efficiently, and the performance is
+independent of the number of time steps. For the testing result
+shown in Figure 8, the playback frame rate is 0.85 fps for WTSP
+tree method and 5.1 fps for the proposed method.
+6.3.2
+LOD and Rendering Speed
+In Table 3, we list the rendering speed with three different
+scalar factors s for the first time step of the Jet-large data set. We
+also show the result images in Figure 10.
+From the above testing results, we observe that the value of s
+can be decreased in the run-time to trade rendering quality for
+rendering speed. Users can roughly browse the data set with
+smaller s in the beginning to find out suitable camera parameters,
+and then reveal more detail using higher s.
+
+(a) The comparison of decompression time.
+
+(b) The corresponding size of disk loading.
+Figure 8: Results of testing with a set of blocks of size 10~20MB.
+
+Table 3: Rendering speed of Jet-large with different LOD selections.
+s=0.152
+s=0.073
+s=0.033
+Number of total blocks
+43
+15
+8
+Number of non-uniform blocks
+41
+13
+6
+Size of non-uniform blocks
+82MB
+26MB
+12MB
+Rendering frame rate
+30.04
+42.76
+47.72
+Rendering frame rate
+0.45
+2.51
+5.16
+(pre-integrated)
+
+6.3.3
+Temporal ROI and Interactive Playback
+In Table 4, we demonstrate how to improve the playback speed
+using temporal ROI in our system. As shown in Figure 11, we
+control the purple box which indicates spatial ROI, and the green
+box to specify temporal ROI. Furthermore, the chosen blocks
+using temporal ROI are displayed as yellow bounding boxes,
+which cover 1/8 of the whole volume. It shows that decreasing
+the value of s and using temporal ROI can increase the playback
+frame rate. In short, with the flexible spatial and temporal LOD
+selection mechanism, users can observe the time-varying data
+with higher-resolution and a smooth and interactive playback by
+focusing on part of the data.
+6.4
+Discussion
+In this subsection, we explain two unmentioned features from
+the testing results.
+1.
+We choose block size among 0.5~2MB. If the block size
+is too small, many data transfers are needed when we
+want to load large data. If we choose a too large block
+
+140
+
+(a) The comparison of decompression time.
+
+(b) The corresponding size of disk loading.
+Figure 9: Results of testing with a set of blocks of size 40~50MB.
+
+ACKNOWLEDGEMENTS
+
+Table 4: Testing of playback speed.
+No. of nonuniform blocks
+Size of nonuniform blocks
+Playback frame
+rate
+No. of nonuniform blocks
+(Temporal ROI)
+Size of nonuniform blocks
+(Temporal ROI)
+Playback frame
+rate
+(Temporal ROI)
+
+We thank Prof. Kwan-Liu Ma and Dr. Chaoli Wang of
+Visualization and Interface Design Innovation research group,
+University of California, Davis, for their valuable advices. We
+also thank the data provider, Dr. Jacqueline Chen at the Sandia
+National Laboratory. Additionally, we thank the anonymous
+reviewers for their valuable comments. This work is partially
+supported by National Science Council of Taiwan under project
+NSC 95-2221-E-492-007.
+
+S=0.1518
+
+s=0.0726
+
+s=0.033
+
+41
+
+13
+
+6
+
+82MB
+
+26MB
+
+12MB
+
+0.45
+
+2.51
+
+5.16
+
+25
+
+7
+
+3
+
+50MB
+
+14MB
+
+6MB
+
+[1]
+
+1.41
+
+4.91
+
+15.28
+
+[2]
+
+REFERENCES
+
+[3]
+
+2.
+
+3.
+
+7
+
+size, there would be a waste while only small parts of
+data are needed. Therefore, this is a trade-off choice
+depends on types of data and experiences.
+The main drawback of our algorithm is the slower
+random access to an arbitrary frame. This is because we
+have to decompress the contexts of nearest preceding I
+frame, and then to decode every P frame from that I
+frame to the target P frame. However, in our opinion, the
+random access happens infrequently, and end users
+usually can accept a little latency when they perform this
+kind of actions.
+In addition to smooth forward animation, fast forward
+and fast backward animations are also supported by
+decoding only the I frames. However, our work still
+lacks the smooth backward animation feature. Although,
+this function is not supported in regular video playback
+either, it could be useful for scientific observation, and it
+could be a good future trend to solve this problem.
+CONCLUSION
+
+We have introduced a new framework that combines the multiresolution hierarchical representation with video-based
+compression to manage and render large scale time-varying data.
+We demonstrated how this new structure can perform more
+efficient reconstruction in time axis compared to the WTSP tree
+method. We also provide flexible user-assisted mechanism to
+easily achieve interactive playback in the run-time. Our main
+contribution is to provide users with the ability to observe the
+dynamic attributes of data in interactive frame rates. We believe
+that the ability of interactive playback can help the users reveal
+more information in large time-varying volume data, a feature not
+available in the previous works.
+We have also identified several ways to enhance this algorithm
+in the future. First, the temporal ROI can be extended to support
+multi-resolution in time domain. The temporal error of each
+block can be calculated in the pre-processing stage and at run-time
+the system can update the data adaptively depending on temporal
+ROI. Second, the temporal ROI can be easily extended to
+multiple temporal ROIs. We could further apply feature tracking
+to adjust the ROIs automatically. Third, we could adapt the
+current advanced video compression techniques to improve the
+compression and decompression efficiency, such as sophisticated
+I-frame selection. Next, if we use double linked list into our time
+sequence, we can enhance the speed of random access and add the
+backward animation feature. Finally, re-organizing the algorithm
+into distributed or parallel systems can handle an even larger data
+set or achieve even faster playback.
+
+[4]
+
+[5]
+
+[6]
+
+[7]
+
+[8]
+
+[9]
+
+[10]
+
+[11]
+
+[12]
+
+[13]
+
+[14]
+
+[15]
+
+U. Behrens, R. Ratering. Adding shadows to a texture-based volume
+renderer. In Proceedings of the 1998 IEEE Symposium on Volume
+Visualization, IEEE, ACM SIGGRAPH, 39-46, 1998.
+I. Boada, I. Navazo, R. Scopigno. Multiresolution volume
+visualization with a texture-based octree. The Visual Computer,
+17(3), 185-197, Springer, 2001.
+B. Cabral, N. Cam, J. Foran. Accelerated volume rendering and
+tomographic reconstruction using texture mapping hardware. In
+Proceedings of 1994 Symposium on Volume Visualization, 1994.
+D. Ellsworth, L. J. Chiang, and H. W. Shen. Accelerating timevarying hardware volume rendering using TSP trees and color-based
+error metrics. In Proceedings of IEEE Symposium on Volume
+Visualization’00, ACM Press, 119-129, 2000.
+K. Engel, M. Kraus, T. Ertl. High-quality pre-integrated volume
+rendering using hardware-accelerated pixel shading. In Proceedings
+of Eurographics/SIGGRAPH Workshop on Graphics Hardware,
+2001.
+S. Guthe, M. Wand, J. Gonser, and W. Straßer. Interactive rendering
+of large volume data sets. In Proceedings of IEEE Visualization’02,
+IEEE Computer Society Press, 53-60, 2002.
+S. Guthe and W. Straßer. Real-time decompression and visualization
+of animated volume data. In Proceedings of IEEE Visualization’01,
+IEEE Computer Society Press, 349-356, 2001.
+P. Lacroute and M. Levoy. Fast volume rendering using a shearwarp factorization of the viewing transformation. In Proceedings of
+the 21st annual conference on Computer graphics and interactive
+techniques, 451-458, 1994.
+L. Linsen, V. Pascucci, M. A. Duchaineau, B. Hamann. Hierarchical
+representation of time-varying volume data with "4th-root-of-2"
+subdivision and quadrilinear b-spline wavelets. In Proceedings of
+Pacific Conference on Computer Graphics and Applications, 2002.
+P. Ljung, C. Lundstrom, A. Ynnerman, and K. Museth. Transfer
+function based adaptive decompression for volume rendering of
+large medical data sets. In Proceedings of IEEE Symposium on
+Volume Visualization and Graphics’04, 25-32, 2004.
+E. C. LaMar, B. Hamann, K. I. Joy. Multiresolution techniques for
+interactive texture-based volume visualization. In Proceedings of
+IEEE Visualization’99, 355-362, 1999.
+M. Meißner, U. Hoffmann, W. Straßer. Enabling classification and
+shading for 3D texture mapping based volume rendering using
+OpenGL and extensions. In Proceedings of IEEE Visualization’99,
+207-214, 1999.
+D. Pinskiy, E. Brugger, H. Childs, and B. Hamann. An octree-based
+multiresolution approach supporting interactive rendering of very
+large volume data sets. In Proceedings of the International
+Conference on Imaging Science, Systems, and Technology’01, 16-22,
+2001.
+J. Plate, M. Tirtasana, R. Carmona, and B. Frohlich. Octreemizer: a
+hierarchical approach for interactive roaming through very large
+volumes. In Proceedings of IEEE symposium on Data Visualization,
+2002.
+C. Rezk-Salama, K. Engel, M. Bauer, G. Greiner, and T. Ertl.
+Interactive volume rendering on standard PC graphics hardware
+
+141
+
+[16]
+
+[17]
+
+[18]
+
+[19]
+
+[20]
+
+[21]
+
+[22]
+
+[23]
+
+using multi-textures and multi-stage rasterization. In Proceedings of
+Eurographics/SIGGRAPH Workshop on Graphics Hardware, 2000.
+B. S. Sohn, C. Bajaj, and V. Siddavanahalli. Feature based
+volumetric video compression for interactive playback. In
+Proceedings of IEEE Symposium on Volume Visualization’02, ACM
+Press, 89-96, 2002.
+H. W. Shen, L. J. Chiang, and K. L. Ma. A fast volume rendering
+algorithm for time-varying fields using a time-space partitioning
+(TSP) tree. In Proceedings of IEEE Visualization’99, IEEE
+Computer Society Press, 371-377, 1999.
+A. Van Gelder, and K. Kim. Direct volume rendering with shading
+via three-dimensional textures. In Proceedings of the 1996
+Symposium on Volume Visualization, 23-30, 1996.
+C. Wang and H. W. Shen. A framework for rendering large timevarying data using wavelet-based time-space partitioning (WTSP)
+tree. Tech. Rep. OSU-CISRC-1/04-TR05, Department of Computer
+and Information Science, The Ohio State University, January 2004.
+C. Wang and H. W. Shen. LOD Map - A Visual Interface for
+Navigating Multiresolution Volume Visualization. In IEEE
+Transactions on Visualization and Computer Graphics, 1029-1036,
+2006.
+C. Wang, A. Garcia, and H. W. Shen. Interactive level-of-detail
+selection using image-based quality metric for large volume
+visualization. In IEEE Transactions on Visualization and Computer
+Graphics, 122-134, 2007.
+M. Weiler, R. Westermann, C. Hansen, K. Zimmerman, T. Ertl.
+Level-of-detail volume rendering via 3d textures. In Proceedings of
+the 2000 IEEE symposium on Volume Visualization, 2000.
+R. Westermann and T. Ertl. Efficiently using graphics hardware in
+volume rendering applications. In Proceedings of SIGGRAPH’98,
+1998.
+
+(a) s=0.033
+
+.
+
+(b) s=0.0726.
+
+(a) s=0. 033, with temporal ROI.
+(c) s=0.1518
+
+(b) s=0.07261, with temporal ROI.
+
+(c) s=0.1518, with temporal ROI.
+Figure 11: The temporal ROI selection.
+
+142
+
+(d) LOD selection of (a).
+
+(e) LOD selection of (b)
+
+(f) LOD selection of (c).
+Figure 10: Rendering results of three different scalar factors.
+
+

@@ -1,0 +1,1141 @@
+DOI: 10.1111/j.1467-8659.2010.01757.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 29 (2010), number 8 pp. 2456–2468
+
+Visualization of Large-Scale Urban Models through
+Multi-Level Relief Impostors
+C. Andujar, P. Brunet, A. Chica, and I. Navazo
+MOVING Research Group, Universitat Polit`ecnica de Catalunya, Spain
+{andujar, pere, achica, isabel}@lsi.upc.edu
+
+Abstract
+In this paper, we present an efficient approach for the interactive rendering of large-scale urban models, which can
+be integrated seamlessly with virtual globe applications. Our scheme fills the gap between standard approaches
+for distant views of digital terrains and the polygonal models required for close-up views. Our work is oriented
+towards city models with real photographic textures of the building facades. At the heart of our approach is a
+multi-resolution tree of the scene defining multi-level relief impostors. Key ingredients of our approach include the
+pre-computation of a small set of zenithal and oblique relief maps that capture the geometry and appearance of
+the buildings inside each node, a rendering algorithm combining relief mapping with projective texture mapping
+which uses only a small subset of the pre-computed relief maps, and the use of wavelet compression to simulate
+two additional levels of the tree. Our scheme runs considerably faster than polygonal-based approaches while
+producing images with higher quality than competing relief-mapping techniques. We show both analytically and
+empirically that multi-level relief impostors are suitable for interactive navigation through large urban models.
+Keywords: urban rendering, relief mapping, large city visualization
+ACM CCS: I.3.7 [Computer Graphics]: Three-Dimensional Graphics and Realism—
+
+1. Introduction
+The interactive rendering of planet-size, photo-textured digital models is a challenging problem that requires a careful
+management of the data at multiple levels of detail. Digital
+elevation models are acceptable for distant views but they
+lack visual quality and three-dimensional (3D) appearance
+when approaching cities. On the other hand, detailed polygonal models of the buildings are only suitable for close-up
+views.
+The goal of this paper is to fill the gap between both approaches from medium-range distances to relatively close-up
+views. Image-based rendering techniques offer a convenient
+solution to this problem. These techniques typically outperform texture-mapped simplified meshes for replacing distant
+geometry, as traditional simplification techniques typically
+perform poorly on scenes with dense collections of small
+connected components. Among image-based techniques,
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics
+Association and Blackwell Publishing Ltd. Published by
+Blackwell Publishing, 9600 Garsington Road, Oxford OX4
+2DQ, UK and 350 Main Street, Malden, MA 02148, USA.
+
+relief mapping [POC05] has been shown to be useful as a
+compact representation of highly detailed 3D models.
+We describe a new scheme for high-quality, efficient visualization of large-scale urban models through a multiresolution tree of relief impostors. The rendering step is
+based on a view-dependent traversal of the three together
+with a GPU-based rendering of a subset of the relief maps
+associated to the tree nodes.
+Figure 1 shows an overview of our proposal. We take as
+input a photo-textured polygonal model of the city, which
+is converted during pre-processing into a scene subdivision
+tree (a). We replace the geometry of the buildings inside
+each node (at all tree levels) with a small collection of relief maps (b) with colour and depth channels. The depth
+channel of the zenithal map encodes the 2.5D geometry of
+the buildings, whereas carefully selected oblique views capture facade details. Our representation is rendered through
+
+2456
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+2457
+
+Figure 1: Overview of our approach. Our urban model consists in a scene subdivision tree. The five deepest levels of the tree are
+shown in (a). Reported texel sizes correspond to our test data set. The geometry and appearance of each tree node is represented
+by a small collection of textures (b) captured from zenithal and oblique views. Each texture map has colour and depth channels.
+In addition, nodes at the deepest physical level also store the wavelet coefficients of their associated maps for providing two
+additional (virtual) levels to the subdivision tree. Rendering a node simply involves drawing its bounding box (c). A fragment
+shader is used to recover the 2.5D geometry (d) and discard outside fragments (through relief mapping on the zenithal map),
+and to compute the fragment’s colour (e) through projective texture mapping onto the zenithal and oblique maps (f). The image
+in (g) has been rendered by drawing all nodes in the dynamic front of the tree on top of a terrain layer.
+a view-dependent traversal of the tree. Rendering a node
+involves drawing its bounding box (c). A fragment shader
+recovers the 2.5D geometry through relief mapping on the
+zenithal map (d), and computes the fragment’s final colour
+(e) through projective texture mapping onto the zenithal and
+oblique maps (f). The depth channel of the oblique maps
+is used to check line-of-sight visibility for the fragment being shaded among the selected oblique maps. The resulting
+image (e) provides a high-quality representation of the underlying buildings for medium-range distances.
+The main contributions of the paper are
+• The use of a multi-resolution tree that encodes parts of
+the city and groups of buildings using a multi-level relief
+impostor (MRI) representation. Our representation benefits from the potential of image compression while being
+able to correctly reconstruct the geometry of the city for
+2.5D urban models. Image compression is used to simulate two additional levels of the tree; we store at the leaves
+perceptually quantized wavelet coefficients, resulting in
+a 86% savings compared to the space required to store
+the uncompressed tree levels.
+
+• An efficient algorithm for the construction of the MRI
+tree that guarantees a good sampling of all kind of
+surfaces, including curved parts such as domes, quasivertical walls and slanted roofs. Although our scheme
+can be used for urban models with procedural textures,
+its full potential is reached when representing cities with
+real photographic textures of the building facades. Texture updates in the MRI representation are supported at a
+negligible cost, allowing real-time updates of procedural
+textures with real photographs as they become available.
+• A GPU-based, view-dependent rendering strategy which
+combines relief mapping with projective texture mapping
+to faithfully recover facade details.
+We also provide a theoretical analysis of the storage requirements of the MRI tree. We show that the size of the
+multi-resolution tree is manageable in commodity hardware
+and that it is independent from the nature (bitmapped, procedural) of the textures and from the polygonal complexity
+of the buildings.
+The rest of the paper is organized as follows. Section 2 reviews related work on city visualization. Section 3 presents
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2458
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+our scene representation, discusses the parameters involved
+and analyses its storage requirements. Construction and rendering algorithms are detailed in Sections 4 and 5, respectively. Results are presented and discussed in Section 6.
+2. Previous Work
+Efficient modelling and visualization of complex cityscapes
+are active research fields. A significant effort has been devoted to the problem of generating textured geometric models of 3D facades, buildings and cities. Readers interested
+in these techniques may refer to recent papers that include
+a nice overview of the literature [MZWVG07, WMV∗ 08,
+VAW∗ 09]. As stated earlier, our work relates not to modelling but to the interactive visualization of large-scale urban
+models. A well-established technique for rendering a complex scene is to use simplified geometric representations for
+distant objects. This approach does not apply to buildings that
+are usually modelled with few planar polygons with facade
+details stored in texture maps. We will focus this section on
+the previous work most closely related to our visualization
+approach. For recent surveys on massive model visualization
+techniques, we refer the reader to [KMS∗ 06, DGY07].
+Impostors that replace distant geometry are also commonly used for extreme appearance-preserving simplification [MS95]. Image-based techniques range from single
+impostors [SDB97] to layered depth images [Wil02] and
+billboard clouds [DDSD03]. Jeschke et al. [JWSP05 proposed an automatic impostor placement algorithm for guaranteed frame rates with moderate memory requirements. The
+algorithm requires significant pre-processing time and is oriented towards viewpoint paths where occlusion culling plays
+a significant role. A complete overview on image-based techniques is given in [JWP05].
+Among image-based techniques, relief mapping [OBM00]
+has been shown to be extremely useful as a compact representation of highly detailed 3D models. All the necessary
+information for adding surface details to polygonal surfaces
+is stored in RGBA textures. The RGB channels encode a
+normal or a colour map, while the alpha channel stores quantized depth values. Acceleration techniques for computing
+the ray–heightfield intersection include, among other, linear search plus binary search refinement [POC05], varying
+sampling rates [Tat06], pre-computed distance maps [BD06,
+Don05] and cone maps [PO07].
+The BlockMap representation [CBG∗ 07] was proposed as
+a way to compactly represent a small set of textured buildings as seen from a distance. The method is based on the
+assumption that a set of vertical textured prisms usually provides a good approximation of the buildings appearance.
+Each BlockMap stores in a rectangular texture of fixed size
+all the information needed for rendering a group of textured
+prisms defined and discretized on a square grid (depth and
+colour maps). A BlockMap can be rendered using a GPU
+
+raycasting algorithm by sampling the depth map along each
+ray. The main novelty concerning attribute sampling is a
+parameterization of the facade walls used to build a colour
+map. However, the sampling density depends on the perimeter of the buildings in the covered area. This approach has
+been extended in [DBCG∗ 09] to support sloped surfaces and
+input-sensitive colour sampling. Our approach provides a
+more general solution for a larger class of urban shapes as
+the sampling density does not depend on the perimeter of the
+building facades (Section 6). Moreover, our impostors can
+be constructed directly from any renderable geometry.
+Omni-directional relief impostors improve the colour sampling of arbitrarily oriented surface parts by pre-computing
+a number of relief mapped polygons distributed around the
+object [ABB∗ 07]. This approach was subsequently applied
+to visualization of urban models [ADB08], using a technique
+for selecting a small subset of relief maps which improves
+the quality sampling of urban models. However, the approach
+requires multiple rendering passes per node and is only applicable to far views and small urban models.
+Ali et al. [AYRW09] proposed to represent the facades as
+large polygons plus compressed displacement maps and material index maps. The authors have adapted current fragment
+shader ray-tracing algorithms for an efficient visualization of
+the model. The results show a very good compression ratio
+and quality visualizations. The technique is appropriate for
+close-up views of urban models with procedural textures, but
+it does not scale to huge urban models with singular phototextured facades.
+In this paper, we propose a hierarchy of relief impostors
+together with a compressed representation of the lower levels
+of the multi-resolution tree, which allows to interactively
+navigate through large-scale urban models.
+
+3. Hierarchical Model of the City
+Our hierarchical urban model consists of a scene-subdivision
+tree that distributes buildings into different nodes. Each node
+represents sets of neighbouring buildings, the whole city being represented by the root node. In a first step, before constructing the tree, we join neighbouring buildings separated
+by small empty spaces into a single building (Section 4).
+Then a representative point (building’s centre) is assigned to
+each building.
+The tree structure derives directly from the structure of the
+city (Figure 2). The tree has a quaternary structure, with four
+children per node. For any node of the tree, every building
+in its associated set can be classified as NW, NE, SE or SW
+by a simple coordinate comparison between the centre of the
+node’s AABB and the building’s centre. Each child node is
+associated with one of the four building subsets given by the
+above classification. Note that the four children might have
+overlapping bounding boxes, as shown in Figure 2. Bounding
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+Figure 2: Scene subdivision tree: set of colour-coded buildings associated to the nodes of the tree after four subdivision
+steps (a). Close-up of the buildings associated to one of the
+nodes (b), and the four subsets associated to its children (c).
+
+A completely regular city with axis-aligned streets would
+yield a subdivision with disjoint siblings and hence δ < 0. In
+this case, |δ| is a measure of the sparsity of the buildings. On
+the other hand, complex urban areas with irregular streets, as
+in Figure 2, would lead to positive δ values, the magnitude
+of δ being a measure of the irregularity of the urban model.
+Note that a classical quadtree-like space subdivision would
+yield an overlap ratio δ = 0 as child nodes define a partition
+of the parent node. Specific values for this parameter will be
+discussed in Section 6.
+The following equations for the edge length ed of the nodes
+at depth d and the texel size td at this depth hold:
+L = (2 − δ)d · ed ,
+
+boxes of the tree nodes will be referred to as node cells. Observe that this is a scene subdivision scheme that will always
+split nodes along streets, even when curved, and never across
+a building. Our tree structure outperforms spatial subdivision
+schemes that would split individual buildings into different
+nodes.
+Each node of the tree contains: (a) the AABB of the
+node, (b) a zenithal relief map and (c) a suitable number
+of oblique texture maps along with their camera parameters. The zenithal map is obtained by rendering the buildings
+associated to the node using an orthographic camera with
+its viewing direction aligned with the vertical axis. Oblique
+maps are computed in a similar way, using the algorithm
+described in Section 4 to find an appropriate set of view directions to represent the appearance of the buildings in the
+node. We use identical-size textures (M × M texels) in all
+cases, with the RGB channels encoding colour and the A
+channel encoding the depth.
+A number of features of the MRI tree can be easily derived
+from a small set of parameters. Let L be the universe size,
+that is the edge length of the square-based bounding box of
+the urban data model, and let ts be the texel size we want to
+achieve using M × M textures. Both L and ts are measured
+in world coordinates. Details larger than ts will be captured
+by the texture maps and will appear in the output images,
+while smaller details will be lost. Let us assume that the area
+covered by the city buildings is a fraction ω of the initial
+bounding box, the area covered thus being ω · L2 . Let ei be
+the edge length of a certain node cell at depth i, and let ei+1
+be the edge length of one of its child nodes. We can define
+the overlap ratio δi of ei to ei+1 as
+δi = 2 −
+
+ei
+.
+ei+1
+
+(1)
+
+For the sake of simplicity, we assume that δi values do not
+deviate too much from some average value δ and hence it
+makes sense to limit the discussion to such an average value.
+The following equation holds for all nodes:
+ei ≈ (2 − δ)ei+1 .
+
+(2)
+
+2459
+
+td =
+
+2L
+2ed
+=
+.
+M
+M · (2 − δ)d
+
+(3)
+
+(4)
+
+Equation (3) follows immediately from Equation (2). Equation (4) follows by considering the worst case, from a sampling point of view, when the oblique map is captured along
+the direction of one of the diagonals of the bounding box
+of the node and when the normal vector of the surface element (surfel) projected in one texel shows an angle of 45◦
+with the oblique view direction. In this case, the texel size is
+multiplied twice by the square root of 2.
+The equations above allows us to estimate the depth of the
+MRI tree from the four parameters L, M, δ and ts
+d=
+
+log (2L/(Mts ))
+.
+log(2 − δ)
+
+(5)
+
+Furthermore, we can derive an upper bound of the number
+of nodes in the MRI tree. Let I be the number of interior
+nodes in the tree, and let W and T be the number of empty
+and non-empty leaves, respectively. We are interested in the
+number of non-empty nodes N = I + T ; empty nodes add
+a negligible space overhead when compared with the set of
+texture maps stored in non-empty nodes. The fundamental
+equation for the number of nodes in quaternary trees [Sam06]
+is
+I=
+
+(T + W − 1)
+.
+3
+
+(6)
+
+We do not know the number W of empty nodes, but we can
+give an upper bound of W based on the covered area ω. In
+fact, we can write W ≤ 4d − T = 4d (1 − ω). This equation
+comes from the fact that we can have a maximum of 4d
+nodes at the deepest level d of the tree, and that a fraction ω
+of them will represent buildings of the city being non-empty
+leaves. W is lower than the number of empty nodes at the
+deepest level since any empty node at upper levels of the tree
+decreases this W value. Therefore,
+N ≤ 4d ω +
+
+(4d − 1)
+.
+3
+
+(7)
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2460
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+Equations (5) and (7) show that the multi-resolution tree has
+an overall structure and size which is independent of the
+polygonal complexity of the data set and the actual building
+models. Measurements d and N can be estimated from a
+reduced number of parameters: the geometric structure of the
+city (measured by L, ω and δ), the required visual accuracy
+(specified by ts ) and the chosen texture size M. Observe
+that detailed urban models with ad hoc realistic textures per
+facade add no spatial overhead with respect to procedural
+textures.
+We can now exploit the fact that non-empty nodes of the
+tree are represented by a set of relief textures (Figure 1) and
+use wavelet compression in the nodes at the deepest level.
+As discussed in the Section 4.3, we have experimentally
+observed that the visual difference between rendering the four
+children of a leaf node n and rendering just the node n with
+double-size (2M × 2M) textures, is negligible. This is also
+true if we compare the results of rendering its 16 grandson
+nodes and rendering node n with (4M × 4M) textures. In
+other words, the last two tree levels have small geometric
+variance and their relief impostors can be simulated by higher
+resolution impostors at their common ancestor node. Then,
+by taking advantage of image compression and by simply
+storing two levels of quantized wavelet coefficients at leaf
+nodes of the deepest level, we can expand their textures on
+the fly and simulate two extra (virtual) subdivision levels
+of the tree. As far as we know, this is the first approach
+that benefits simultaneously from multi-resolution trees and
+relief impostors with perceptual-based wavelet compression.
+We thus represent d-level trees by much more compact (d −
+2)-level trees. By letting d2 be d − 2, Equation (7) can be
+rewritten to compute the number of non-empty nodes N2 in
+our two-wavelet-level trees,
+N2 ≤ 4d2 ω +
+
+(4d2 − 1)
+.
+3
+
+(8)
+
+As shown in Section 6, we get visually similar results with
+just about 14% of the storage space that would require other
+multi-resolution tree approaches.
+Finally, we can also estimate the optimal value for the texture size parameter M. On the one hand, the tree subdivision
+must stop when the node cell contains a single block of the
+city. On the other hand, we want to sample blocks at leaf
+nodes with enough resolution to capture details greater than
+ts . Therefore, the following holds,
+M≥
+
+b
+,
+2ts
+
+(9)
+
+where b is the maximum size of the blocks in the urban model.
+Consequently, our rule for choosing M uses the smallest
+power of two that fulfils Equation (9). Notice that Equations
+(5) and (8) imply that N2 is O(1/M) and hence the memory
+size of the MRI tree grows linearly with M.
+
+4. MRI Construction
+4.1. Construction of the tree structure
+The construction algorithm starts with a merging step. This
+step guarantees that buildings closer than a certain threshold
+will be considered in our model as a single building. The
+merging algorithm works by iteratively grouping in a single building any pair of buildings in the input model that are
+found to be connected. We use an approximate algorithm that
+renders the buildings with an orthographic zenithal camera
+in false colour and at a suitable resolution, and merges subbuildings that are non-separable in the frame buffer. After
+merging buildings and assigning a representative point (the
+barycenter) to each of them, the algorithm proceeds by assigning sets of connected buildings to nodes of the tree based
+on the position of their representative points, as described in
+Section 3, see Figures 1 and 2. In this way we ensure that
+connected buildings will not be split between (geometrically)
+neighbouring nodes of the MRI tree.
+At this point, the tree structure has been defined and the algorithm must fill-in the relief impostors of non-empty nodes
+(internal nodes plus non-empty leaves). Relief maps in the
+nodes are computed by simply rendering the associated sets
+of buildings, as discussed in Section 4.2. Finally, the wavelet
+coefficients for the deepest leaf tree nodes are computed in
+order to represent the two additional virtual tree levels (Section 4.3).
+
+4.2. Relief map computation
+Once we have obtained the tree structure, we must generate
+the zenithal relief map and the set of oblique relief maps
+associated to each of the nodes of the tree. The zenithal map
+is generated by simply rendering the geometry inside the
+node with a vertically oriented orthographic camera and then
+grabbing the colour and depth buffers. Regarding the oblique
+relief maps, the problem can be stated as follows: given the
+part of the urban model associated to a node, determine the
+number of required oblique relief maps to acquire sufficient
+facade details, and compute the directions to generate them.
+This step is critical to ensure proper sampling density of the
+appearance attributes of model parts like building facades
+and roughly vertical parts which are poorly sampled by the
+zenithal map.
+Oblique relief maps are computed by maximizing a benefit function C. This function is defined as the product of the
+coverage (amount of visible facade surfels from the direction of the relief map) times the sampling quality. The local
+sampling quality is defined as the ratio between the area of
+a surface patch and the corresponding area in texture space
+in the relief map. For vertical facades we represent it by the
+sine of the angle between the view direction and the vertical
+axis, as low-elevation view directions show better sampling
+quality. We compute the coverage with a voting algorithm
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+2461
+
+Figure 4: Plot of the coverage error for the core set heuristics at three different tree nodes. Green regions show view
+directions having a coverage error lower than 0.01.
+
+Figure 3: Relief map construction on three simple areas.
+In (a,b) input depth map (left) and rendering from the best
+direction (right). In (c,d), plot of the C(θ, ψ) function.
+
+inspired in [ADB08]. Building facades are discretized into
+a uniform rectangular grid with edge size equal to the texel
+size. These individual surface patches are the facade surfels
+and each of them votes for all the directions from which it
+is visible. Each direction is represented as an elevation angle θ and an azimuth angle ψ, uniformly discretized into 10
+and 48 bins, respectively. The coverage of a certain direction
+is defined as the number of votes obtained. The best view
+direction for an oblique relief map is selected as the direction maximizing the benefit function C. We have extensively
+tested the construction algorithm with a number of urban
+models. Figures 3(a) and (b) shows some results on scene
+parts with increasing occlusion density. The plot of the benefit function C(θ, ψ) is shown in Figures 3(c) and (d). Note
+that the local minima of C along the ψ direction correspond
+to unstable views where small perturbations in the view direction introduce new facades into the image. Our algorithm
+avoids these unstable directions by choosing views where the
+exposed facade area is maximized. As a result, our algorithm
+naturally produces stable, well distributed views (Figure 3).
+Once the best view is detected, the city submodel in the
+node cell is rendered from this direction with an orthographic
+camera, the colour and depth buffers producing the components of the corresponding oblique relief map. The voting
+process is now repeated, but only surfels not captured by
+previous relief maps vote. New oblique relief maps are generated (in coverage decreasing order) until the predefined
+coverage tolerance is reached. In our current implementation we use a coverage tolerance of 95%: at least 95% of
+the facade features will be captured by one or more of the
+oblique relief maps. This tolerance value may be changed
+to trade a more complete coverage for a larger number of
+oblique relief maps per node, and vice versa. In our tests, we
+have found 95% to provide a good trade-off between the two.
+We compute the oblique relief maps in decreasing order of
+sampling coverage, and group them into the core set and the
+complementary set. The core set contains the four oblique
+
+relief maps having the highest sampling coverage, whereas
+the complementary set contains the rest of the maps. We use
+these two sets to define a heuristic for choosing relief maps in
+the rendering stage. We have experimentally observed (Section 5.3) that using this heuristic results in a minimization of
+the coverage error (Figure 4). In our test data set, the average number of oblique relief maps per node is 13.2 plus the
+zenithal relief map.
+4.3. Wavelet coefficients
+As already mentioned, we use wavelet compression of the
+oblique texture maps in the nodes of the deepest tree level
+to expand their textures from 256 × 256 to a resolution
+of 512 × 512 and 1024 × 1024. By rendering any of the
+leaf nodes with these expanded textures we simulate two
+additional virtual levels in the multi-resolution tree. The
+wavelet compression is applied to relief maps computed at
+a 1024 × 1024 resolution acquired from the original model.
+Computing and storing wavelet detail coefficients requires a
+negligible storage overhead, while providing a good visual
+quality (Figure 5). The added detail represents real features
+of the buildings at a higher resolution, so that they become visually apparent. In our test data set, the wavelet compression
+increases the level of detail from 68 to 17 cm/texel.
+We use Haar wavelets with a quantization of the detail
+coefficients (Figure 6). Every oblique relief map in the last
+level of the tree is computed at a resolution of 1024 × 1024,
+converted to YCbCr colour space, and downsampled to
+256 × 256 [Figures 6(a) and (b)]. We then compute the
+wavelet coefficients of the luminance channel (Y) between
+these two resolutions for each block of 4 × 4 texels. We have
+experimentally found that the reconstruction is visually correct using just five out of the 15 detail coefficients [the ones
+in blue in Figure 6(d)]. Because they are not equally relevant,
+we pack these five coefficients into three bytes [Figures 6(c)
+and (d)]. Oblique relief maps at leaves are then stored at a
+resolution of 256 × 256 together with the quantized wavelet
+coefficients (occupying 192 KB) of the luminance channel.
+Detail coefficients of the depth channel of zenithal maps are
+stored quantizing them to 4 bits, while the depth detail coefficients of the oblique maps are discarded. Due to perceptual
+limitations of the human visual system, we have observed
+that the CbCr colour components can be stored at 256 × 256
+resolution with no visual quality loss.
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2462
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Figure 5: Render of a tree node with relief maps of 1024 ×
+1024 (upper left), and render of the same node with reconstructed 1024 × 1024 relief maps (upper right). In this last
+case, relief maps have been recovered from 256 × 256 leaf
+node information and from two levels of wavelet error coefficients. In the bottom row, detailed render using the leaf node
+relief maps, the real high resolution 1024 × 1024 maps and
+the wavelet-recovered maps that simulate two extra levels
+of subdivision. The left-bottom image is more blurred, while
+the two remaining images in the bottom row are virtually
+indistinguishable.
+5. View-Dependent Rendering
+5.1. Tree traversal
+The rendering algorithm is based on a top-down traversal
+of the tree. For each node visited during the traversal, we
+apply a simple test to decide whether to render the relief
+maps associated to the node, or to recursively descend the
+tree repeating the test for its children. The underlying idea
+is to stop descending the tree as soon as we find a node
+whose screen projection roughly matches the resolution of
+its associated relief maps.
+We first compute an upper bound p of the screen projection
+of individual texels. If this bound is below a given userdefined tolerance (set to 1 pixel in the experiments), then the
+node needs no further refinement and we render the node
+itself. Otherwise, we continue descending the tree.
+5.2. Node rendering
+Each node is rendered through a combination of relief mapping and projective texture mapping. The CPU-based part
+of the rendering algorithm proceeds through the following
+steps:
+1. Choose three oblique relief maps among the precomputed ones using the strategy described in
+Section 5.3.
+
+(e)
+
+Figure 6: Wavelet compression is applied to the relief maps
+of the deepest level. These maps are generated at a 1024 ×
+1024 resolution (a) and converted to YCrCb colour space (b).
+The texture maps are then divided into 4 × four blocks (c)
+which are encoded as the average block colour and the five
+most relevant luminance-Y-wavelet coefficients (d). Note that
+the wavelet coefficients of both chroma signals are discarded.
+Finally, the 1024 × 1024 map is represented as the 256 ×
+256 map containing the average colours of all blocks and
+five selected luminance wavelet coefficients (e).
+2. Bind the textures associated to the zenithal map and
+the three oblique maps into different texture units. For
+nodes at virtual levels, this step might require fetching
+the wavelet detail coefficients and using them to decode
+the high-resolution maps (done asynchronously in the
+CPU).
+3. Modify the uniform variables encoding relief map data
+(such as the equation of the supporting planes), to make
+this information available to the fragment shader.
+4. Draw the bounding box of the node, just to ensure that
+a fragment will be created for any viewing ray intersecting the underlying building or group of buildings.
+The most relevant part of the rendering relies on the fragment shader, which proceeds through two main steps. In the
+first step we use the depth channel of the zenithal map to
+find the intersection P of the fragment’s viewing ray with
+the underlying geometry (Figure 7). For this particular task,
+any ray-heightfield intersection algorithm can be adopted
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+2463
+
+Figure 7: Colour sampling at fragment level. The intersection point P is projected into the oblique maps (a), only two maps
+are shown for clarity. The colour-coded contribution of each oblique map is shown in (b). Resulting image is shown in (c).
+[POC05]. Pyramidal displacement mapping [OKL06] is particularly suitable as it guarantees finding the correct intersection on any heightfield and viewing condition. Our current
+prototype, however, is based on the relief mapping algorithm
+described in [POC05]. The output of this stage is the intersection point P and the surface slope at P. If no intersection
+is found, the fragment is discarded.
+The next step performed by the fragment shader is the computation of the fragment’s colour. The slope of the heightfield
+is used to decide whether the colour should be taken from the
+zenithal map or from any of the oblique maps. If a roughly
+vertical surface is detected, instead of taking the colour from
+the zenithal map, we compute the orthogonal projection P1
+of P into the supporting plane of the first oblique map [Figure
+7(a)]. As with traditional projective texture mapping, the image projects through any amount of geometry and therefore
+some parts of the image might map onto occluded portions
+of the scene that were not visible from the original camera.
+To avoid this, colour is sampled from the first oblique map
+whose depth value stored at Pi approximately matches the
+Euclidean distance ||P − Pi ||. If the first oblique map does
+not match, the second and third ones are tested. If again no
+match is found (which might happen due to simultaneous disocclusion events), we average the colour of the three oblique
+maps to minimize artefacts.
+Our current system also implements some further improvements to the above-mentioned algorithm. We compute
+a bound of the screen projection of the node’s height. If this
+bound is below a user-defined threshold (set to two pixels in
+the experiments), we just render a textured quad using the
+RGB colour of the zenithal map. This prevents, for example
+using relief mapping in distant nodes near the horizon. We
+also use a simple alpha blending technique to smooth out
+potential popping artefacts due to oblique map switching.
+When a node requires a new set of oblique maps we use both
+the old and the new set of oblique maps during a few frames,
+with varying alpha values (Supporting Information).
+5.3. Runtime oblique map selection
+We have performed multiple tests to validate candidate
+heuristics for selecting the appropriate oblique relief maps
+among the pre-computed ones. For the tests we used three
+
+nodes Nr , Ni and Nd from our test data set (Section 6), corresponding to different city parts. Node Nr belongs to level 4
+in the tree and corresponds to a regular area of the city. Node
+Ni also belongs to level 4 in the tree but corresponds to an
+irregular area of the city with narrow and complex streets.
+Node Nd belongs to level 6 in the tree and corresponds to
+one square block in the city centre. Figure 4 shows the coverage error for a large number of directions, mapped in the
+Gauss sphere. The coverage error compares, in a pairwise
+way, the pixels from a direct orthographic render of the original polygonal data set with the pixel values from a render
+of the oblique relief maps in the node. The coverage error is
+the fraction of image pixels that are not correctly recovered
+from the oblique relief maps. Figure 4 shows the result of
+using the core set heuristics, which has turned out to be the
+best one among those tested. The core set heuristics uses,
+for every node in the view-dependent front, its zenithal map
+and the three oblique maps which better align with the view
+direction, ensuring that at least two of them are chosen from
+the core set: the first oblique map is selected from the whole
+set whereas the second and the third maps are always selected
+from the core set. Our current implementation uses this core
+set heuristics and is able to generate walkthroughs with negligible artefacts, as discussed later. This heuristic performs
+much better than just choosing the three best aligned oblique
+relief maps.
+6. Results and Discussion
+We have implemented a prototype version of our system using C++, OpenGL and GLSL. All images shown belong to a
+textured urban model from TeleAtlas. Reported results have
+been measured on a PC, Intel Core2 Quad Q9550 at 2.83
+GHz with 8 GB of core memory and an NVidia GTX 280
+with 1 GB of memory. The input city model contained a
+total of 3.2M triangles and 6.3M vertices. The total surface
+area of the polygons was 234.4 km2 , textured with periodic textures at a resolution of 0.5 cm/texel (making a total
+of 4.2 Teratexels). In our current implementation, we decided to have a detail threshold ts of 17 cm/texel. For the
+sake of comparisons, we downsampled the input textures to
+17 cm/texel. This resulted in 25.6 GTexels occupying
+76.8 GB (uncompressed) or 12.8 GB (compressed with
+DXT1).
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2464
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+Figure 8: Snapshots of an interactive navigation through the urban model. Building facades were represented at 17 cm/texel
+whereas input satellite images used for terrain and roofs were only 50 cm/texel. The last column compares procedural textures
+versus real photographs.
+Although we focus on buildings rather than on the terrain
+model, for the sake of completeness we briefly summarize the
+terrain representation of our current implementation, which
+is a layer independent from the city tree. We used 1:5000
+(50 cm/texel) orthophotos. During pre-processing, input orthophotos were subdivided into 64 square tiles, each tile
+having 512 × 512 texels and covering a 2562 m2 region. An
+out-of-core mipmap pyramid was built from 512 × 512 to
+16 × 16 images, stored in separate DDS files using S3TC
+DXT1 compression. During visualization, we used a LRU
+texture cache except for the 16 × 16 tiles, which were never
+replaced from the cache.
+
+Table 1: Running times for the construction of the multi-resolution
+tree.
+
+In the input model building, roofs were untextured. To
+increase the visual quality of the model, we decided to use
+the colour of the orthophotos when rendering the polygonal
+model for the generation of the zenithal maps. Unfortunately,
+the 50 cm/texel resolution of the roof images, much lower
+than the 17 cm/texel resolution of the facades becomes evident in Figure 8 and in Supporting Information. We applied
+no horizontal correction to alleviate the existing misalignment of some features in the input orthophotos with respect
+to the polygonal model, but we still consider that the rooftextured model has a better appearance than the original one.
+Higher resolution orthophotos would obviously improve the
+quality of the reconstructed roofs.
+
+oblique maps at a uniform resolution of 256 × 256. Finally,
+the upper bound for the number of non-empty nodes was,
+according to Equation (8), N2 = 4273. This resulted in a
+good approximation to the real number of non-empty nodes
+in the tree, which was found to be 4081. The distribution of
+these 4081 nodes among the tree levels is shown in columns
+0, . . . , 6 of Table 1. Note that levels 7 and 8 are virtual
+and the corresponding 55,195 nodes do not exist, but are
+simulated by wavelet coefficients. Similar computations can
+be done for any other urban model, and precise bounds on
+the size of the MRI tree can be computed without having to
+construct it. Recall that the overlap ratio δ is a measure of
+the local complexity of the blocks and streets. This overlap
+was found to be negative in the most regular parts of the city,
+whereas in complex downtown areas the overlap ratio was
+found to be δ = 0.057 (Figure 8). Urban models with uniform
+overlap values in the tree nodes have a sort of uniform fractal
+structure.
+
+The specific parameters for the test data set were L = 4.5
+km, ω = 0.71 (i.e. 71% occupancy) and δ = 0.049 (i.e. 4.9%
+overlap). The maximum block size b was found to be 85 m
+and the required threshold for facade details was defined
+to be ts = 17 cm. This resulted in a required depth of eight
+levels, d = 8 and d2 = 6 [Equation (5)], and texture size M =
+256 [Equation (9)]. Therefore, we stored all zenithal and
+
+Depth
+0
+1
+2
+3 4
+5
+6
+7+8
+No. of nodes
+1
+4
+16 62 237 856 2905 55195
+Map acquisition 219.9 55.8 14.8 4.6 2.0 1.3 1.2
+–
+(s/node)
+Compression
+–
+–
+–
+– –
+–
+– 0.0684
+(s/node)
+Total (min/level) 3.6 3.7 3.9 4.8 7.9 18.6 58.1 62.9
+
+Statistics for the generation of the multi-resolution tree
+during pre-processing are shown in Table 1. The first two
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+2465
+
+Figure 9: Our urban model can be drawn on top of different terrain layers, such as orthophotos (a) and topographic maps (b).
+A sample node with complex geometry is shown in (c).
+steps (detecting connected buildings and constructing the
+tree structure) required a total of 13 seconds. Tree nodes
+contain a zenithal map and a maximum of 16 oblique maps,
+with an average of 13.2 such maps per node (computed using
+the algorithm in Section 4.2). Each relief map consists of a
+256 × 256 4-channel texture. The times for the generation
+of the tree nodes at different levels are also shown in Table
+1. Running times for the virtual nodes at depth 7 and 8 is
+a projection of the running time for the generation of the
+wavelet coefficients that simulate them: wavelet coefficients
+for any of the 2905 nodes at depth 6 were computed in 1.3 s.
+This results in 62.9 min, which can be seen as a computation
+time of 68.4 ms for each of the corresponding 55,195 virtual
+nodes at depths 7 and 8. Creating virtual nodes is therefore
+much faster than generating two real extra subdivision levels
+in the tree. The total time for the generation of the tree (last
+column of Table 1) was 2 h and 44 min.
+An average tree node required 997 KB of disk storage,
+using 256 × 256 textures and S3TC DXT5 compression.
+The whole multi-resolution tree with 4081 nodes required
+3.98 GB of memory, an acceptable compression compared
+to the 12.8 GB of the DXT1-compressed textures of the initial
+polygonal model.
+The extra information required at each of the 2905 leaf
+nodes to simulate the virtual tree levels required 3.9 MB,
+or equivalently 195 KB per virtual node (4 sons plus 16
+grandsons).
+Rendering the model along a general trajectory (Supporting Information) results in an average frame rate of 90 fps
+with a minimum of 81 fps and a maximum of 102 fps, for
+a 1024 × 768 viewport. Rendering the equivalent polygonal
+model results however in an average frame rate of 3.1 fps,
+with a minimum of 0.8 fps and a maximum of 12 fps in
+close-up views. In both cases we used quadtree-based occlusion culling. The poor performance of the polygonal model
+can be attributed mostly to the size of the texture data set
+rather than to its geometric complexity.
+The core set heuristics for oblique relief maps selection
+at run-time reduces memory bandwidth and minimizes the
+
+number of texture switches, as relief maps in the core set
+are given more priority during asynchronous texture loading and replacement on the GPU. Moreover, it prevents
+image artefacts and facilitates the usage of alpha blending
+techniques to further minimize popping effects. Using the
+most voted relief maps in the core set provides better sampling, tending to increase the range of surface orientations
+well represented in chosen relief maps. In fact, textures in
+the core set provide a good approximation of the object
+while waiting for complementary textures to load. These
+conclusions are supported by our experimental simulations
+(Figure 4).
+Our RGBZ textures encoding zenithal and oblique relief
+maps exhibit spatial coherence, in the sense that neighbouring
+texels correspond to neighbouring pixels in the screen projection of the model. Therefore, our textures are amenable to
+standard image compression methods, as already discussed.
+Competing approaches such as [CBG∗ 07] make use of offset
+textures to encode the parameterization, preventing any kind
+of lossy compression.
+An interesting feature of our approach is that geometry
+is automatically reconstructed from the zenithal maps at the
+same resolution as facade details in the buildings. Multiresolution and wavelet decomposition can be applied to all relief maps, resulting in an implicit geometry multi-resolution.
+Having (as is our case) a detail threshold ts of 17 cm/texel,
+any geometric detail at the roofs (such as domes and complex
+roofs) is automatically recovered by the fragment shader for
+general 2.5D urban models. To the best of our knowledge, this
+is not supported by previous approaches such as [AYRW09]
+and [CBG∗ 07].
+Independent handling of the nodes encoding the multiresolution information of the buildings and of the terrain
+texture maps can be exploited during the navigation, and the
+user can interactively switch between a number of different
+terrain representations like orthophotos or topographic maps
+(Figure 9).
+The overall information in the multi-resolution tree has a
+manageable size which is independent from the origin of the
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2466
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+Table 2: Comparison with some previous algorithms.
+
+Test data set
+Hierarchical
+subdivision
+Pre-process time
+Frame rate
+Min texel size
+on test data set
+Supports complex
+blocks and roofs
+Supports ambient
+occlusion
+Supports streaming
+
+[ADB08]
+2 GB, 36 km2
+
+[CBG∗ 07, DBCG∗ 09]
+3.7 MTriang., 20 GTexels
+
+Our proposal
+3.2 MTriang., 4.2 TeraTexels, 108.4 km2
+
+Quadtree,
+blocks splitted
+4h
+Above 50
+Unknown
+
+Quadtree,
+blocks splitted
+6h
+Above 50
+156 cm/texel
+
+Object space,
+quaternary
+2 h 44 min
+Above 50
+17 cm/texel
+
+Poor
+
+Fair
+
+Good results
+
+Yes
+
+Yes
+
+Yes
+
+Yes
+
+Yes
+
+Yes
+
+building textures. Detailed and complex urban models with
+ad hoc realistic textures per block present the same spatial
+complexity as cities with procedural textures. Moreover, the
+proposed representation allows an efficient updating of the
+overall hierarchical data structure if some textures of individual buildings are improved or modified. The tree can be
+progressively improved from an initial standard model with
+periodic (simulated) textures, to incorporate detailed textures
+of buildings as soon as they become available, as shown in
+the last part of the Supporting Information. When new textures are available, the corresponding leaf node (zenithal
+map, oblique maps and wavelet detail coefficients) can be
+recomputed at a very small computational cost (Table 1). In
+order to have coherent multi-resolution views, the chain of
+ancestor nodes of the modified leaf node must also be recomputed. However, we have observed that the same visual
+result is obtained if just the lower levels (levels 3–5 of the
+tree) of this ancestor chain are updated. Relief maps on the
+upper levels 0–2 are not supplying detailed information in
+the building walls. Therefore, the total updating time of the
+multi-resolution structure is the time required to update the
+chain of the four deepest nodes, which turns out to be (according to Table 1) a total of 10.4 s on average. Figure 8 shows
+one of the blocks including detailed captured textures.
+Comparisons. Compared to Ali et al. [AYRW09], our approach can handle either procedural textures or real textures
+of the buildings at no additional storage cost (Figure 8). Ali’s
+method succeeds in producing high-quality images for closeups, whereas our approach is oriented towards medium-range
+distance views. Compared to [ADB08], our approach can
+manage much closer views during the navigation and scales
+to urban models having more than 4 TeraTexels. The visual
+quality is clearly improved through the use of a well-suited
+dynamic impostor selection strategy. Our rendering algorithm requires only one rendering pass per node, whereas the
+system proposed in [ADB08] requires one rendering pass per
+relief map in the node. In the same hardware, our approach
+runs about three times faster.
+
+The original BlockMap representation [CBG∗ 07] was improved in [DBCG∗ 09] to support slopped surfaces and inputsensitive colour sampling. Compared to BlockMaps, our
+approach can handle compact virtual tree levels through
+wavelet image compression. It also supports a better sampling of surface attributes along arbitrarily oriented surfaces,
+including complex roofs, terrace walls, almost-vertical walls
+and domes. Moreover, it provides a more general solution
+for a larger class of urban shapes as the sampling density
+does not depend on the perimeter of the building facades.
+As an example, the node cell shown in red in Figure 9(c)
+shows a complex region in the tree containing a long facade perimeter (in blue) and some singular buildings. The
+facade details and roof shape are too complex to be represented by a single 32 × 32 or 64 × 64 BlockMap node. In
+our approach, the size of a texel is roughly constant across
+the texture, being related to the depth of the node but not
+to the perimeter of the buildings. This guarantees a faithful
+reconstruction for arbitrarily complex buildings with complex perimeters, with better sampling and hence better image
+quality.
+Table 2 summarizes the main differences between the proposed approach and two previous schemes. We would like
+to emphasize the potential of the use of image compression
+techniques and the possibility of having virtual tree levels,
+the suitability of MRIs for visualizing large data sets, and the
+support of general node cells with multiple blocks and complex roofs. Pre-process is quite simple and comparatively
+fast, being based on iterated renders from computed optimal
+view directions that can be used in any kind of input data
+sets, including textured polygons, point clouds and hybrid
+models.
+Limitations. Abrupt changes of the viewing direction might
+require a number of texture uploads exceeding the network
+bandwidth when navigating through models stored at remote
+servers. Each node update requires 262 KB, so a typical
+bandwidth of 16 Mb/s allows for seven node updates per
+second in the front. Anyway, because the number of front
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+nodes is usually small (below 40 in Supporting Information), most camera trajectories do not exceed this update
+rate.
+
+7. Conclusions and Future Work
+We have presented a urban rendering system for the visualization of large-scale urban models through a hierarchical
+collection of properly oriented relief maps. This approach is
+oriented to medium-range distance visualization of massively
+photo-textured cities. For each node of this tree we store a set
+of relief maps that provide a multi-resolution visualization
+of the urban scene and support perceptually based wavelet
+compression. An efficient algorithm for the selection of the
+set of viewing planes supporting the relief maps has been
+discussed. The algorithm achieves a good balance between
+the sampling density and sampling quality, it is simple to implement and its running time is mostly independent from the
+underlying geometry. We have also introduced a new rendering algorithm which combines relief mapping with a depthaware version of projective texture mapping and requires a
+single rendering pass for each node. Our results show that the
+proposed approach is able to produce interactive visualization at high frame rates with a reasonable memory footprint
+for very large urban models. Moreover, our representation
+can be efficiently updated when new building information is
+available.
+Our representation can be extended to support non-2.5D
+urban structures like arches and bridges. A naive solution
+is to add a second depth channel to the zenithal map, so
+that added volumes can be detected and discarded during the
+relief mapping stage. An approximate solution with no extra cost is to discard added volumes in the projective stage.
+Holes in non-2.5D geometry are captured by oblique relief
+maps. When projecting the 3D position of a fragment onto the
+oblique relief maps, a value of 1.0 in the depth channel (i.e. a
+background texel) indicates the presence of a hole. Discarding such fragments allows reconstructing the surface defined
+by the intersection of the visual hulls defined by the zenithal
+and oblique maps. Future work also includes the evaluation
+of parallel algorithms for computing the multi-resolution tree
+and a hybrid visualization of textured polygonal models and
+MRI for close-up views.
+
+Acknowledgments
+
+2467
+
+relief impostors. Computer Graphics Forum 26, 3 (2007),
+553–560.
+[ADB08] ANDUJAR C., DIAZ J., BRUNET P.: Relief impostor
+selection for large scale urban rendering. In Proceedings
+of the IEEE VR 2008 Workshop on Virtual Cityscapes
+(Reno, NV, USA, 2008).
+[AYRW09] ALI S., YE J., RAZDAN A., WONKA P.: Compressed facade displacement maps. IEEE Transactions on
+Visualization and Computer Graphics 15, 2 (2009), 262–
+273.
+[BD06] BABOUD L., D´ECORET X.: Rendering geometry with
+relief textures. In Proceedings of Graphics Interface
+(Toronto, Canada, 2006), pp. 195–201.
+[CBG*07] CIGNONI P., BENEDETTO M. D., GANOVELLI F.,
+GOBBETTI E., MARTON F., SCOPIGNO R.: Ray-casted
+blockmaps for large urban models visualization. Computer Graphics Forum 26, 3 (2007), 405–413.
+[DBCG*09] DI BENEDETTO M., CIGNONI P., GANOVELLI F.,
+GOBBETTI E., MARTON F., SCOPIGNO R.: Interactive remote
+exploration of massive cityscapes. In The Proceedings of
+the 10th International Symposium on Virtual Reality, Archaeology and Cultural Heritage VAST (2009) (St. Julians,
+Malta, 2009).
+[DDSD03] DECORET X., DURAN F., SILLION F., DORSEY J.:
+Billboard clouds for extreme model simplification. ACM
+Transactions on Graphics 22, 3 (2003), 689–696.
+[DGY07] DIETRICH A., GOBBETTI E., YOON S.-E.: Massivemodel rendering techniques: A tutorial. IEEE Computer
+Graphics and Applications 27, 6 (2007), 20–34.
+[Don05] DONNELLY W.: Per-pixel displacement mapping
+with distance functions. In GPU Gems 2: Programming
+Techniques for High-Performance Graphics and GeneralPurpose Computation. M. Pharr and R. Fernando (Eds.).
+Addison-Wesley Professional, Upper Saddle River, NJ,
+USA (2005), pp. 123–136.
+[JWP05] JESCHKE S., WIMMER M., PURGATHOFER W.: Imagebase representations for accelerated rendering of complex
+scenes. In STAR Reports, Eurographics 2005. The Eurographics Association, Dublin, Ireland (2005), pp. 1–20.
+
+References
+
+[JWSP05] JESCHKE S., WIMMER M., SCHUMANN H.,
+PURGATHOFER W.: Automatic impostor placement for guaranteed frame rates and low memory requirements. In
+Proceedings of the ACM SIGGRAPH Symposium on Interactive 3D Graphics and Games (Washington, DC, USA,
+2005), pp. 103–110.
+
+[ABB*07] ANDUJAR C., BOO J., BRUNET P., FAIREN M.,
+NAVAZO I., VAZQUEZ P., VINACUA A.: Omni-directional
+
+[KMS*06] KASIK D., MANOCHA D., STEPHENS A., BRUDERLIN
+B., SLUSALLEK P., GOBBETTI E., CORREA W., QUILEZ I.: Real
+
+This work has been partially funded by the project TIN200767982-C02-01 of the Spanish Government. The authors
+thank the anonymous reviewers for their valuable comments.
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2468
+
+C. Andujar et al. / Visualization of Large-Scale Urban Models through Relief Impostors
+
+time interactive massive model visualization. Eurographics 2006 Tutorials. The Eurographics Association, Vienna,
+Austria (2006).
+
+Proceedings of ACM Symposium on Interactive 3D Graphics and Games (Washington, DC, USA, 2005), pp. 155–
+162.
+
+[MS95] MACIEL P. W. C., SHIRLEY P.: Visual navigation of
+large environments using textured clusters. In SI3D ’95:
+Proceedings of the 1995 symposium on Interactive 3D
+graphics (Monterey, CA, USA, 1995).
+
+[Sam06] SAMET H.: Foundations Of Multidimensional And
+Metric Data Structures. Elsevier Science & Technology,
+Amsterdam, 2006.
+
+[MZWVG07] M¨ULLER P., ZENG G., WONKA P., VAN GOOL
+L.: Image-based procedural modeling of facades. ACM
+Transactions on Graphics 26, 3 (2007), 85.
+[OBM00] OLIVEIRA M., BISHOP G., MCALLISTER D.: Relief
+texture mapping. In Proceedings of SIGGRAPH 2000
+(New Orleans, LA, USA, 2000), pp. 359–368.
+[OKL06] OH K., KI H., LEE C.-H.: Pyramidal displacement
+mapping: a GPU-based artifacts-free ray tracing through
+an image pyramid. In VRST ’06: Proceedings of the ACM
+symposium on Virtual reality software and technology
+(Limassol, Cyprus, 2006), pp. 75–82.
+[PO07] POLICARPO F., OLIVEIRA M. M.: Relaxed cone stepping for relief mapping. In GPU Gems 3: Programming Techniques for High-Performance Graphics and
+General-Purpose Computation. Addison-Wesley Professional. Hubert Nguyen, Reading, MA (2007), pp. 409–
+428.
+[POC05] POLICARPO F., OLIVEIRA M. M., COMBA J.: Realtime relief mapping on arbitrary polygonal surfaces. In
+
+[SDB97] SILLION F. X., DRETTAKIS G., BODELET B.: Efficient
+impostor manipulation for real-time visualization of urban scenery. Computer Graphics Forum 16, 3 (1997),
+207–218.
+[Tat06] TATARCHUK N.: Dynamic parallax occlusion mapping
+with approximate soft shadows. In I3D ’06: Proceedings
+of the 2006 symposium on Interactive 3D graphics and
+games (Redwood City, CA, 2006), pp. 63–69.
+[VAW*09] VANEGAS C., ALIAGA D., WONKA P., MULLER P.,
+WADDELL P., WATSON B.: Modeling the appearance and
+behavior of urban spaces. In Eurographics 2009-Annex,
+State of the Art Reports. The Eurographics Association,
+Munich, Germany (2009), pp. 1–16.
+[Wil02] WILSON A.: Spatially Encoded Image-Space Simplifications for Interactive Walkthrough. PhD thesis, UNC at
+Chapel Hill, Department of Computer Science, 2002.
+[WMV*08] WATSON B., M¨ULLER P., VERYOVKA O., FULLER
+A., WONKA P., SEXTON C.: Procedural urban modeling in
+practice. IEEE Computer Graphics and Applications 28,
+3 (2008), 18–26.
+
+c 2010 The Authors
+Computer Graphics Forum c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+

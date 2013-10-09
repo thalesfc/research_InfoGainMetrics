@@ -1,0 +1,702 @@
+Volume 27 (2008), Number 2
+
+EUROGRAPHICS 2008 / G. Drettakis and R. Scopigno
+(Guest Editors)
+
+Reduced Depth and Visual Hulls of Complex 3D Scenes
+Alexander Bogomjakov and Craig Gotsman
+Center for Graphics and Geometric Computing
+Technion – Israel Institute of Technology
+{alexb | gotsman}@cs.technion.ac.il
+
+Abstract
+Depth and visual hulls are useful for quick reconstruction and rendering of a 3D object based on a number of
+reference views. However, for many scenes, especially multi-object, these hulls may contain significant artifacts
+known as phantom geometry. In depth hulls the phantom geometry appears behind the scene objects in regions
+occluded from all the reference views. In visual hulls the phantom geometry may also appear in front of the objects
+because there is not enough information to unambiguously imply the object positions.
+In this work we identify which parts of the depth and visual hull might constitute phantom geometry. We define
+the notion of reduced depth hull and reduced visual hull as the parts of the corresponding hull that are phantomfree. We analyze the role of the depth information in identification of the phantom geometry. Based on this, we
+provide an algorithm for rendering the reduced depth hull at interactive frame-rates and suggest an approach
+for rendering the reduced visual hull. The rendering algorithms take advantage of modern GPU programming
+techniques.
+Our techniques bypass explicit reconstruction of the hulls, rendering the reduced depth or visual hull directly from
+the reference views.
+Categories and Subject Descriptors (according to ACM CCS): I.3.3 [Computer Graphics]: Viewing algorithms
+
+1. Introduction
+Depth hull approximation is a technique for reconstruction
+of the shape of a 3D object from a number of reference
+views, where each view provides a color image and a depth
+(range) image of the object. Although depth hulls have been
+used in the context of full 3D reconstruction, it seems that
+its more attractive feature is the ability to quickly approximate the geometry of an object from a small number of reference depth images. This makes it suitable for applications
+such as live free-viewpoint video, where a small number of
+depth cameras are used to capture a dynamic scene and immediately reproduce its appearance, typically from a novel
+viewpoint, for any number of remote viewers.
+The depth hull can be considered a successor technique
+to the traditional visual hull, which uses reference images
+without depth data. Geometric information about the object
+is obtained from its silhouettes. It is a much less powerful reconstruction method than the depth hull, but it is widely used
+in many applications because it does not require any depth
+sensing equipment – its input is just images of the object.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+(a)
+
+(b)
+
+(c)
+
+Figure 1: (a) – rendering without DH. (b) – DH rendering.
+(c) – DH of a complex scene; notice the phantom geometry
+behind the two objects.
+There are many other methods for capturing the 3D geometry of an object. In many cases, this is done by capturing the
+visible geometry from multiple viewpoints around the object. If the final goal is rendering, it is usually unnecessary
+to integrate all the captured pieces of geometry into a single mesh. However, it is generally impossible to completely
+cover the surface of an object with a small number of cameras. Simply rendering the available geometry from a novel
+viewpoint using some kind of triangulated mesh, point splats
+
+176
+
+A. Bogomjakov & C. Gotsman / Reduced Depth and Visual Hulls
+
+or by any other technique which does not attempt to fill in
+missing parts will produce an incomplete image, like in Figure 1a. In this example the object was captured by two depth
+cameras, one in front and one from behind and two regular
+video cameras from the sides. The depth images were triangulated and rendered as textured triangle meshes. To obtain
+a complete image of the object, we would need to apply a
+reconstruction algorithm capable of filling the missing geometry. This is typically a slower process and would not suit
+applications where the reconstruction and rendering must be
+done on-the-fly at real-time rates, as is the case for dynamic
+scenes. Hull-based techniques are able to do just that. Figure 1b shows the depth hull rendering of the same object
+as in (a). The geometry that was filled in can be textured
+with the images from the regular video cameras. Actually,
+some off-line reconstruction algorithms are, in fact, based on
+depth hull [PDH∗ 97,CL96] or visual hull [KS98] principles,
+but they are too slow for real-time rendering applications because they try to achieve more than mere object appearance.
+Despite its promise, use of depth hull (DH) and visual hull
+(VH) techniques in a complex scene is problematic, especially when the number of reference views is small. DH and
+VH may produce geometric artifacts, otherwise known as
+phantom geometry, as in Figure 1c.
+A complex scene is one which consists of an object with
+complex geometry or of many, even simple, objects. More
+precisely, we consider a scene to be complex if there exists
+a plane whose intersection with the scene consists of more
+than one connected region.
+The depth hull of a complex scene may consist of several
+connected components, some of which are connected to the
+depth maps of the reference views. The latter correspond to
+objects that are visible to at least one of the cameras. The
+components not connected to any depth map represent the
+regions of space occluded from all the cameras. Potentially,
+these regions can contain scene objects, but, in most cases,
+these regions are, in fact, empty. In these cases, severe artifacts are often produced where the resulting approximating
+geometry bears no resemblance to the true geometry of the
+occluded objects and the only relation between them is that
+the approximation contains these objects. Thus, we assume
+that we are interested only in the portion of the DH connected to any of the depth maps and would like to eliminate
+the remainder. In this paper we present an algorithm for rendering this reduced DH.
+In the DH case the phantom geometry can only appear
+behind the true objects because the depth maps are evidence
+that the space in front of the objects is empty. This information is unavailable in the VH, so the phantom geometry may
+also appear in front of the objects. This poses an ambiguity
+problem which requires additional information to resolve. In
+this work we consider the use of object correspondence information for resolving the VH ambiguity during rendering.
+
+We also show that this is equivalent to using depth information.
+2. Related Work
+The majority of the state-of-the-art is devoted to use of
+the visual hull. Starting with the introduction of this concept by Laurentini [Lau94], the visual hull became popular in the context of 3D reconstruction by space carving [KS98]. It was subsequently used for novel view generation from reference images [MBR∗ 00,WC01]. Later Matusik et al. [MBM01] described how to construct polyhedral
+visual hulls from reference images, which allowed for some
+geometric processing and hardware-accelerated rendering. If
+geometric processing is not required and the main use of
+the visual hull is for novel view synthesis, explicit reconstruction can be avoided and hardware-accelerated methods
+for VH rendering directly from the reference images can be
+used [LMS03a, LMS03b, LMS04a].
+The first use of the depth hull, although not under this
+name, was by Curless and Levoy [CL96]. In a nutshell, the
+depth hull is the minimal 3D region containing the depth
+images and the intersection of the cones of space behind
+them (occluded from the camera). They used a volumetric
+approach to construct a depth hull from reference range images. More recently, the depth hull was used for novel view
+synthesis in a free-viewpoint video setup [BGM06].
+There are many other works that propose different approaches to novel view rendering. Some of them are purely
+image-based, like Light-Field rendering [LH96]. Others use
+a mixture of image-based and geometry based techniques,
+like the Lumigraph [GGSC96] and ULR [BBM∗ 01]. There
+are geometric approaches that build a geometric approximation of the scene, but spend a lot of effort on recovering partial scene geometry. Different techniques are
+used for that purpose, e.g. stereo [KNR95, CSS02], volume carving [KS98], point-based representation and rendering [LWG04, WWCG07], photo-consistency, like voxel
+coloring [SD97] and its successor photo-hull [YWB03,
+LMS04b]. The advent of depth video cameras [Ins,Via,Can]
+open new horizons for novel view synthesis. These cameras
+allow us to create a more complete reconstruction of the
+scene using the depth hull. Although conceptually similar to
+the visual hull, DH provides a much more accurate approximation of the scene from much fewer reference views. For
+example, voxel coloring and photo-consistency depend on
+large overlaps in multiple views. This leads to a large number or closely spaced views if good coverage of the scene is
+needed.
+To the best of our knowledge, there have been no attempts
+to solve the problem of phantom geometry in the DH. Wexler
+and Chellappa [WC01] mentioned the existence of the problem for the VH, but provided no solution. For the most part
+the issue was evaded by working with objects and scenes
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Bogomjakov & C. Gotsman / Reduced Depth and Visual Hulls
+
+Figure 2: Depth Hull concepts. (left) The depth map of the
+i-th view and projection of a point p on it, umbra of the view
+is shown in green. (right) A two-view depth hull; the second
+depth layer of the first view is shown in blue.
+that are simple enough for the available number of reference
+views to cover sufficiently. This, however, is not an entirely
+realistic scenario, because it is very difficult and sometimes
+impossible to increase the number of reference views as the
+scene becomes more complex. This is especially true in a
+live free-viewpoint video setup, where the scene is dynamic
+and it is desirable to make as few assumptions as possible
+about it.
+As this paper under review, we became aware of a paper on Safe Hulls by Miller and Hilton [MH07]. Safe hulls
+are similar to our concept of Reduced Visual Hull. Their approach is fully automatic and does not require any additional
+information such as object correspondence. However, their
+algorithm is not guaranteed to produce a completey correct
+result, and in some especially difficult configurations may
+remove valid pieces of geometry.
+3. Definitions
+Let scene S be the set of all points belonging to the objects
+in the scene. Oi denotes the center of projection of the ith
+camera, C = {Oi } is the camera set. We define the depth
+map Di of the ith camera as the set of all points of S visible
+to camera i. The projection Pi (P) of a point P on the depth
+map of camera i is the intersection of Di with the ray L(Oi , P)
+originating at Oi and passing through P. Note that not all
+points in space have a projection on Di – only those whose
+corresponding rays intersect with Di . Let Li (P) denote the
+line segment (Pi (P), P). See Figure 2 (left) for an illustration
+of Di , Pi (P) and Li (P).
+The umbra Ui of Di is the set of all points in space that lie
+at least as far from Oi as their projections on Di . The umbra
+of a view is the space that is occluded in this view by the
+objects of the scene. Since the depth map is exactly the set
+of all visible points it can be considered the occluder in this
+view. All points that lie behind the depth map belong to the
+umbra.
+The depth hull DH(S,C) of the scene S relative to the
+camera set C = {Oi } is the intersection of all umbrae Ui .
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+177
+
+The depth hull (Figure 2 (right)) is a conservative approximation which bounds the scene geometry. Since the umbra
+of each view contains all the objects of the scene, the intersection of all umbrae also contains all the objects. The more
+umbrae participate in the intersection the smaller the intersection is and hence the tighter the approximation. DH(S,C)
+is the minimal volume that can be obtained from the depth
+maps of C, yet guaranteed to contain all of the geometry of
+S. A point P is said to be straight line connected to Di if
+Li (P) ⊆ DH(S,C). The second depth layer D2i of the DH
+relative to the ith camera is the set of all farthest points that
+are straight line connected to Di .
+Consider a ray from Oi into the scene. First it hits the closest object at a point on the depth map Di , which is the first
+depth layer. After traveling inside the object, the ray exits
+through some point on the second depth layer. After that, the
+ray may enter and exit objects in the scene, creating more
+entry and exit points belonging to deeper depth layers. The
+set of first exit points for all rays from Oi defines the second
+depth layer D2i . A more detailed explanation of depth layers
+and algorithms for their construction was given by Guha et
+al. [GKMV].
+The reduced depth hull RDH(S,C) of the scene S relative to the camera set C = {Oi } is the set of all points of
+DH(S,C) that are straight line connected to one of {Di }.
+Note that there are points in the DH that are connected to
+{Di } but not straight line connected to it. The DH consists of
+connected components of two types: those that are straightline connected to {Di } and those that are not. The depth map
+connected components are guaranteed to contain valid scene
+geometry. The other components, however, are not guaranteed; in fact, they are often empty of any geometry of S and
+constitute large artifacts. The RDH eliminates these.
+4. RDH rendering algorithm
+The RDH is a subset of the DH. The same relationship holds
+for their boundaries, which is what rendering algorithms actually compute. Rendering of the boundary of an RDH can
+be done by considering all points of the corresponding DH
+boundary and using only those that belong to the RDH. By
+definition, for a point P to belong to the RDH it has to be
+straight line connected to {Di }. This means that there must
+exist a view i for which P lies between the first and the seconds depth layers. This is what is checked by our RDH rendering algorithm. The algorithm is specifically designed to
+utilize many of the capabilities of modern graphics hardware. It allows accelerated RDH rendering without explicit
+reconstruction of its geometry. The RDH rendering algorithm is detailed in Algorithm 1.
+In the first stage of the algorithm the second depth layers
+of the reference views are constructed. This is performed by
+depth peeling [GKMV]. The first depth layers are readily
+
+178
+
+A. Bogomjakov & C. Gotsman / Reduced Depth and Visual Hulls
+
+RDH()
+(1)
+foreach camera i
+(2)
+Construct second depth layer D2i
+(3)
+foreach DH polygon
+(4)
+foreach fragment f
+(5)
+foreach camera i
+(6)
+if Ti ( f ).z < Di (Ti ( f ).xy)
+(7)
+discard f
+(8)
+foreach camera i
+(9)
+if Ti ( f ).z ≤ D2i (Ti ( f ).xy)
+(10)
+accept f
+(11)
+discard f
+Ti ( f ) – 3D transformation of the fragment f to the coordinate frame of the reference view i.
+Di and D2i – depth textures containing the first and the
+second depth layers of the ith view respectively.
+Di (P.xy) – 2D texture access to Di at the (x, y) coordinates
+of the point P. Similarly for D2i (P.xy).
+Algorithm 1: Reduced Depth Hull rendering algorithm.
+
+available as the depth maps of the reference views. Since
+only the second depth layers are needed, it is necessary to
+perform only one iteration of the depth peeling procedure
+for each reference view.
+In the second stage the DH is rendered while discarding
+the pieces that do not belong to the RDH. Any of the existing
+DH rendering algorithms [BGM06] can be used, as long as
+they satisfy the following condition: At the rasterization step
+3D coordinates of the fragments are available. Steps 4–10 of
+Algorithm 1 ensure that the rendered fragment lies between
+the first and the second depth layer of some reference view.
+This is done in the same way as projective shadow mapping:
+The fragment’s 3D coordinates are first transformed into the
+coordinate frame of the reference view, after which its depth
+is compared to the two depth layers.
+Steps 5–7 check the fragment against the first depth layers
+of all reference views. If there is a reference view in which
+the fragment is closer than the depth map, it does not belong
+to the DH, so it is discarded. Steps 8–10 check against the
+second depth layers. If the fragment is closer than (or lies
+on) the second depth layer of at least one reference view,
+it is sufficient to conclude that it belongs to the RDH. Exactly one action, either discard or accept, is performed on
+a fragment, after which the processing proceeds to the next
+fragment.
+For each reference view, fragments of the DH polygons
+originating from that view lie on the boundaries of the view’s
+depth map. This may cause inconsistencies during the depth
+comparison against the layers of the same view and lead to
+rendering artifacts. To avoid this, it is advisable to dilate the
+depth layers to extend them a little.
+
+Figure 3: Reduced Visual Hulls. (left) A visual hull; the actual objects may be contained either in the blue area of the
+VH or in the red. (right) Reduced visual hull rendering using
+correspondence information.
+5. The VH case
+The VH is constructed using much less information than is
+available in the DH case. Thus, the reduced visual hull, or
+the RVH, might not even be unique, as illustrated in Figure 3. Here the scene consists of two disjoint objects, thus
+each view sees two unconnected silhouettes. The VH consists of the union of the two blue regions (containing the true
+geometry) and two red phantom regions. The RVH would be
+either the two blue regions or the two red regions, depending
+on how the two silhouettes in each image are paired. Interestingly, in this situation, if the two objects have the same color
+the Voxel Coloring algorithm [SD97] would incorrectly reconstruct the two red regions, because it is closer to the volume containing the cameras.
+To resolve possible ambiguities in the RVH, additional information is required. A possible source of additional information is the correspondence between the silhouettes, which
+may, for example, be obtained from the colors of objects.
+Algorithm 2 presents an outline of RVH rendering that
+takes advantage of the object correspondence, which is specified by labeling each object image (silhouette) with a unique
+ID.
+RVH()
+(1)
+foreach camera i
+(2)
+foreach object k
+(3)
+foreach polygon
+(4)
+foreach fragment f
+(5)
+foreach camera j = i
+(6)
+if T j ( f ).xy ∈ I j (k)
+(7)
+discard f
+(8)
+accept f
+I j (k) – image of the object k in the reference view I j .
+Algorithm 2: Reduced Visual Hull rendering algorithm.
+The algorithm checks for inclusion only between a fragment and a silhouette that both belong to the same object.
+Consider two reference views O1 and O2 in Figure 3. Ii (A)
+and Ii (B) are, respectively, the silhouettes of objects A and B
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Bogomjakov & C. Gotsman / Reduced Depth and Visual Hulls
+
+in the reference images I1 and I2 . When rendering the face
+created by the bottom-left edge of I2 (A), the correspondence
+information is used to test the points of that face for inclusion only in I1 (A). For example, the point P of the hull will
+be accepted because T1 (P).xy lies in I1 (A). This is not true
+for Q, so it will be discarded.
+An example of RVH rendering can be seen in Figure 6.
+6. Depth and Correspondence
+Our main observation in the previous section was that information akin to depth could be obtained from correspondence
+information. This is hardly surprising, as it is well known
+that correspondence information between pixels in images
+taken from similar viewpoints can lead to depth information
+at that pixel, using stereo techniques.
+But the opposite is also true. Sparse depth information
+can lead to correspondence information which is useful in
+the rendering of the RVH, as described in the previous section, even if the depth information has low quality and resolution and even has partial occlusions. The only condition
+is that at least one depth value is available for each separate object in the scene. For this purpose a very small, lowresolution and thus low-cost, 3D sensor can be used, e.g. that
+of Canesta [Can].
+Furthermore, in a mixed setup where some of the views
+come from regular cameras and some have depth information, it is possible to use both types of information to compute a reduced hull, which is somewhere inbetween the RVH
+and the RVH. In this case, explicit correspondence information is not required between the video views. It suffices that
+the depth camera "sees" all the objects in the scene. The rendering algorithm for this hybrid reduced hull is described in
+Algorithm 3. Figure 6 shows such a hull compared to a RVH
+and RDH.
+7. Occlusions
+When viewing a scene from a reference view, the objects in
+the scene may occlude each other in many ways. Guan et
+al. [GSFP06] explicitly treated partial occlusions during VH
+construction. Here we elaborate on the output of our RDH
+algorithm in the different scenarios. The most straightforward case (Figure 4 (a)) is when the object is completely
+occluded in all reference views. This is treated both by RDH
+and RVH as if there were no object at all. Indeed, from the
+reference views it is impossible to tell whether the completely occluded space contains any objects or not. Another
+simple case is when the object is occluded in some reference
+views, but in at least one depth view it is completely visible.
+This case is handled without any problem by both RDH and
+HybridRDH algorithms. For RVH the object must be seen in
+at least two reference views.
+A less obvious case of occlusion is when the object is partially visible in just one reference view (Figure 4 (b)). In this
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+179
+
+H YBRID RDH()
+(1)
+foreach depth camera i
+(2)
+Construct second depth layer D2i
+(3)
+foreach camera i
+(4)
+foreach silhouette polygon
+(5)
+foreach fragment f
+(6)
+foreach video camera j = i
+(7)
+if T j ( f ).xy ∈
+/ Ω(I j )
+(8)
+discard f
+(9)
+foreach depth camera j = i
+(10)
+if T j ( f ).z < D j (T j ( f ).xy)
+(11)
+discard f
+(12)
+foreach depth camera j = i
+(13)
+if T j ( f ).z ≤ D2j (T j ( f ).xy)
+(14)
+accept f
+(15)
+discard f
+Ω(I j ) – the silhouette in the reference image I j .
+Algorithm 3: Hybrid Hull rendering algorithm using mixed
+types of reference views.
+
+case, the RDH will reconstruct only the part of the object
+that corresponds to its depth layers that can be computed
+from this reference view. In the same scenario, the RVH will
+still not be able to reconstruct any part of the occluded object
+(Figure 4 (d)).
+The last occlusion scenario is when the object is partially
+visible in several reference views. For the RDH, it is a combination of several one-view partial occlusion cases (Figure 4 (c)). RVH will be able to reconstruct only those parts
+of the object that are seen by at least two reference views
+(Figure 4 (e)).
+8. Experimental Results
+We implemented the RDH rendering algorithm as part of our
+depth camera-based free-viewpoint video system. It is written in C++ with OpenGL; the GPU part is written in Cg. All
+buffer operations, such as transformations, depth peeling and
+morphological operations on the depth maps are performed
+in the GPU. The RVH and the hybrid algorithms were tested
+in semi-automatic fashion, meaning that the different parts
+of the algorithms were not integrated into a single framework, rather executed separately.
+Because of the computational overhead that comes from
+the preparation of the second depth layers, the RDH frame
+rate is reduced in comparison to DH by a factor of 2–2.5,
+as can be seen in Table 1. Still RDH performance remains
+interactive and beyond.
+The results of applying the RDH algorithm to different
+scenes can be seen in Figures 5–7. The reference views
+in Figure 6 were produced by a simulated depth-camera,
+
+180
+
+A. Bogomjakov & C. Gotsman / Reduced Depth and Visual Hulls
+
+Scene
+
+#parts
+
+Men
+Hand (fingers)
+Paper prisms (circle)
+Paper prisms (row)
+Four legged figure
+(a)
+
+2
+5
+3
+3
+5
+
+#views
+2
+2
+3
+3
+4
+
+DH
+190
+250
+130
+130
+45
+
+FPS
+RDH
+90
+100
+55
+55
+23
+
+Table 1: Rendering performance of DH vs. RDH of different test scenes. Measured on a system with: GPU - NVidia
+GeForce Go 6800, CPU - Intel Pentium M 1.6 GHz, RAM 1 GB.
+systems, by supplementing the video cameras with a small
+low-cost depth-sensing component.
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+Figure 4: Occlusion scenarios in two reference views of a
+scene of 3 objects. One reference view observes the scene
+from the bottom and the second reference view from the
+right. Two (large) objects are always visible, and the visibility of the third (smaller) object varies between scenarios.
+The light green region is the RDH; dark green – the part
+of DH which is not RDH. Analogously, the light blue region
+is the RVH and the dark blue – the part of VH which is not
+RVH. (a) (small) object is occluded in all views. (b) and (d) –
+object is partially visible in only one view of RDH and RVH,
+respectively. (c) and (e) – object is partially visible in more
+than one view of RDH and RVH, respectively.
+the scene was composed of two polygonal models, constructed from 3D scans of real people, publicly available
+on InSpeck’s web-site [Ins]. The reference views in Figures 5, 7 were obtained using Z-Snapper depth-cameras from
+Vialux [Via].
+9. Discussion and Conclusion
+We have presented rendering algorithms for reduced
+phantom-free depth and visual hulls. In our experiments
+using the RDH algorithm led to improved rendering quality and performance. We also showed that a small amount
+of complementary depth information suffices to eliminate
+phantom geometry from the VH. This can be used to improve existing multi-view VH systems, especially real-time
+
+While in our experiments the proposed method performed
+well for the real-world data from obtained from our (Vialux)
+depth video cameras, we realize that some depth sensors
+may be more noisy than others. There is typically a tradeoff between the frame rate and spatial resolution of the sensor and the data quality (noise level), but this is constantly
+improving. When particularly noisy data is given, filtering outliers will result in incomplete depth data, effectively
+"drilling" holes through the depth hull. In some cases this
+can be solved by using filling-in techniques, e.g. [VCBS03].
+The same issue occurs with the visual hull when object
+silhouettes are not very well defined. This could probably
+be treated by advanced image segmentation techniques, e.g.
+"snakes". Moderate noise levels can also make it difficult to
+distinguish between the depth levels and the silhouettes of
+the phantom and non-phantom geometry around the points
+where they connect. Generally, these points are not ideally
+reconstructed by the algorithm.
+Another issue that requires a further investigation is related to the silhouette boundaries in the depth layers. Because of the errors produced by the aliasing in projective texturing, the depths of some boundary fragments may not compare correctly, producing artifacts. Although this is solved by
+dilating the depth layers, some parameter tuning is required
+for each frame.
+Acknowledgements
+This work was supported by the Israel Ministry of Science,
+the Israel-Niedersachsen Fund and the Fund for the Promotion of Research at the Technion.
+References
+[BBM∗ 01] B UEHLER C., B OSSE M., M C M ILLAN L.,
+G ORTLER S., C OHEN M.: Unstructured lumigraph rendering. In Proc. SIGGRAPH (2001), pp. 425–432.
+[BGM06]
+
+B OGOMJAKOV A., G OTSMAN C., M AGNOR
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+181
+
+A. Bogomjakov & C. Gotsman / Reduced Depth and Visual Hulls
+
+DH
+
+RDH
+
+Figure 5: "Hand" scene. (left) Two reference video views and their corresponding depth images. (right) DH and RDH renderings
+from a novel viewpoint. Notice the "phantom" fingers produced by the undesired part of the DH.
+
+(a)
+
+(b)
+
+DH
+
+(c)
+
+(d)
+
+RDH
+
+VH
+
+RVH
+
+Hybrid
+
+Figure 6: "Men" scene. (a) and (b) – two reference views; (c) and (d) – the depth images of the reference views. All other images
+are renderings from the same novel viewpoint using different hull techniques. Notice that the undesired parts of the DH and
+the VH use textures from different objects. For the hybrid hull only the depth information of the first reference view was used.
+Still, this was enough to remove the extra geometry. Notice that the left sides of both objects are more flat, similar to the RVH,
+whereas the right sides are similar to the RDH.
+M.: Free-viewpoint video from depth cameras. Proc. Vision, Modeling, and Visualization (VMV) (2006), 89–96.
+[Can]
+
+http://www.canesta.com.
+
+and view-based rendering of a dynamic 3d scene. Proc.
+Symp. 3D Data Processing, Visualization and Transmission (2002), 107–114.
+
+[CL96] C URLESS B., L EVOY M.: A volumetric method
+for building complex models from range images. In Proc.
+SIGGRAPH (1996), pp. 303–312.
+
+[GGSC96] G ORTLER S. J., G RZESZCZUK R., S ZELISKI
+R., C OHEN M. F.: The lumigraph. In Proc. SIGGRAPH
+(1996), pp. 43–54.
+
+[CSS02] C HAI B.-B., S ETHURAMAN S., S AWHNEY H.:
+A depth map representation for real-time transmission
+
+[GKMV] G UHA S., K RISHNAN S., M UNAGALA K.,
+V ENKATASUBRAMANIAN S.: Application of the two-
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+182
+
+A. Bogomjakov & C. Gotsman / Reduced Depth and Visual Hulls
+
+DH
+
+RDH
+
+Figure 7: A four-legged figure. (Top row) Four reference views. Bottom row: Depth Hull and Reduced Depth Hull based on
+these reference views. Notice the phantom (fifth) leg in the DH.
+sided depth test to csg rendering.
+[GSFP06] G UAN L., S INHA S., F RANCO J.-S., P OLLE FEYS M.: Visual hull construction in the presence of partial occlusion. In Proc. 3DPVT (2006), pp. 413–420.
+[Ins]
+
+http://www.inspeck.com.
+
+Real-time streaming of point-based 3d video. In Proc.
+Virtual Reality (2004), pp. 91–281.
+[MBM01] M ATUSIK W., B UEHLER C., M C M ILLAN L.:
+Polyhedral visual hulls for real-time rendering. In Proc.
+Eurographics Workshop on Rendering (2001), pp. 115–
+126.
+
+[KNR95] K ANADE T., NARAYANAN P., R ANDER P.: Virtualized reality: Concepts and early results. In Proc. IEEE
+Workshop on Representation of Visual Scenes (1995),
+pp. 69–76.
+
+[MBR∗ 00] M ATUSIK W., B UEHLER C., R ASKAR R.,
+G ORTLER S. J., M C M ILLAN L.: Image-based visual
+hulls. In Proc. Siggraph 2000 (2000), pp. 369–374.
+
+[KS98] K UTULAKOS K. N., S EITZ S. M.: A Theory of
+Shape by Space Carving. Tech. Rep. TR692, University
+of Washington, 1998.
+
+[MH07] M ILLER G., H ILTON A.: Safe hulls. In Proc.
+4th European Conference on Visual Media Production
+(2007).
+
+[Lau94] L AURENTINI A.: The visual hull concept for
+silhouette-based image understanding. IEEE Trans. Pattern Anal. Mach. Intell. 16, 2 (1994), 150–162.
+
+[PDH∗ 97] P ULLI K., D UCHAMP T., H OPPE H., M C D ONALD J., S HAPIRO L., S TUETZLE W.: Robust
+meshes from range maps. In Proc. Recent Advances in
+3D Digital Imaging and Modeling (1997), pp. 205–211.
+
+[LH96] L EVOY M., H ANRAHAN P.: Light field rendering.
+In Proc. SIGGRAPH (1996), pp. 31–42.
+[LMS03a] L I M., M AGNOR M., S EIDEL H.: Hardware
+accelerated visual hull reconstruction and rendering. In
+Proc. Graphics Interface 2003 (2003).
+[LMS03b] L I M., M AGNOR M., S EIDEL H.: Improved
+hardware-accelerated visual hull rendering. In Proc. Vision, Modeling, and Visualization (VMV) (2003), pp. 151–
+158.
+[LMS04a] L I M., M AGNOR M., S EIDEL H.: A hybrid
+hardware-accelerated algorithm for high quality rendering
+of visual hulls. In Proc. Graphics Interface 2004 (2004),
+pp. 41–48.
+[LMS04b] L I M., M AGNOR M., S EIDEL H.-P.:
+Hardware-accelerated rendering of photo hulls. Computer
+Graphics Forum 23, 3 (2004), 635–642.
+[LWG04]
+
+L AMBORAY E., W URMLIN S., G ROSS M.:
+
+[SD97] S EITZ S., DYER C.: Photorealistic scene reconstruction by voxel coloring. Proc. CVPR (1997), 1067–
+1073.
+[VCBS03] V ERDERA J., C ASELLES V., B ERTALMO M.,
+S APIRO G.: Inpainting surface holes. In Proc. ICIP
+(2003), pp. 903–906.
+[Via]
+
+http://www.vialux.de.
+
+[WC01] W EXLER Y., C HELLAPPA R.: View synthesis using convex and visual hulls. In Proc. BMVC (2001).
+[WWCG07] WASCHBÜSCH M., W ÜRMLIN S., C OTTING
+D., G ROSS M.: Point-sampled 3d video of real-world
+scenes. Image Commun. 22, 2 (2007), 203–216.
+[YWB03] YANG R., W ELCH G., B ISHOP G.: Real-time
+consensus-based scene reconstruction using commodity
+graphics hardware. Computer Graphics Forum 22, 2
+(2003), 207–216.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+

@@ -1,0 +1,731 @@
+DOI: 10.1111/j.1467-8659.2011.01996.x
+Eurographics Symposium on Rendering 2011
+Ravi Ramamoorthi and Erik Reinhard
+(Guest Editors)
+
+Volume 30 (2011), Number 4
+
+Guided Image Filtering for Interactive High-quality
+Global Illumination
+Pablo Bauszat1 , Martin Eisemann1 and Marcus Magnor1
+1 Computer
+
+Graphics Lab, TU Braunschweig, Germany
+
+Abstract
+Interactive computation of global illumination is a major challenge in current computer graphics research. Global
+illumination heavily affects the visual quality of generated images. It is therefore a key attribute for the perception
+of photo-realistic images. Path tracing is able to simulate the physical behaviour of light using Monte Carlo
+techniques. However, the computational burden of this technique prohibits interactive rendering times on standard
+commodity hardware in high-quality. Trying to solve the Monte Carlo integration with fewer samples results in
+characteristic noisy images. Global illumination filtering methods take advantage of the fact that the integral
+for neighbouring pixels may be very similar. Averaging samples of similar characteristics in screen-space may
+approximate the correct integral, but may result in visible outliers. In this paper, we present a novel path tracing
+pipeline based on an edge-aware filtering method for the indirect illumination which produces visually more
+pleasing results without noticeable outliers. The key idea is not to filter the noisy path traced images but to use it
+as a guidance to filter a second image composed from characteristic scene attributes that do not contain noise by
+default. We show that our approach better approximates the Monte Carlo integral compared to previous methods.
+Since the computation is carried out completely in screen-space it is therefore applicable to fully dynamic scenes,
+arbitrary lighting and allows for high-quality path tracing at interactive frame rates on commodity hardware.
+Categories and Subject Descriptors (according to ACM CCS): Computer Graphics [I.3.7]: Raytracing—
+Computer Graphics [I.3.7]: Three-Dimensional Graphics and Realism—Computer Graphics [I.3.3]: Picture/Image
+Generation—
+
+1. Introduction
+Monte Carlo-based ray tracing algorithms, like path tracing
+[Kaj86], have a long-standing history in production rendering and have proven themselves capable of producing photorealistic images while being based on a physically valid
+model of the light transport. The major drawback of these
+algorithms is their computational load. To produce a visually satisfying image usually hundreds of samples per pixel
+are needed to sufficiently solve the rendering integral. This is
+far more than current commodity hardware is capable of rendering in real-time. Therefore, many approximations exist to
+reproduce certain effects of the real global illumination and
+try to incorporate it into a classic rasterizer. Unfortunately, in
+order to speed up the computation they are either aiming at
+simulating only a single effect, like soft shadows [ED08] or
+ambient occlusion [RGS09] or they are are limited to certain constraints, requiring low-frequency lighting environments [SKS02], static scenes [LSK∗ 07] or precise parameter
+c 2011 The Author(s)
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing Ltd. Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ,
+UK and 350 Main Street, Malden, MA 02148, USA.
+
+adjustment for varying scenes [RGK∗ 08]. Code complexity
+increases tremendously for systems that simulate global illumination effects using rasterization because multiple approximations need to be combined to achieve a sufficient
+visual quality. On the other hand path tracing naturally incorporates all these effects with a very simple rendering algorithm.
+Another drawback of approximative algorithms is that
+they not necessarily converge to the correct result. Therefore,
+they will only become faster with better hardware but do not
+necessarily produce a higher quality result. Instead of trying
+to incorporate global illumination effects into a rendering
+pipeline which is not capable of physically correct rendering, it is a much more promising design to take a physically
+valid rendering approach and implement approximative algorithms on top to speed up the rendering. Designing them
+in an adjustable way results in a very future-oriented rendering paradigm.
+
+1362 Pablo Bauszat, Martin Eisemann and Marcus Magnor / Guided Image Filtering for Interactive High-quality Global Illumination
+Combining samples of several neighboring pixels into
+one integral estimate is the idea behind illumination filtering [WKB∗ 02, SIMP06, LSK∗ 07, DSHL10]. The noisy incident illumination is filtered at each pixel based on a weighted
+average of the samples in the surrounding samples of neighboring pixels. A common drawback of these approaches for
+interactive applications is that no weighted averaging of the
+samples is capable of producing visually pleasing results in
+image regions with complex geometry. The reason is that too
+few samples with similar geometric attributes are available
+in the neighborhood of the pixel under consideration and
+therefore fewer samples noticeably contribute to the pixel’s
+value. Visually disturbing outliers are the result.
+We present a fundamentally different approach to approximating the incident illumination. Classic global illumination filtering approaches operate on the noisy image and use
+the geometry information as a guidance for the edge detection. Our filter, instead, takes an image composed from the
+important scene characteristics, such as normal and depth,
+and locally fits it to the noisy illumination estimate. While
+this might appear peculiar from a physically validated viewpoint, it has several important benefits. As these geometric
+properties are free of noise, so is the filtered result. The filtering is edge-aware if these edges are represented by the
+geometric properties. No ringing or outlier artifacts are produced, errors are smoothed out over the image, and for low
+sampling rates the Monte Carlo integral is better approximated than with previous approaches. Additionally, the filtering has a linear time complexity and is suitable for GPU
+implementations making it very fast to compute in just milliseconds. Finally, very few parameters are needed for the
+filtering which are usually set to fixed values.
+As a second contribution, we present a new technique to
+use supersampling with geometry-aware filtering, as this is
+a non-trivial task. We propose a sophisticated lookup strategy into the filtered indirect illumination map that takes the
+geometric information into account. Carefully addressing a
+separate handling of the direct and indirect illumination, our
+approach allows the production of high-quality path traced
+images at interactive frame rates on commodity hardware.
+Our approach can handle fully dynamic scenes containing
+moving light sources and animated geometry.
+The rest of this paper is organized as follows. After reviewing relevant previous work in Section 2 we describe our
+approach in Section 3 as an efficient way to eliminate noise
+and artifacts from the incident illumination for high-quality
+interactive path tracing. Experimental evaluation results for a
+variety of different test scenes and edge-aware filtering techniques are presented in Section 4, before we discuss limitations and conclude with Section 5.
+2. Related Work
+Interactive Ray Tracing The basis of any interactive path
+tracer is a fast renderer to compute the necessary samples
+
+for each pixel. The seminal work of Wald et al. [Wal04]
+showed that interactive ray tracing is possible by exploiting
+fine-grained parallelism and coherency in the rays. Günther
+et al. [GPSS07] proposed a GPU-based ray tracer that exploits this coherency by parallel packet traversal algorithm.
+Unfortunately these approaches do not work well if the rays
+are incoherent, and due to the Monte Carlo integration in the
+path tracing algorithm most of the rays are highly incoherent
+in our case. Aila et al. [AL09] took a more suitable direction
+and showed how to rearrange the ray tracing pipeline in order to better exploit the computational power of the GPU by
+using persistent threads. But even though they proposed the
+fastest GPU Ray Caster it is far from being able to directly
+compute all necessary samples for interactive path tracing at
+a reasonable quality. Nevertheless, it is a good starting point
+and we base our internal ray tracing engine on this approach
+for fast approximate estimation of the Monte Carlo integral.
+
+Edge-Avoiding Geometry-aware Filtering for Approximating Global Illumination The idea of geometry-aware
+filtering methods for the incident lighting is to take a
+weighted average of nearby samples based on their geometric properties, such as normal or position in space.
+In general, these approaches combine the insufficient samples based on the idea of the joint and cross bilateral filter [PSA∗ 04, ED04]. The classic bilateral filter by Tomasi
+and Manduchi [TM98] is a weighted gaussian filter that
+makes use of an intensity component in addition to the spatial component to reweight the gaussian filter. The joint
+bilateral filter extends this idea by computing the filter
+weights based on additional input images and not on the
+color image itself. Therefore, it directly correlates to the
+previously mentioned global illumination filtering methods,
+where this buffer consists usually of combinations of the
+normals, depth and/or noisy color image. Even though various methods for accelerating the original bilateral filter exist [DD02, CPD07, PD09] it does not seem to be feasible to
+directly speedup the joint bilateral filtering.
+Wald et al. [WKB∗ 02] make use of the discontinuity
+buffer [Kel97] to avoid filtering across edges. Segovia et
+al. [SIMP06] perform a Gaussian blur on the incident illumination constrained by detected discontinuities in the geometry for deferred shading. Laine et al. [LSK∗ 07] use a
+geometry-aware box filter for n × m pixel regions. And just
+recently Dammertz et al. [DSHL10] proposed to approximate the cross bilateral filter by an edge-avoiding À-Trous
+wavelet transform. While being very fast, the approximation
+of the cross bilateral filter can result in visually disturbing
+ringing artifacts. As we will show all approaches based on
+the idea of the cross bilateral filter may suffer from small
+outliers for which not enough samples are available for sufficient filtering results.
+c 2011 The Author(s)
+c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+Pablo Bauszat, Martin Eisemann and Marcus Magnor / Guided Image Filtering for Interactive High-quality Global Illumination 1363
+Estimate of direct
+illumination
+
+Normal and Depth
+Buffer
+
+Guide Rays
+
+Estimate of indirect
+illumination
+
+Filter indirect
+illumination
+
+Additional Eye Rays
+
+Geometric-aware
+lookup for indirect
+illumination
+
+Estimate of direct
+illumination
+Final Image
+
+Figure 1: Overview of our interactive path tracing engine.
+
+3. Filtered Path Tracing
+Path tracing solves the integral of the light transport in the
+rendering equation [Kaj86]
+Ω
+
+Li (x, ωi ) fs (x, ωi , ωo )(ωi · nx )dωi
+
+(1)
+
+by creating connectivity paths from the camera to the light
+sources, estimating the light that is reflected at the point x
+towards the direction ωo from all possible incoming light directions ωi . Li is the incoming radiance, fs the bidirectional
+scattering distribution function (BSDF) and nx represents the
+normal at position x.
+This general solution is subject to high variance in the
+output image if not enough samples are used. Quadratically
+more samples, up to several hundreds, are needed to linearily
+reduce this variance even for simple scenes. In the following,
+we describe our noise reduction approach for the incident illumination of a Monte Carlo path tracer. An overview is also
+given in Figure 1.
+3.1. Separation of Direct and Indirect Illumination
+In our implementation, we split the integral in the rendering equation into two separate integrals over the direct and
+indirect illumination
+Lre f lected (x, ωo ) = Ldirect (x, ωo ) + Lindirect (x, ωo )
+
+(2)
+
+using Ldirect to estimate the direct lighting and Lindirect to
+estimate the indirect lighting. The direct integral takes only
+lighting into account that arrives at a point x directly from
+emissive surfaces, while the indirect term accounts for light
+that is reflected to the point x from non-emissive surfaces.
+An example is given in Figure 2.
+We incorporated this separation for several reasons. First,
+the direct incident lighting may contain very high frequencies, which are difficult to preserve with filtering techniques.
+The incident indirect illumination, however, is usually more
+smooth in areas of low variance in the geometry. Second,
+the direct sampling of the light sources allows to incorporate
+physically non-plausible types of light sources, such as point
+lights or spotlights, which have no dimension and thus, require direct sampling. Notice that, these are quite common
+c 2011 The Author(s)
+c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+(a) Direct
+
+(b) Indirect
+
+(c) Final image
+
+Figure 2: Separation of direct and indirect lighting.
+
+in interactive applications. In practice, the computation of
+the direct illumination is not the bottleneck when rendering
+global illumination effects. Most of the time and samples are
+needed for approximating the indirect illumination.
+The noise pattern of the direct and indirect illumination
+reveals different characteristics. The separation allows us to
+use noise reduction approaches which are specialized for
+each of the specific noise patterns. Finally, by decoupling
+of the indirect and direct illumination we are able to rearrange the computation so that we can compute the indirect
+illumination before the direct illumination. This is essential
+for a filtering framework that allows a combination of supersampling and geometry-aware reusage of the indirect illumination, as described in Section 3.2.
+3.2. Combining Supersampling and Geometry-aware
+Filtering
+Multiple samples per pixel are mandatory for good, antialiased results. While constructing a normal and depth map
+for only one eye sample is trivial, it becomes a much more
+challenging problem for higher sampling rates. A separate
+normal and depth value for each sample would be necessary, making the filtering more difficult, computationally expensive and more memory demanding. Interpolation is not
+an option, because averaging normal or depth information
+across edges may lead to wrong geometric footprints. To
+overcome this problem, we choose to use the first pixel sample as a guide ray. In our implementation, the first sample is
+always sent through the center of the pixel. For each guide
+ray the normal and depth at the hitpoint is saved. The indirect
+illumination is estimated for the guide ray’s hitpoint using
+
+1364 Pablo Bauszat, Martin Eisemann and Marcus Magnor / Guided Image Filtering for Interactive High-quality Global Illumination
+the blue x. This case may occur when primitives are smaller
+than the actual pixel size. However, in practice, our approach
+works also well for these cases, because the influence of the
+indirect lighting at the primitive to the final pixel colors is
+rather small.
+
+(a)
+
+For all samples, the guide ray and the following samples,
+the direct lighting is estimated as in the default path tracing
+pipeline.
+
+(b)
+
+Figure 3: Distribution cases: The black x’s denote the guide
+rays, while the colored x’s denote additional eye rays used
+for anti-aliasing. (a) Distribution is possible. (b) Distribution
+might fail for the blue sample.
+
+Monte Carlo integration and stored in a separate buffer. This
+buffer is filtered using our specialized filtering approach described in Section 3.3. For the following pixel samples the
+indirect lighting is taken from the filtered indirect illumination map using a geometry-aware lookup. In our implementation, we use the color sample from the neighboring pixel
+center that has the most similar geometric attributes compared to the additional eye ray. The normal and depth at the
+hitpoint of the additional eye ray are compared with the geometric information of the four neighboring guide rays using
+a similarity function. The similarity function s is defined as
+
+si = sni · sdi
+sni = 1 −
+
+∀i ∈ 0..3
+||Na − Ni ||
+
+(3)
+
+2
+
+max(||Na − N0..3 ||2 )
+|Da − Di |
+sdi = 1 −
+max(|Da − D0..3 |)
+
+(4)
+(5)
+
+where sni is the similarity of the normals at the hitpoints of
+the neighboring guide rays, sdi is the similarity of the depth
+values, Na and Da are the normal and depth value for the additional eye ray’s hitpoint and N0..3 , D0..3 are the normals
+and depth values for the neighboring guide rays, respectively. The color from the indirect map for the guide ray with
+the highest similarity is then used as color sample for the additional eye ray. This strategy is straightforward and easy to
+implement on the GPU. In addition, no further parameters
+(e.g. normal/distance difference threshold) are needed to detect the similarity of hitpoint information which is an added
+advantage.
+It should be noted that the proposed distribution technique
+does not work correctly for all scenarios. Consider the two
+cases given in Figure 3: In the first case (a) the distribution works correctly and good color samples can be chosen
+from the indirect illumination map for the additional eye rays
+(marked with the yellow, blue and orange x) using the previous lookup strategy. For the second case (b) no valid indirect estimation exists for the additional eye ray marked with
+
+3.3. Incident Indirect Illumination Filtering
+To approximate the correct incident indirect illumination, we
+build on a filtering technique just recently proposed by He et
+al. [HST10], the guided image filter. The assumption is that
+every pixel in a local window wk centered at pixel k of the
+unknown filtered image F, our seeked solution, is a linear
+transformation of the same window in a second image I , so
+that
+Fi = ak Ii + bk , ∀i ∈ wk
+
+(6)
+
+The coefficients ak and bk are constant in wk . Using this linear model, the filter tries to transform the function I inside
+the given window wk in a way that it fits the function of a
+noisy image N:
+min
+
+(
+
+∑ ((ak Ii + bk − Ni )2 + εak 2 ))
+
+ak ∈R,bk ∈R i∈w
+k
+
+(7)
+
+The term εak 2 is used to prevent ak from being to large. Actually, ε is used to define the accuracy of the edge-detection.
+If the function of I has no steps (steps in I represent
+edges), the output F will not contain steps either, but will
+be an averaged result of N in wk . If an edge exists in I, the
+result is a transition of the function I to N, which keeps the
+shape of I but approximates N. Because usually the highfrequency details are contained in N, a harmonisation with
+the low-frequency function of I will lower the overall frequency while keeping the basic shape of I and thus, result in
+an edge-preserving smoothing effect.
+The coefficients ak and bk can be directly computed via
+linear regression [DS98]:
+ak =
+
+E [I · N] − Ek [I]Ek [N]
+Covk (I, N)
+= k 2
+Vark (I) + ε
+(Ek [I ] − Ek [I]2 ) + ε
+bk = Ek [N] − ak Ek [I]
+
+(8)
+
+(9)
+
+where Covk (I, N) is the covariance of I and N in wk , Vark (I)
+is the variance of I in wk and Ek [I], Ek [N] are the expected
+value (or mean) of I and N in wk , respectively. We can compute the coefficients in linear runtime by calculating a series
+of mean values exploiting summed area tables [Cro84].
+After computing the coefficients for every local window
+at each pixel position, the coefficients are averaged for each
+overlapping window at each pixel. This minimizes the error between the assigned value of the pixel and the expected
+c 2011 The Author(s)
+c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+Pablo Bauszat, Martin Eisemann and Marcus Magnor / Guided Image Filtering for Interactive High-quality Global Illumination 1365
+
+Bounces SPP
+1
+1
+1
+4
+2
+4
+# Triangles
+(a) Ajaxbust
+
+(b) Dragon
+
+(c) Sibenik
+
+Figure 4: The converged reference images of our test scenes
+using 1024 samples per pixel and 2 bounces for the indirect
+lighting.
+
+value for each overlapping window at the pixel position in
+a least-squares sense. The extension for a multi-dimensional
+I is possible, more details on the filtering procedure can be
+found in [HST10].
+In our case N is the noisy incident indirect illumination
+image, while I consists of the normal and depth map. I.e., for
+each local window around a pixel we adopt the normal and
+depth map to resemble the noisy image by adjusting their
+mean and variance instead of filtering the noisy image itself, as it is usually done. In the second step, we average at
+each pixel the values of all overlapping windows at that position. As the normal and depth maps are usually free of noise
+so is the filtered result. The filtering is edge-aware as long
+as these edges are represented by the geometric properties.
+Due to the averaging, errors are smoothed out over the image
+suppressing visible artifacts.
+4. Experimental Results
+We implemented our described approach into our CUDAbased ray tracing engine. The core of this ray tracer is based
+on the ray casting engine by Aila et al. [AL09]. Our acceleration data structure is a bounding volume hierarchy using the
+surface area heuristic with binning during creation [WH06].
+For dynamic scene support we use a two-level approach as
+proposed by Wald et al. [WBS03] and apply a simple refitting scheme [WBS07] for animated models. In all examples,
+we use a constant seed for the random number generator that
+is used to sample the image plane and the hemispheres of hitpoints. This makes the results reproducible which is an important feature for artists and reduces flickering during animation.
+All examples have been produced on an AMD 5600+ 2.8
+GHz Dual core system with 2 GB of RAM. The used GPU is
+an NVidia 285 GTX supporting CUDA 3.2 and computing
+capability 1.3 and all images are rendered using a resolution
+of 1024 × 768 pixels.
+Reference images using 1024 samples per pixel are shown
+in Figure 4. An overview of the rendering times and scene
+statistics are given in Table 1. Only one sample per hit point
+is used for the direct illumination. If more than one pixel
+sample is used, a simple box reconstruction filter is applied.
+c 2011 The Author(s)
+c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+Ajaxbust
+58.9
+238.5
+389.1
+545k
+
+Sibenik
+139.7
+575.9
+1051.5
+939k
+
+Dragon
+203.6
+842.0
+1487.9
+77k
+
+Table 1: Render Times: The table shows the render times in
+milliseconds for different bounces and pixel sampling rates.
+Filter
+Cross Bilateral
+Cross Bilateral
+Cross Bilateral
+À-Trous
+À-Trous
+À-Trous
+Guided Image
+Guided Image
+Guided Image
+
+Kernel size
+16 × 16 radius
+24 × 24 radius
+32 × 32 radius
+4 iterations
+5 iterations
+6 iterations
+1 dimension
+3 dimension
+4 dimension
+
+time in ms
+447
+1001
+1768
+54
+68
+82
+16
+71
+80
+
+Table 2: Filter Execution Time: The table shows the execution time in milliseconds for the cross bilateral, the À-Trous
+filter and the enhanced guided image filter for multiple filter
+kernel dimensions or guidance input dimensions.
+
+We use a radius of 24 − 32 pixels and an epsilon value of
+0.01 for the normals and 0.01 − 0.03 for the depth values in
+our filter for all shown examples.
+We compare our filtering method to the cross bilateral filter [PSA∗ 04,ED04] as a reference for what would be achievable with a perfect geometry-aware filtering and the À-Trous
+filter as a fast approximation to the cross bilateral filtering on
+the GPU using CUDA. For the cross bilateral filter, we use
+a straightforward implementation, while the implementation
+of the À-Trous filter is based on the one given by Dammertz
+et al. [DSHL10]. While the guided image filter is independent of the filter kernel size, the runtimes of the cross bilateral and À-Trous filter are based on the filter radius or the
+number of used iterations and thus, the filters cannot be compared directly. Therefore, Table 2 shows the execution time
+of each filter using different settings that are used frequently
+for most scenes. It can be seen that the execution time of the
+straightforward implementation of the cross bilateral filter
+renders the filter insufficient for real-time application. Our
+CUDA implementation of the À-Trous filter performs efficient and is practicable for interactive applications. The enhanced guided image filter performs slower than the À-Trous
+filter, but far superior than the cross bilateral filter and yields
+an execution time which is sufficient for interactive applications, even when four dimensions are used. Newer hardware
+should be able to approach real-time performance. One advantage of the enhanced guided image filter is also the fact
+that the execution time is fixed for all filter kernel sizes.
+
+1366 Pablo Bauszat, Martin Eisemann and Marcus Magnor / Guided Image Filtering for Interactive High-quality Global Illumination
+
+(a)
+
+(b)
+
+(c)
+
+Figure 5: Guided Image Filtering with different dimensionality: (a) Using only a greyscale version of the normal map.
+(b) Using the complete normal map. (c) Using the normal
+plus depth map. Image quality suffers if less information is
+used for the filtering.
+
+To reduce the computation time, we experimented with
+different information channels to guide the filtering. Figure
+5 shows a comparison of the indirect lighting result trying to
+fit only a greyscale version of the normal map to the noisy
+input image, Figure 5a, using the complete normal map, Figure 5b, and using the normal map plus the depth map, Figure
+5c. Using less than the full normal and depth map information results in visible halos around the statue, only the full
+normal and depth map information is capable of producing
+sufficent results. The values of the normal and depth map
+are all scaled to the range [0, 1]. We divided the depth map
+values by a constant depending on the overall scene extends
+as it influences the filtering and should therefore not change
+throughout the rendering.
+In Figure 8, a comparison of the different filtering techniques is given using the mean square error (MSE) metric [WB09]. For all three filters, the settings are adjusted to
+match the reference as close as possible. The MSE shows
+that for these low sampling rates the enhanced guided filter performs best for almost all scenes. Remarkably, the enhanced guided image filter does not produce any kind of visible artifacts or fireflies, if the filter size is chosen correctly
+according to the number of samples used. This can be seen
+even better in the close-up views in Figure 6. For insufficient
+sampling rates, if the filter is too small, blurry patches might
+appear. A too large filter on the other hand will not be able
+to correctly reconstruct fine details such as contact shadows.
+This can also be seen in Figure 7 that shows an error plot
+of the absolute difference between our filtered image and a
+reference image using 1024 samples to compute the incident indirect illumination. While the overall image is well
+approximated by our filter, some small details are missed,
+like the contact shadows at the bottom of the bust or some
+tiny self-shadowing effects.
+5. Discussion & Conclusion
+In this paper, we have presented a novel approach for noise
+reduction in interactive path tracing applications. Due to the
+separation of indirect and direct illumination, we are able to
+apply specifically tailored noise reduction methods to each
+
+(a) Unfiltered
+
+(b) Cross bilateral
+
+(c) À-Trous
+
+(d) Ours
+
+Figure 6: Close-up view of the Dragon scene. Notice the
+small firefly artifacts around the edges present in the À-Trous
+and cross bilateral filtering. Our filtering technique provides
+a much more convenient result hardly distinguishable from
+the ground truth image.
+
+Figure 7: Error plot between our filtered result and a reference image using 1024 samples per pixel. Errors only accumulate in areas of self-shadowing and contact shadows,
+which are not well represented in the normal and depth map.
+
+of them. While we rely on sampling for the direct illumination, we make use of an enhanced version of the guided
+image filter to approximate the indirect illumination. As it
+turns out its noise reduction capability is superior to current
+state-of-the-art techniques and even better than a reference
+implementation of the cross bilateral filter in most cases. We
+have also shown how to recombine the direct illumination
+and indirect illumination in order to create anti-aliased images without jaggy artifacts around edges and without color
+bleeding by a geometry-aware lookup technique. This decoupling and merging technique could also be used with
+other filtering techniques in the future.
+We are currently investigating how to improve the filtering for direct illumination and also glossy materials or more
+c 2011 The Author(s)
+c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+Pablo Bauszat, Martin Eisemann and Marcus Magnor / Guided Image Filtering for Interactive High-quality Global Illumination 1367
+
+(a) Unfiltered (8844.4)
+
+(b) Cross bilateral (95.5)
+
+(c) À-Trous (190.6)
+
+(d) Ours (74.8)
+
+(e) Unfiltered (4382.4)
+
+(f) Cross bilateral (73.5)
+
+(g) À-Trous (92.2)
+
+(h) Ours (65.4)
+
+(i) Unfiltered (2035.7)
+
+(j) Cross bilateral (36.0)
+
+(k) À-Trous (49.5)
+
+(l) Ours (30.4)
+
+(m) Unfiltered (605.6)
+
+(n) Cross bilateral (27.5)
+
+(o) À-Trous (29.6)
+
+(p) Ours (27.4)
+
+(q) Unfiltered (1003.1)
+
+(r) Cross bilateral (89.9)
+
+(s) À-Trous (95.3)
+
+(t) Ours (92.5)
+
+Figure 8: Visual comparison of the different filtering techniques. Each image was rendered with a resolution of 1024 × 768.
+The number in brackets depicts the mean square error to the reference solution. Top row: Ajaxbust with sample per pixel for
+direct and indirect illumination; Second row: Ajaxbust with four samples per pixel for direct and indirect illumination; Third
+row: Dragon with one sample per pixel; Fourth row: Dragon with four samples per pixel; Fifth row: Sibenik with one sample
+per pixel. From left to right: Unfiltered image; Solution computed using the full cross bilateral filter; Solution using the ÀTrous filter by Dammertz et al. [DSHL10]. Note that in almost all cases our approach reveals the best solution of the compared
+techniques.
+c 2011 The Author(s)
+c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+1368 Pablo Bauszat, Martin Eisemann and Marcus Magnor / Guided Image Filtering for Interactive High-quality Global Illumination
+complex BRDFs, as we focused on nearly lambertian surfaces in this work.. The idea is to separate the complete rendering into different meaningful layers, filter them according
+to their specific characteristics and to composite them afterwards. A direct application of the guided image filter may
+lead to washed out results and incorporating the noisy image into the guidance filter as additional constraints would
+reduce the performance.
+Building on path tracing is a future oriented rendering
+paradigm. Considering the constantly increasing computation power of modern GPUs, the sampling budget will grow
+accordingly in the future. This allows us to constantly reduce
+the necessary filter kernel size, so that the result will eventually converge to the correct path traced result. An interesting
+research direction would be to integrate our approach into
+other rendering approaches, such as bidirectional path tracing [LW93] or Metropolis light transport [VG97].
+One limitation is that our technique is currently not capable to faithfully reconstruct sharp edges in the indirect
+illumination not represented by the geometry, this also includes caustics. Handling these effects as well is left for future work.
+References
+[AL09] A ILA T., L AINE S.: Understanding the Efficiency of
+Ray Traversal on GPUs. In Proc. of High-Performance Graphics
+(2009), pp. 145–149. 2, 5
+[CPD07] C HEN J., PARIS S., D URAND F.: Real-time edge-aware
+image processing with the bilateral grid. ACM Trans. Graph. 26,
+3 (2007), 1–10. 2
+[Cro84] C ROW F. C.: Summed-area tables for texture mapping.
+In Proc. of the 11th annual conference on Computer graphics and
+interactive techniques (1984), SIGGRAPH ’84, pp. 207–212. 4
+
+[Kaj86] K AJIYA J. T.: The rendering equation. In Proc. of the
+13th annual conference on Computer graphics and interactive
+techniques (1986), SIGGRAPH ’86, pp. 143–150. 1, 3
+[Kel97] K ELLER A.: Quasi-Monte Carlo methods for photorealistic image synthesis. PhD thesis, Department of Computer Science, University of Kaiserslauten, 1997. 2
+[LSK∗ 07] L AINE S., S ARANSAARI H., KONTKANEN J.,
+L EHTINEN J., A ILA T.: Incremental instant radiosity for realtime indirect illumination. In Proc. of Eurographics Symposium
+on Rendering (2007), pp. 277–286. 1, 2
+[LW93] L AFORTUNE E. P., W ILLEMS Y. D.: Bi-directional path
+tracing. In Proc. of the third international conference on Computational Graphics and Visualization Techniques (1993), pp. 145–
+153. 8
+[PD09] PARIS S., D URAND F.: A fast approximation of the bilateral filter using a signal processing approach. Int. J. Comput.
+Vision 81, 1 (2009), 24–52. 2
+[PSA∗ 04] P ETSCHNIGG G., S ZELISKI R., AGRAWALA M., C O HEN M., H OPPE H., T OYAMA K.: Digital photography with
+flash and no-flash image pairs. ACM Trans. Graph. 23, 3 (2004),
+664–672. 2, 5
+[RGK∗ 08] R ITSCHEL T., G ROSCH T., K IM M. H., S EIDEL H.P., DACHSBACHER C., K AUTZ J.: Imperfect Shadow Maps
+for Efficient Computation of Indirect Illumination. ACM Trans.
+Graph. 27, 5 (2008). 1
+[RGS09] R ITSCHEL T., G ROSCH T., S EIDEL H.-P.: Approximating dynamic global illumination in image space. In Proc.
+of the 2009 symposium on Interactive 3D graphics and games
+(2009), pp. 75–82. 1
+[SIMP06] S EGOVIA B., I EHL J. C., M ITANCHEY R., P ÉROCHE
+B.: Non-interleaved deferred shading of interleaved sample patterns. In Proc. of the 21st ACM SIGGRAPH/EUROGRAPHICS
+symposium on graphics hardware (2006), pp. 53–60. 2
+[SKS02] S LOAN P.-P., K AUTZ J., S NYDER J.: Precomputed
+radiance transfer for real-time rendering in dynamic, lowfrequency lighting environments. ACM Trans. on Graph. 21, 3
+(2002), 527–536. 1
+[TM98] T OMASI C., M ANDUCHI R.: Bilateral filtering for gray
+and color images. In Proc. of the International Conference on
+Computer Vision (1998), pp. 839–846. 2
+
+[DD02] D URAND F., D ORSEY J.: Fast bilateral filtering for the
+display of high-dynamic-range images. In Proc. of the 29th
+annual conference on Computer graphics and interactive techniques (2002), SIGGRAPH ’02, pp. 257–266. 2
+
+[VG97] V EACH E., G UIBAS L. J.: Metropolis light transport. In
+Computer Graphics (1997), SIGGRAPH ’97, pp. 65–76. 8
+
+[DS98] D RAPER N. R., S MITH H.: Applied Regression Analysis (Wiley Series in Probability and Statistics), 3rd ed. WileyInterscience, 1998. 4
+
+[Wal04] WALD I.: Realtime Ray Tracing and Interactive Global
+Illumination. PhD thesis, Computer Graphics Group, Saarland
+University, 2004. 2
+
+[DSHL10] DAMMERTZ H., S EWTZ D., H ANIKA J., L ENSCH H.
+P. A.: Edge-avoiding a-trous wavelet transform for fast global
+illumination filtering. In Proc. of the Conference on High Performance Graphics (2010), pp. 67–75. 2, 5, 7
+
+[WB09] WANG Z., B OVIK A.: Mean squared error: Love it or
+leave it? A new look at Signal Fidelity Measures. IEEE Signal
+Processing Magazine 26, 1 (2009), 98 –117. 6
+
+[ED04] E ISEMANN E., D URAND F.: Flash photography enhancement via intrinsic relighting. ACM Transactions on Graphics 23,
+3 (2004), 673–678. 2, 5
+
+[WBS03] WALD I., B ENTHIN C., S LUSALLEK P.: Distributed
+interactive ray tracing of dynamic scenes. In Proc. of the
+IEEE Symposium on Parallel and Large-Data Visualization and
+Graphics (2003), pp. 11–19. 5
+
+[ED08] E ISEMANN E., D ÉCORET X.: Occlusion textures for
+plausible soft shadows. Computer Graphics Forum 27, 1 (2008),
+13–23. 1
+
+[WBS07] WALD I., B OULOS S., S HIRLEY P.: Ray Tracing Deformable Scenes using Dynamic Bounding Volume Hierarchies.
+ACM Trans. Graph. 26, 1 (2007), 1–28. 5
+
+[GPSS07] G ÜNTHER J., P OPOV S., S EIDEL H.-P., S LUSALLEK
+P.: Realtime ray tracing on GPU with BVH-based packet traversal. In Proc. of the IEEE/Eurographics Symposium on Interactive
+Ray Tracing (2007), pp. 113–118. 2
+
+[WH06] WALD I., H AVRAN V.: On building fast kd-trees for
+ray tracing, and on doing that in o(n log n). In Proc. of IEEE
+Symposium on Interactive Ray Tracing (2006), pp. 61–69. 5
+
+[HST10] H E K., S UN J., TANG X.: Guided image filtering. In
+Proc. of the European Conference on Computer Vision (2010),
+vol. 1, pp. 1–14. 4, 5
+
+[WKB∗ 02] WALD I., KOLLIG T., B ENTHIN C., K ELLER A.,
+S LUSALLEK P.: Interactive global illumination using fast ray
+tracing. In Proc. of the 13th Eurographics Workshop on Rendering (2002), pp. 15–24. 2
+
+c 2011 The Author(s)
+c 2011 The Eurographics Association and Blackwell Publishing Ltd.
+
+

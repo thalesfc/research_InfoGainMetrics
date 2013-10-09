@@ -1,0 +1,832 @@
+2010 14th International
+Information
+Conference
+Visualisation
+Information Visualisation
+
+Automatic Application of the Data-State Model in Data-Flow Contexts
+Joseph A. Cottam∗ Andrew Lumsdaine†
+Open Systems Laboratory-Indiana University
+Bloomington, IN, USA
+Abstract
+
+model has more recently been receiving attention. It is
+generally most efficient when calculating global attributes
+(e.g., current value vs. max value) and when working with
+bulk updates that include many changes. Each is complementary to the other, but frameworks tend require explicit
+transitions between them, if it supported a mixed model is
+supported at all.
+Two practical concerns likely underly the advantages
+of the data-state model when working with bulk updates.
+First, this model incurs fewer method invocations than the
+data-flow. Instead of calling analysis operators once for
+every element in a collection, it calls the operator once per
+collection. Second, it is more likely to be able to take advantage of data locality as it explicitly works on collections
+rather than individual elements.
+Taking advantage of the strengths of each style requires
+a principled hybrid approach. Knowing when to apply
+which style depends partially on the nature of the benefit
+of using one over the other. This paper examines the relative contribution of locality and method call reduction for
+the data-state model. After establishing the major benefits
+of the data-state model, it discusses how and when to translate programs from the data-flow to the data-state model in
+the Stencil visualization system.
+
+The data-state and data-flow models of information visualization are known to be expressively equivalent. Each
+model is most effective for different combinations of analysis processes and data characteristics. Visualization
+frameworks tend to either (1) work within a single model
+or (2) permit either model in separate sub-frameworks. In
+either case, converting between the two models falls entirely to the programmer. The theoretical basis for automatic translation between the two models was established
+by Chi. However, that process is insufficiently specified
+to be directly implemented. This paper characterizes the
+practical advantages of the data-state model. This is used
+to identify when such a transformation is beneficial. It
+then expands on Chi’s theoretical framework to provide the
+tools for translating visualization program fragments from
+the data-flow to the data-state model. A partial implementation of the expanded theory is described for the Stencil
+visualization environment.
+Keywords—Visualization, Theory, Automatic Translation
+
+1
+
+Introduction
+
+The data-state and data-flow models for data visualization are expressively equivalent [4]. Early visualization
+frameworks tended to focus on the data-flow model, VTK
+being a successful outgrowth of those efforts. More recent work has focused on the data-state model; Prefuse and
+Tableau being examples in this style. Each model tends to
+support different types of analysis and circumstances more
+effectively than the other. This paper characterizes the benefits of the data-state model from a computation point of
+view and proposes a process for automatically integrating
+data-state analyses in a data-flow framework.
+VTK and the data-flow model have been the gold standard visualization application. It excels when working
+with small updates or data with an a-priori organization
+that can be exposed in data structures. The data-state
+
+2 Related Work
+The data-flow model is well described in the VTK documentation [1]. The data-state model is detailed in Chi’s
+data spreadsheets work [2, 6] and motivated in the discussions of the InfoVis reference model [3, 8, 10]. In brief,
+each treats a visualization process as a graph of operations.
+In the data-flow model, each operation works on a single
+data element and the entire network is executed once for
+each element. In the data-state model, operations work on
+entire collections of data and the network is executed once
+for each collection.
+Despite their differing philosophies for data handling,
+Chi [4,5] established the expressive equivalence of the two
+models. Chi showed that every data-flow visualization network has an equivalent data-state network. Chi provides an
+abstract process for characterizing the equivalent data-state
+network given a data-flow network (and vice versa). Chi’s
+
+∗ jcottam@cs.indiana.edu
+† lums@cs.indiana.edu
+
+1550-6037/10 $26.00 © 2010 IEEE
+DOI 10.1109/IV.2010.10
+
+5
+
+Data Access Pattern
+
+Raw Runtime vs. Data Size!
+1.E+10!
+
+1.E+08!
+1.E+07!
+1.E+06!
+1.E+05!
+Flow linear!
+1.E+04!
+
+Flow rand!
+
+1.E+03!
+
+Native linear!
+
+2^20!
+
+2^19!
+
+2^18!
+
+2^17!
+
+2^16!
+
+2^15!
+
+2^14!
+
+2^13!
+
+2^11!
+
+2^12!
+
+2^9!
+
+2^10!
+
+2^8!
+
+2^7!
+
+2^6!
+
+2^5!
+
+2^4!
+
+Synth rand!
+
+1.E+00!
+
+2^3!
+
+Figure 1: Treatment matrix of study. Relative locality and
+invocation count information is in the cells.
+
+Synth linear!
+
+1.E+01!
+
+2^21!
+
+Native rand!
+1.E+02!
+
+2^2!
+
+No locality
+High invokes
+No locality
+Low invokes
+No locality
+High invokes
+
+2^1!
+
+Low locality
+High invokes
+High locality
+Low invokes
+Medium Locality
+High invokes
+
+1.E+09!
+
+2^0!
+
+Natural
+State
+Synthetic
+State
+
+Permuted
+Runtime (log base 10)!
+
+Operator
+Style
+
+Flow
+
+Linear
+
+Data Size (log base 2)!
+
+proof relies on meta-data operators that are not fully specified to exchange individual data-state and data-flow operators. This paper relies on the theory that Chi developed
+and provides an operator exchange process for a subset of
+visualization operators.
+The principle visualization frameworks tend to be either
+data-flow or data-state nearly exclusively. Since the frameworks are typically libraries, employing the complementary method is possible but requires significant programmer attention. Prefuse is one framework that exhibits this
+style of integration [10]. Though based in the data-state
+system, simple flow networks can be constructed in the
+action/activity framework. However, this requires a substantially different set of Prefuse interfaces. Furthermore,
+the relationship between the flow and state operations in
+Prefuse is entirely up to the programmer. VTK provides
+some of the advantages of the data-state model, despite being a data-flow framework [1]. This is achieved through
+appropriate data structures and explicit operation variant
+selection on the part of the programmer. This has been
+extended in the ‘Titan’ framework [12], but still requires
+substantial programer intervention.
+Automatic processing of visualization programs in a
+principled manner is approached by VizQL [9], the Tableau
+‘ShowMe’ feature [11] and in Stencil guide creation [7].
+These projects demonstrate the ability to make structured
+transformations of appropriately represented visualization.
+However, only the Stencil techniques approach employing
+anything like a change of operation style, and that is done
+on an ad-hoc basis. This work can be viewed as a formalization of part of the process presented by Cottam and
+Lumsdaine for guide creation [7].
+
+3
+
+Figure 2: Direct runtime comparison of all operator styles
+and access patterns. The flow and synthetic styles overlap
+for large portions of this chart.
+Style Comparison: Flow and Native!
+
+Runtime (% of Flow)!
+
+140%!
+120%!
+100%!
+80%!
+60%!
+40%!
+
+Flow linear!
+
+20%!
+
+Native linear!
+2^21!
+
+2^20!
+
+2^19!
+
+2^18!
+
+2^17!
+
+2^15!
+
+2^16!
+
+2^14!
+
+2^13!
+
+2^11!
+
+2^12!
+
+2^10!
+
+2^9!
+
+2^8!
+
+2^7!
+
+2^6!
+
+2^5!
+
+2^4!
+
+2^3!
+
+2^2!
+
+2^1!
+
+2^0!
+
+0%!
+
+Data Size (log base 2)!
+
+Figure 3: The data-state operator suffers a disadvantage
+to the flow operators for doing single updates but is significantly faster for larger updates. Natural and synthetic
+state operators compare similarly, except synthetic operators have no advantage at small data sizes.
+with a sequence of data of increasing size.
+The flow and ‘native’ state operators are straightforward
+implementations of their respective styles. A ‘synthetic’
+state operator is a flow operator wrapped with buffers. The
+buffers allow the flow operation to be invoked on all all
+data points before proceeding to subsequent operators. The
+flow operation used in the synthetic data-state style is related to the original flow operation, but is not always identical. A process for constructing synthetic state operations
+is described in Section 5. The synthetic and flow operators
+have similar method invocation count characteristics while
+the native state operators incur substantially fewer.
+The columns of the matrix indicate iteration orders.
+Modifying the iteration order between sequential access
+and random access modifies the locality characteristic of
+
+Comparison
+
+To examine the relative importance of locality and
+method calls in the data-flow model, we constructed a 3×2
+test matrix, shown in Figure 1. The matrix rows target the
+impact of method calls through operator styles while the
+columns target locality. Each matrix cell was evaluated
+6
+
+Style Comparison: Flow and Synth!
+
+reflection to abstract over individual operations as Facets).
+Results are summarized in Figure 2. The general separation between the faster native state operators and the
+similar data-flow and synthetic state operators can clearly
+be seen. Furthermore, the prominent inflection point near
+215 shows the eventually significant impact of locality of
+access on the runtime.
+The primary motivation of this study was to identify
+what practical advantages the data-state model enjoys. Figure 3 illustrates a substantial advantage for a native datastate operator unless only one element is being processed.
+Figure 4 illustrates the removal of method invocation advantage of the data state operator. The substantial difference between the two figures indicates that the majority of
+the advantage for the data-state operator comes from lower
+method invocation overhead. Even with the loss of the
+method call advantage, Figure 4 shows that the synthetic
+operators retain a consistent advantage over the flow operators once a relative small number of elements have been
+processed. This difference is attributed to the data locality
+advantages of the synthetic state operators.
+The importance of method invocation is likely in part
+due to the heavy use of reflection in the test framework.
+This likely prevents some optimizations that would otherwise be available. However great the impact of method
+calls, locality still played a significant role. Figure 6 shows
+the significant impact that data access locality has, especially on larger data sets, after factoring out the method
+call advantage. For any data set greater than 215 elements,
+the impact of locality begins to play a more prominent role.
+The impact of data locality on the data-flow operators exhibits similar inflection points to that of the data-state operators, as illustrated in Figure 5. However, the magnitude
+of the effects is substantially less. The synthetic data-state
+operators were similar to the data-flow operators, but with
+slightly greater sensitivity to locality. This fact, combined
+with the slight advantage of the synthetic operators over
+the data-state operators at many data sizes (see Figure 4),
+indicates that synthetic operators are a viable option when
+native operators are not available.
+The foregoing analysis focused on circumstances that
+favor the data-state model. The profiling results indicate
+that the data-flow model excels at working with small,
+focused updates (this is especially apparent in Figures 3
+and 4). For single element insertions or modifications that
+do not involve recomputing global properties, the data-flow
+model typically behaves as if the data set were of size one.
+By comparison, data-state networks treat a change of any
+number of elements as if all elements were updated.
+
+140%!
+
+Runtime (% of Flow)!
+
+120%!
+100%!
+80%!
+60%!
+40%!
+
+Flow linear!
+
+20%!
+
+Synth linear!
+2^21!
+
+2^20!
+
+2^19!
+
+2^18!
+
+2^17!
+
+2^15!
+
+2^16!
+
+2^13!
+
+2^14!
+
+2^11!
+
+2^12!
+
+2^9!
+
+2^10!
+
+2^8!
+
+2^7!
+
+2^5!
+
+2^6!
+
+2^3!
+
+2^4!
+
+2^1!
+
+2^2!
+
+2^0!
+
+0%!
+
+Data Size (log base 2)!
+
+Figure 4: Comparison of flow and synthetic state operators.
+The synthetic state operator is at an initial disadvantage,
+but data locality makes a difference after 28 elements.
+
+data accesses. To accommodate differing access patterns,
+the data-flow driver was modified to take a ‘permutation’
+parameter. The permutation pattern is a list where each element is an index into the data array. In the ‘linear’ case, the
+index of the permutation was identical the index of the data
+array. In the ‘random’ case, the values of the linear case
+were randomly shuffled. Each data array index was still
+present, but all correspondence between index and value
+was eliminated. Data were accessed in the order indicated
+by the permutation values. The data-state operators were
+similarly modified, though in these cases each operator received the permutation instead of just the driver. The permutations were computed once per trial.
+Each operator style was tested with a sequence of data
+sets of increasing size. Each trial was repeated 10 times;
+the garbage collector was executed after each trial. Our
+conclusions are based on the average runtime of each configuration; however, we have excluded the slowest run
+in each configuration. In most cases, the slowest time
+was an order of magnitude slower than the average time.
+We hypothesize that these slow cases show the influence
+of garbage collection. However, this hypothesis was not
+tested.
+All tests were conducted on a 2 GHz Intel Core Duo
+MacBook with 1Gb of 667 MHz DDR2 SDRAM with
+no other applications running. Tests were executed in
+a Java 1.5 runtime with a maximum and initial heap
+size of 768MB. The test network took the maximum of
+a value set, divided the current element by that maximum and then add 10. In Stencil notation this is
+Max[1..n](x) −> Div(x, max) −> Add(10, x). To isolate the
+impact of the flow and state style from parsing and rendering, tests were not conducted in the Stencil runtime;
+however, components of the runtime were used whenever
+possible (e.g., the operator chaining as Rule objects and
+
+4 Theory
+The analysis in Section 3 indicates that the data-state
+model gains significant runtime advantages from reduced
+7
+
+To correctly translate from the data-flow to the datastate style, some meta-data must be provided to the analysis framework. To access this meta data, we define a relation from flow operators to state operators FS : F → S.
+To be useful, the operators F and S need to compute corresponding results. We formalize the definition of correspondence in Equation 1.
+
+Flow linear!
+
+140%!
+
+Flow rand!
+120%!
+100%!
+80%!
+60%!
+
+F =S
+ˆ ⇐⇒
+
+2^21!
+
+2^20!
+
+2^19!
+
+2^18!
+
+2^17!
+
+2^15!
+
+2^16!
+
+2^13!
+
+2^14!
+
+2^11!
+
+2^12!
+
+2^9!
+
+2^10!
+
+2^8!
+
+2^7!
+
+2^5!
+
+2^6!
+
+2^3!
+
+2^4!
+
+2^1!
+
+2^2!
+
+40%!
+2^0!
+
+Runtime (% of linear permutation)!
+
+Permutation Comparison: Flow Operators!
+160%!
+
+∀M[i] the memory states of F after the ith input
+
+Data Size (log base 2)!
+
+I a list of the i inputs
+Figure 5: Data locality provides no consistent advantage
+for data-flow operators until around 215 data elements. The
+change near 25 elements is unexplained.
+
+S(I)[i] = F (I[i], M[i − 1])
+(1)
+The cases indicate that operator F corresponds to S
+when they compute the same values in their respective ordinal spaces. For S, the ordinal space is the stream-offset.
+For F , it is the result offset. In effect, if F is a stateful operator then S must be able to derive that state entirely from
+the sequence of values found in I and any parameterization
+it received when it was constructed.
+Using the FS relation and Equation (1), data-flow processes can be converted into and data-state process. The
+first issue is to identify when the conversion should be
+performed. This identification is framework specific, so
+we abstract it as a relation between visualization program
+fragments. The identification process TryConvert takes
+a data-flow program fragment and either returns it unchanged or creates a data-state equivalent. The results of
+TryConvert can always be used to calculate a visualization equivalent to the one specified by the original schema,
+but it may or may not be in the data-state style. To be effective, TryConvert must identify locations where updates
+will either effect many existing values or ocurr in batches.
+If TryConvert creates a data-state process, it does so
+by: (1) for each operation in a source program fragment,
+it retrieves the equivalent data-state operator using the FS
+relation; (2) the new data state operators are re-linked according to Chi’s process [5].
+
+450%!
+400%!
+
+Native linear!
+
+350%!
+
+Native rand!
+
+300%!
+250%!
+200%!
+150%!
+100%!
+50%!
+2^21!
+
+2^20!
+
+2^19!
+
+2^18!
+
+2^17!
+
+2^15!
+
+2^16!
+
+2^13!
+
+2^14!
+
+2^11!
+
+2^12!
+
+2^10!
+
+2^9!
+
+2^8!
+
+2^7!
+
+2^5!
+
+2^6!
+
+2^3!
+
+2^4!
+
+2^2!
+
+2^1!
+
+0%!
+2^0!
+
+Runtime (% of linear permutation)!
+
+Permutation Comparison: Native State Operators!
+
+Data Size (log base 2)!
+
+Figure 6: Native state operators do not significantly benefit
+from locality until around 215 elements; thereafter lack of
+locality quickly eliminates the call count advantage.
+
+method calls and data access locality. However, it also
+shows that this advantage requires that large blocks be uniformly treated.
+This section establishes a practical theory for (1) translating between data-flow and data-state operations and (2)
+identifying when such a translation should occur. This directly extends the work done by Chi [5], but focuses on
+automatic translation rather than existential proofs. It includes a complete description of ‘synthetic’ operators employed in Section 3. The discussion in this section is framework independent; Section 5 explores a partial implementation in the Stencil visualization system.
+
+4.1
+
+5 Stencil implementation
+This section takes the extended theory of Section 4.1
+and describes an implementation in the Stencil visualization system. The current Stencil implementation can only
+work with linear flow relationships. If an operator requires
+results from any operator other than its immediate predecessor, there will be no transformation. This is not a fundamental limit of Stencil, but a limitation of this initial implementation. Despite this limitation, the ability to mix
+natural and synthetic data-state operators allows the Stencil system to take advantage of the data-state efficiencies.
+
+Requirements
+
+For the purposes of this discussion, we represent dataflow operators as F ; each flow operator takes a single input
+and produces a single output. data-state operators are represented as S; each takes a list of values and produces a
+new list of values.
+
+8
+
+stream t i c k e r ( i )
+
+The TryConvert relation is implemented as a two stage
+process. The first stage relies on the programmer to indicate where data-state operations may be applicable. This
+is done by employing the dynamic binding operator ‘:*’.
+Dynamic binding indicates that an update to the given attribute may affect an arbitrary number of existing data
+points. These broad updates are an ideal situation for applying data-state operators. The first state of TryConvert
+identifies the dynamic bindings.
+The second stage of Stencil’s TryConvert establishes
+the flow operators involved in a dynamic binding have
+data-state counterparts; i.e., that FS will succeed for all
+operators in the dynamically bound chain. This is achieved
+using Stencil’s operator meta data facilities. In the simple case, the Stencil meta data for each operator indicates
+a special access method with the ‘DataState’ tag. The
+‘DataState’ access method is guaranteed by the provider
+to satisfy the requirements of (1).
+Providing a ‘DataState’ access method is not required
+by Stencil. When it is omitted, the FS relation does need
+to fail if a suitable operator can be synthesized. To synthesize the state operation, the Stencil required ‘Query’ access method is used. Only methods that have read-only access to the internal state that is set by the standard analysis
+method (referred to as the ‘Map’ method) can be marked
+as Query methods. This is formalized in Equation (2). In
+general output = output of Equation (2), but this is not a
+requirement on Query methods. Operations that do not satisfy this condition are marked as ‘Opaque’ and cannot be
+used for synthetic data-state operations. Common Opaque
+operations are those that involve randomness, clock time
+or summaries. For non-Opaque operators, the Query facet
+is used for computation and Stencil manages data buffers
+to simulate a data-state operation. This process retains the
+locality benefits of data-state operations and expands the
+applicability of FS .
+
+l a y e r L i n e s [ LINE ]
+from t i c k e r
+ID : i
+( X2 , Y2 ) : Random [ ”X” , ”Y ” ] ( ) −> (X, Y)
+( X1 , Y1 ) : Sub1 ( i ) −> L i n e s . F i n d ( d i f f )
+−> ( X2 , Y2 )
+COLOR: ∗ Max [ 1 . . n ] ( i ) −> Div ( i , max )
+−> @color {RED, q}
+
+Figure 7: Stencil program with poor dynamic bind
+scheduling. The root issue is that a Find is executed, but
+the dynamically bound COLOR is not used.
+
+5.1
+
+Scheduling
+
+Since the data-state operations are only used for part of
+the analysis, properly scheduling them is a significant issue
+not addressed by Chi. The proper scheduling again relies
+on Stencil meta data. The optimal schedule will execute the
+data-state operation only when (1) either render or analysis
+results will be immediately required and (2) executing the
+data-state network will change the result.
+
+(2)
+
+The first condition identifies when executing the datastate network should be considered. The second condition
+identifiers when it can be avoided. Each time the first condition is encountered, a check is performed related to the
+second condition. If the check fails, the network is not
+executed. The check is implemented with respect to the
+standard Stencil ‘StateID’ access method. This method
+takes no arguments and returns a value associated with the
+internal state of the operator. If ∃v such that F (v, M) =
+F (v, M ) then the StateID facet should return a different
+value for M and M . The Stencil runtime caches the return values of StateID and checks if those have changed
+for any operator in the data-state process. If no StateID
+has changed, StateID check returns false. The strategy described here is equivalent to the on used to limit guide recalculation in Stencil [7]. If the StateID facet is not provided, an approximate one is synthesized.
+
+In summary, the TryConvert function in Stencil looks
+for the dynamic binding operator ‘:*’ and verifies that all
+operators in a dynamically bound process either (1) have an
+indicated ‘DataState’ field or (2) are not Opaque. If these
+conditions are met, a new analysis process is produced in
+the data-state style. The new process is used for the dynamic calculations only; the original flow operations are
+still used for initial processing.
+
+Employing the above techniques generally yields effective scheduling. In most cases tested, the recalculation of
+dynamic bindings was done efficiently. However, one test
+revealed a significant over-approximation in selection condition. An example that shares the inefficiency is given in
+Listing 7. The essential element is the use of a ‘Find’ operation that does not refer to the dynamically bound COLOR
+attribute. Since the scheduling routine does not examine
+which attributes are used, it unnecessarily re-calculates the
+COLOR before each find. Automatic identification of such
+circumstances is reasonable and important future work.
+
+For operator O
+a memory state M and values input, output
+if O.map(input, M) = output, M then
+O.query(input, M) = output , M.
+
+9
+
+6
+
+[2] Ed H. Chi. A framework for information visualization spreadsheets. 1999.
+
+Future Work
+
+Beyond the issues indicated in Section 5, many Stencil
+specific and general theory questions remain open.
+Extending the Stencil implementation to DAG analysis
+networks will likely have benefits beyond expanding applicability. It is anticipated that the implementation will include the caching of data-state results for use as arguments
+to multiple downstream operations. This cache might be
+extended to allow only partial re-evaluation of networks.
+This is reasonable, as the semantics of the StateID access
+method can be used to the point after which changes can
+occur. Deciding which buffers to retain and executing abbreviated processes does not modify the described algebra
+but would benefit any implementing system from a performance standpoint.
+The Stencil implementation only works with dynamic
+bindings, (e.g., updates to data already loaded). data-state
+operators may be effectively applied when loading data as
+well, if it arrives in blocks. This is trivially true if all data
+are available at the start of analysis. Properly identifying
+and integrating the data-state network is currently under
+consideration.
+As mentioned, the analysis in Section 3 employed reflectively invoked operators. Reflection was employed because the study was conducted with an eye towards runtime configurable visualization frameworks. Studying the
+impact of reflection could lead to further insight into the
+proper application of both visualization models. Similarly,
+the analysis only used arrays of reference types. The impact of locality in value types may be different, and thus
+warrants further investigation.
+This paper has focused on the computational benefits of
+the data-state operator implementation. However, a portion
+of Chi’s [5] work describes conceptual benefits of the datastate model. Many of his assertions are plausible, but only
+tangentially expressed in his case studies. A more careful study of the conceptual benefits may lead to improved
+data-state tools. This would be especially valuable for tools
+that can elegantly integrate data-state and data-flow models
+both at runtime and at description time.
+
+7
+
+[3] Ed H. Chi. A taxonomy of visualization techniques
+using the data state reference model. IEEE Symposium on Information Visualization (INFOVIS’07),
+2000.
+[4] Ed H. Chi. Expressiveness of the data flow and data
+state models in visualization systems. In Advanced
+Visual Interfaces, Trento, Italy, May 2002.
+[5] Ed H. Chi. A Framework for Visualizing Information (Human-Computer Interaction Series). SpringerVerlag New York, Inc., Secaucus, NJ, USA, 2002.
+[6] Ed H. Chi, Joseph Konstan, Phillip Barry, and John
+Riedl. A spreadsheet approach to information visualization. In Proceedings of the 10th Annual ACM
+Symposium on User Interface Software and Technology (UIST’97), pages 79–80, New York, NY, USA,
+1997. ACM Press.
+[7] Joseph A. Cottam and Andrew Lumsdaine. Algebraic
+guide generation. In 13th International Conference
+on Information Visualzation (IV’09), 2009.
+[8] Jean-Daniel Fekete and Catherine Plaisant. Interactive information visualization of a million items. In
+INFOVIS ’02: Proceedings of the IEEE Symposium
+on Information Visualization (InfoVis’02), page 117,
+Washington, DC, USA, 2002. IEEE Computer Society.
+[9] Pat Hanrahan. VizQL: a language for query, analysis
+and visualization. In SIGMOD ’06: Proceedings of
+the 2006 ACM SIGMOD international conference on
+Management of data, pages 721–721, New York, NY,
+USA, 2006. ACM.
+[10] Jeffrey Heer, Stuart K. Card, and James A. Landay.
+Prefuse: A toolkit for interactive information visualization. In Proceeding of the SIGCHI Conference
+on Human Factors in Computing Systems (CHI’05),
+pages 421–430, New York, NY, USA, 2005. ACM
+Press.
+
+Conclusions
+
+Employing the theoretical equivalence between the
+data-state and data-flow models of visualization requires
+substantial support in a visualization framework. This paper has demonstrated (1) that such support is possible with
+a small amount of meta data and (2) that supporting the
+conversion can yield significant benefits, especially when
+true data-state operators are provided.
+
+[11] Jock Mackinlay, Pat Hanrahan, and Chris Stolte.
+Show me: Automatic presentation for visual analysis. In IEEE Symposium on Information Visualization
+(INFOVIS’07), 2007.
+[12] Brian Wylie and Jeffrey Baumes. A unified toolkit for
+information and scientific visualization. Proceedings
+of SPIE, 7243(72430H), January 2009.
+
+References
+[1] The Visualization Toolkit User’s guide. Kitware, Inc.,
+2003.
+10
+
+

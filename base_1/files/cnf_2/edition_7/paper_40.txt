@@ -1,0 +1,1297 @@
+Volume 28 (2009), Number 2
+
+EUROGRAPHICS 2009 / P. Dutré and M. Stamminger
+(Guest Editors)
+
+Linear Time Super-Helices
+Florence Bertails
+BiPop - INRIA/LJK, France
+
+Figure 1: Left: A Super-Helix of complex shape (composed of 30 helical elements) can be manipulated by the user in real-time
+thanks to our fast recursive algorithm. Middle: Complex configurations such as knots, involving a high resolution of the strand,
+can be achieved in real-time with our model. Right: Interactive animation of a weeping willow swept by wind, represented as a
+tree-like structure of Super-Helices (composed of 242 helical elements) with various stiffness values.
+
+Abstract
+Thin elastic rods such as cables, phone coils, tree branches, or hair, are common objects in the real world but computing their dynamics accurately remains challenging. The recent Super-Helix model, based on the discrete equations of Kirchhoff for a piecewise helical rod, is one of the most promising models for simulating non-stretchable
+rods that can bend and twist. However, this model suffers from a quadratic complexity in the number of discrete
+elements, which, in the context of interactive applications, makes it limited to a few number of degrees of freedom
+- or equivalently to a low number of variations in curvature along the mean curve. This paper proposes a new,
+recursive scheme for the dynamics of a Super-Helix, inspired by the popular algorithm of Featherstone for serial
+multibody chains. Similarly to Featherstone’s algorithm, we exploit the recursive kinematics of a Super-Helix to
+propagate elements inertias from the free end to the clamped end of the rod, while the dynamics is solved within
+a second pass traversing the rod in the reverse way. Besides the gain in linear complexity, which allows us to
+simulate a rod of complex shape much faster than the original approach, our algorithm makes it straightforward
+to simulate tree-like structures of Super-Helices, which turns out to be particularly useful for animating trees and
+plants realistically, under large displacements.
+Categories and Subject Descriptors (according to ACM CCS): Computer Graphics [I.3.7]: Three-Dimensional
+Graphics and Realism—Animation
+
+1. Introduction
+1.1. Motivation
+Realistic animations of hair, ropes, grass or foliage all require the accurate simulation of the same primitives: strands,
+i.e., long and very thin deformable objects. Strands are ubiquitous in the real world, however their simulation remains
+challenging due to their specific nature: they can easily bend
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+and twist, but they are unshearable and often resist stretching. Thin rods have been studied for more than one century
+in the field of elasticity theory - the reader can for example refer to [Ant95] for a modern derivation of these theories
+firstly developed by Euler, Cosserat and Kirchhoff. However,
+finding a proper discretization for the existing models is difficult, since the motion of thin elastic rods is governed by
+stiff equations.
+
+418
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+1.2. Related work
+Maximal vs generalized coordinates: One common approach for animating thin rods in computer graphics consists in using a maximal coordinates formulation of the system [Bar96] and enforcing the typical modes of deformation with external constraints. The advantage is to rely on
+simple chain models, such as the popular mass-spring system [RCT91], which are known to be fast and to have linear complexity in the number of simulated nodes. However,
+adding deformations constraints properly is difficult in the
+case of strand-like objects, for two main reasons. First, accounting for twisting requires a mathematical description of
+the orientation of the rod. Typically, mass-spring and 3D
+curve models such as splines [LMGC04] do not incorporate such an information. To account for twisting phenomena in hair simulation, Selle et al. attach additional springs
+to every three particle of the mass-spring chain [SLF08],
+while Theetten et al. add the rotation of the cross-section into
+the parameterization of the spline model and derive a corresponding twisting energy [TGAB08]. Secondly, enforcing
+the inextensibility constraint often leads to stiff systems and
+unstable simulations. Most previous approaches tolerate a
+bit of stretching in their models [PCP01, LMGC04, CCK05,
+ST07, TGAB08, SLF08], thus avoiding instabilities issues.
+In our work however, we are interested in perfectly inextensible models. Indeed, the inextensibility property is one
+of the causes for the stiff (or “nervous”) response of moving
+strands, typically observable in long and straight hair, or perfect hair curls. Often, computational models incorporating
+stretching look too soft for capturing these effects accurately.
+Recently, Bergou et al. proposed to enforce the inextensibility constraint by relying on a fast projection method as a
+post-integration step, instead of computing a low-stretching
+energy and having to deal with stiff equations [BWR∗ 08].
+Though stable, this approach causes some artificial energy
+dissipation.
+An alternate strategy to maximal coordinates formulation
+is to incorporate all the deformations constraints into the
+parameterization of the model, leading to a so-called reduced coordinates formulation. Serial chains of rigid segments are the most-well known reduced coordinate model
+for strands, and were successfully used for animating hair
+primitives [HMT01,CJY02,Had06]. However, each segment
+composing the strand being rigid, a high number of segments
+is required for animating strands with a non-straight shape at
+rest, leading to time-consuming simulations.
+Quadratic complexity of the Super-Helix model: Recently, the Super-Helix model was proposed [BAC∗ 06] for
+simulating the motion of individual hair strands in a realistic way, following Pai’s work on the simulation of static
+Cosserat rods [Pai02]. Relying on a high-order discretization of the Kirchhoff equations for inextensible and unshearable elastic rods, the Super-Helix model captures the typical modes of deformation of real strands while being parameterized by only a few degrees of freedom: instead of us-
+
+ing rigid segments as primitives, each element is represented
+as a deformable helix. However, the method suffers from a
+quadratic complexity in the number of elements composing
+the rod. This quadratic complexity is not relevant when animating free natural hair, where a low number of elements
+is sufficient to capture the deformations of hair realistically.
+However, as pointed out by Spillman et al., it turns out to
+be an actual limitation when simulating high local deformations such as knots configurations, which typically occurs when the rod is subject to multiple contacts and selfcollision [ST07]. In this paper, we propose a new, recursive
+algorithm for solving the dynamics of a Super-Helix in linear time. Our method is inspired by the popular algorithm
+by Featherstone [Fea83] for recursively solving the motion
+of serial multibody chains.
+The Featherstone algorithm: Similarly to the Super-Helix
+model, computing the forward dynamics of a serial multibody chain amounts to solving a dense system, which implies a N 2 complexity in the case when the inertia matrix
+is constructed explicitly [FO00]. In the following, we shall
+qualify of composite [Fea87] such a method. Note however
+that the original, composite Super-Helix model did not benefit from any optimization in the computation of the mass
+matrix, unlike the so-called Composite-Rigid-Body algorithm [FO00]. The Articulated-Body approach [Fea83] was
+one of the first algorithms for computing the forward dynamics of articulated-bodies in linear time. This algorithm is explained in details in [Mir96]. The key of the approach relies
+on two features: first, the recursive nature of the kinematics
+and second, the observation that accelerations of the bodies
+are linear functions of the applied force. Therefore, cumulate
+inertias and force for a subchain can be precomputed within
+a first pass by propagating internal joint forces from the free
+end to the fixed end of the chain. Finally, the forward dynamics is recursively solved within a second pass traversing the
+structure in the reverse way. This algorithm was successfully
+adapted for solving the dynamics of articulated deformable
+bodies (see for instance [MA07]). To the best of our knowledge, it was never derived for a smooth, deformable model
+with no joint, such as the Super-Helix model.
+1.3. Contributions
+Our main contribution is to propose a new recursive algorithm for solving the dynamics of a Super-Helix in linear
+time. The key of our approach is to show that a dynamic
+equation can be locally formulated for each element, depending linearly on the acceleration of the first end of the
+element only. Similarly to the Featherstone algorithm, a first
+pass recursively computes the cumulate inertias and force
+from tip to root, and the forward dynamics is solved within a
+second pass traversing the strand from root to tip. A second
+contribution of this paper is the extension of this recursive algorithm for animating tree-like structures of Super-Helices.
+Interestingly, this method allows for the nonlinear simulation
+of stiff as well as soft foliage under large displacements.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+1.4. Organization
+The paper is organized as follows. Section 2 recalls the important notations for the Super-Helix model and introduces
+useful notations for an individual element. In section 3, we
+reformulate the kinematics and dynamics of a Super-Helix as
+recursive relationships and explain in details our new recursive algorithm in section 4. We derive the tree-like structure
+extension in section 5 before presenting results in section 6
+and concluding.
+
+Let f SH (s,t) be a function (scalar or vector) of the SuperHelix. One can decompose this function on each element as
+f SH (s,t) =
+
+For the sake of simplicity, we shall use similar notations as
+in [BAC∗ 06] whenever appropriate. We shall introduce further notations only to deal with the kinematics of individual
+helical elements. In all our mathematical derivations, scalars,
+vectors and matrices will be denoted by using respectively
+plain (s), bold (v) and blackboard bold (M) fonts.
+
+∑
+
+χQ (s) fQ (s − sQ−1 ,t)
+
+1≤Q≤N
+
+where fQ (u,t) is the local function defined on EQ and parameterized by u = s − sQ−1 ∈ [0, ℓQ ], such that f SH (s,t) =
+fQ (u,t) for s ∈ EQ . Equation (1) is an example of such a
+decomposition. For a continuous function, we also have the
+condition
+∀Q ≥ 2
+
+2. Notations
+
+419
+
+fQ (0) = fQ−1 (ℓQ−1 ),
+
+which helps reconstruct the function f SH (s,t) if one is aware
+of a boundary condition, for example at s = 0 or s = L.
+To alleviate the notations in the remainder of the paper, we
+shall omit variables other than u (such as the time variable t)
+in the description of local functions fQ . Figure 2 summarizes
+the main notations used for an element.
+
+2.1. Notations for a Super-Helix
+Let s be the curvilinear abscissa of the centerline of the
+Super-Helix, 0 ≤ s ≤ L where L is the total length of the
+rod. A Super-Helix is composed of N helical elements EQ
+indexed by Q (1 ≤ Q ≤ N), each element being parameterized by a constant twist κ0 = τ and two constant curvatures
+κ1 and κ2 . The full Super-Helix is thus parameterized by the
+3 N generalized coordinates κi,Q (t), where i = 0, 1, 2 specifies the mode of deformation for each element. The vector of
+size 3 N collecting all the generalized coordinates is denoted
+κ (t), while the three functions κi (s,t), i = 0, 1, 2 stand for
+the piecewise constant twist and curvature functions along
+the rod:
+
+κi (s,t) =
+
+∑
+
+χQ (s) κi,Q (t) for i = 0, 1, 2,
+
+(1)
+
+1≤Q≤N
+
+where χQ (s) equals 1 for s ∈ EQ and 0 elsewhere.
+The curve rSH (s,t) gives the 3D position of the centerline
+at s. Each cross-section of the rod is associated with a material frame {nSH
+i (s,t)}i=0,1,2 composed of a tangent vector
+SH
+SH
+nSH
+0 (s,t) and of two normal vectors n1 (s,t) and n2 (s,t)
+aligned with the principal axes of the cross-section. Note that
+unlike the twist and curvatures functions κi (s,t), the centerline rSH (s,t) and the material frame {nSH
+i }(s,t)i=0,1,2 are
+required to be respectively C1 and C0 -smooth along the rod
+(i.e., with respect to s). These smoothness conditions are essential for reconstructing the full geometry of a Super-Helix,
+given the vector of generalized coordinates κ .
+2.2. Notations for an element
+The element of index Q is denoted EQ = {s, sQ−1 ≤ s ≤ sQ }.
+Note that with this definition, s0 = 0 and sN = L. Let ℓQ be
+the length of element EQ , ℓQ = sQ − sQ−1 .
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Figure 2: Notations for an element EQ .
+
+3. Towards Recursive Equations for a Super-Helix
+The main equations for a Super-Helix are presented
+in [BAC∗ 06] and reminded here to the reader. We also propose to formulate them as explicit recursive relationships in
+order to highlight the similarities between the Super-Helix
+model and articulated-bodies systems.
+The Super-Helix is assumed to be clamped at the first end
+(s = 0) and free at the other end (s = L). In this section we
+also assume no external force is applied. The handling of external forces such as gravity will be addressed in section 4.5.
+3.1. Recursive kinematics of a Super-Helix
+The kinematics of the Super-Helix provides the space evolution of the centerline,
+
+∂ rSH
+(s,t) = nSH
+0 (s,t),
+∂s
+as well as the space evolution of the material frame,
+∂ nSH
+i (s,t)
+= Ω SH (s,t) × nSH
+i (s,t) for i = 0, 1, 2,
+∂s
+
+(2a)
+
+(2b)
+
+where Ω SH (s,t) = ∑i=0,1,2 κiSH (t) nSH
+i (s,t) is the Darboux
+vector quantifying the spatial rate of rotation of the material
+frame along the rod. Note that equation (2a) expresses the
+
+420
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+condition of inextensibility of the rod, since n0 is a unit vector. Note also that Ω SH (s,t) is constant in space over each element. Thanks to this property, equations (2b) can be solved
+analytically through the reconstruction process [BAC∗ 06].
+An analytical expression for rSH (s,t) can then be derived
+using equation (2a), and subsequently all kinematic terms
+such as the time velocity r˙ SH (s,t) and acceleration r¨ SH (s,t)
+of the centerline can be calculated analytically. The reader
+can refer to [Ber06] for a detailed and explicit formulation
+of these kinematic terms.
+For the purpose of this paper, it will be sufficient to notice
+from [Ber06] that the accelerations r¨ and θ¨ of the centerline
+and of the material frame respectively, can be formulated on
+each element EQ as
+¨
+¨
+¨
+r¨ Q (u) = r¨ Q (0) + ArQ
+(u) κ¨ Q + CrQ
+(u) θ¨ Q (0) + brQ
+(u)
+¨
+¨
+θ¨ Q (u) = θ¨ Q (0) + AθQ (u) κ¨ Q + bθQ (u)
+
+(3a)
+¨ (u), Cr¨ (u), br¨ (u), Aθ¨ (u) and bθ¨ (u) only depend
+where ArQ
+Q
+Q
+Q
+Q
+(non-linearly) on κ Q and κ˙ Q , and not on any acceleration
+term. We also have the following smoothness conditions at
+the junction between elements
+r¨ Q (0) = r¨ Q−1 (ℓQ−1 )
+¨
+θ Q (0) = θ¨ Q−1 (ℓQ−1 )
+
+for Q = 2, · · · , N
+
+(3b)
+
+as well as the clamping conditions
+r¨ 1 (0) = r¨ cl
+
+θ¨ 1 (0) = θ¨ cl .
+
+(3c)
+
+The set of equations (3) defines a recursive scheme for computing accelerations of a Super-Helix from its clamped end
+to its free end. Note that r¨ Q (u) and θ¨ Q (u) linearly depend
+on every κ¨ P, P≤Q where the dependence on κ¨ Q explicitly appears in equations (3a) and the dependence on κ¨ P, P<Q is
+implicitly contained in the terms r¨ Q (0) and θ¨ Q (0) via the
+smoothness conditions (3b).
+This recursive kinematics is very similar to the kinematics of an articulated-bodies system, as the same kind of linear dependency occurs between the global 3D accelerations
+of the system and the accelerations of its generalized coordinates. This property will be advantageously exploited for
+building our recursive Super-Helix algorithm (see section 4).
+3.2. Recursive dynamics of a Super-Helix
+In the absence of external forces and internal friction, the
+Lagrange equations of motion for a Super-Helix [BAC∗ 06]
+read
+∂T
+∂T
+∂U
+d
+−
++
+=0
+∀Q, i,
+(4)
+dt ∂ κ˙ i,Q
+∂ κi,Q ∂ κi,Q
+where
+2
+1 L
+ρ S r˙ SH (s, κ ,t) ds
+2 0
+is the kinetic energy of the rod, with ρ S the mass per unit
+length, and
+
+T (κ , κ˙ ,t) =
+
+U(κ ,t) =
+
+L 2
+
+1
+2
+
+∑ (EI)i (κiSH (s, κ ) − κi0 (s))2 ds
+
+0 i=0
+
+is the elastic potential energy of the rod. (EI)i=0,1,2 are the
+twisting and bending moduli, assumed to be constant along
+the rod, and κi0 (s)i=0,1,2 are the spontaneous twist and curvature functions, assumed to be piecewise constant in the
+same way as κiSH (s, κ ).
+Let us detail the terms involved in equation (4). The gradient of the potential energy U can easily be derived as
+
+∂U
+0
+= ℓQ (EI)i (κi,Q − κi,Q
+),
+∂ κi,Q
+where ℓQ is the length of element EQ .
+The exact derivation of the gradients of the kinetic energy can be worked out using the kinematics equations of the
+Super-Helix. We preferably rely on Maple for leading these
+calculations analytically, and skip details here for the sake of
+clarity. The first two terms of equation (4) finally read
+d
+dt
+
+∂T
+∂ κ˙ i,Q
+
+−
+
+∂T
+=−
+∂ κi,Q
+
+L
+0
+
+Φi,Q (s,t) ds (5)
+T(s, κ ,t) ·Φ
+
+where T is the internal force of the rod such that
+∂T
+(s, κ ,t)
+ρ S r¨ (s, κ ,t) =
+T(s = L) = 0
+∂s
+and Φi,Q a 3D function independent of κ ,
+s
+
+Φ i,Q (s,t) =
+
+0
+
+′
+′
+SH
+χQ (s′ ) nSH
+i (s ,t) ds × n0 (s,t).
+
+(6)
+
+(7)
+
+Note that Φi,Q (s,t) = 0 iff s ∈ EP,P<Q , which is consistent
+with the fact that a perturbation δ κi,Q only affects elements
+ER,R≥Q .
+Let ϕ i,Q (u) = 0u ni,Q (u′ ) du′ . After replacing all the gradients and decomposing the right-hand side of (5) on each
+element EQ , the Lagrange equations of motion (4) reread
+0
+)=
+(EI)i (κi,Q − κi,Q
+
+where
+
+
+
+
+ Ji,Q =
+
+
+
+
+ Ii,Q =
+
+ℓQ
+0
+
+∑
+
+1
+(Ii,Q + Ji,Q )
+ℓQ
+
+∀Q, i
+
+(8a)
+
+TQ (u) · ϕ i,Q (u) × n0,Q (u) du
+
+R>Q 0
+
+ℓR
+
+(8b)
+TR (u) · ϕ i,Q (ℓQ ) × n0,R (u) du,
+
+and we have the boundary condition
+TN (ℓN ) = T(L) = 0.
+
+(8c)
+
+Note that the left-hand side of equation (8a) only depends
+on the element EQ while the right-hand side explicitly involves elements ER,R≥Q . Using this property as well as the
+free end condition (8c), we can expect to be able to reconstruct parts of the dynamics recursively, from the free end
+Q = N to the clamped end Q = 1.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+3.3. Composite versus recursive approach
+Starting from the Lagrange equations of motion, the original
+Super-Helix method [BAC∗ 06] builds a differential system
+for the unknowns κ ,
+M(t, κ ) κ¨ + K (κ − κ 0 ) = B(t, κ , κ˙ ).
+
+(9)
+
+Unfortunately the inertia matrix M turns out to be dense,
+which can be explained by looking a bit more deeply at equations (8). Indeed, while the right-hand side of (8a) explicitly depends on elements ER,R≥Q , and thus only on accelerations κ¨ R,R≥Q , the internal force vector TQ (u) implicitly
+depends on all other accelerations κ¨ P,P<Q through the linear
+momentum equation (6) and the kinematics equations (3).
+The dynamics equations (8) thus depend on all acceleration
+unknowns κ¨ Q,1≤Q≤N , making the linear system dense and
+thus the solving algorithm of quadratic complexity.
+Unlike this composite method, our approach avoids building the total inertia matrix M, and instead exploits the recursive nature of both the kinematics (3) and the dynamics (8)
+of the Super-Helix model to achieve a linear solving algorithm. In the following, we show that we can actually reconstruct some parts of the right-hand side of (8a) from Q = N
+to Q = 1, the remaining terms being filled in within a second
+pass from Q = 1 to Q = N.
+
+421
+
+The above statement implies that the local dynamics
+equation on element EQ read
+G
+G
+¨
+¨ Q (0) + CG
+KQ (κ Q − κ 0Q ) = AG
+Q κ¨ Q + RQ r
+Q θ Q (0) + bQ
+
+(10)
+
+where KQ is the stiffness matrix of element EQ .
+Note that our cumulate inertias and force extend the socalled articulated-body inertia and bias force introduced by
+Featherstone for serial multibody chains [Fea83], to the case
+of the Super-Helix model.
+
+Figure 3: Recursive Super-Helices in real-time, at various
+resolutions (1, 2, 5, 10, 20 and 30 elements from left to right).
+Top: snapshot of the rod falling under gravity. Bottom: snapshot of the rod swinging under oscillations of its root.
+
+4. A Recursive Algorithm for Solving the Dynamics
+Let Gi,Q = ℓ1Q (Ii,Q + Ji,Q ) be the right-hand side of equation (8a). The key of our recursive algorithm is to show that
+Gi,Q can be expressed locally on each element EQ as a function of the 3 unknown accelerations κ¨ Q , r¨ Q (0), and θ¨ Q (0).
+In the following we call such a local expression for any 3D
+vector f a decomposition of f on the element EQ . The decomposition of f on EQ is formulated as the set of three 3 × 3
+matrices AfQ , RfQ , CfQ and one vector bfQ , such that†
+f = AfQ κ¨ Q + RfQ r¨ Q (0) + CfQ θ¨ Q (0) + bfQ .
+Note that AfQ , RfQ , CfQ and bfQ may depend on u in case
+when f is a function of u (see for instance equations (3a)).
+4.1. Induction hypothesis
+We state that for all Q, 1 ≤ Q ≤ N, the right-hand side vector
+GQ collecting the three scalars Gi,Q i=0,1,2 can be formulated as
+G
+G
+¨
+¨ Q (0) + CG
+GQ = A G
+Q κ¨ Q + RQ r
+Q θ Q (0) + bQ ,
+G
+G
+where the 3 × 3 matrices AG
+Q , RQ and CQ are called cumuG
+late inertias, and the vector bQ cumulate force of the rod.
+
+† In the following, we only use this notation for the decomposition
+of local functions fQ on the element EQ . For the sake of simplicity,
+we omit the index Q in the upperscript term f of the decomposition.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+4.2. First pass: accumulating inertias from tip to root
+In appendix A we prove by mathematical induction that our
+local dynamics statement (10) holds for all elements, and we
+G
+G G
+show that the cumulate inertias and force AG
+Q , RQ , CQ , bQ
+can be recursively computed from tip to root. The main step
+of the algorithm is actually to compute the decomposition
+of the internal forces TQ−1 (u) and TQ (u) on element EQ−1
+from the decomposition of TQ (u) on element EQ and from
+the cumulate inertias and force of element EQ . Once we got
+this lower index decomposition, we can compute the decomposition of the right-hand side GQ−1 using the formulas (8b)
+for Ji,Q−1 and Ii,Q−1 .
+Below are the final recursive relationships for the decomposition of TQ−1 (u) on the element EQ−1 , useful for computing Ji,Q−1 ,
+ T
+¨
+Tint
+¨
+A
+(u) = AQ−1
+(u) + TR ArQ−1
+(ℓQ−1 ) + TC AθQ−1 (ℓQ−1 )
+
+
+ Q−1
+
+
+Tint
+
+T
+
+ RQ−1 (u) = RQ−1 (u) + TR
+
+
+
+Tint
+r¨
+CT
+Q−1 (u) = CQ−1 (u) + TR CQ−1 (ℓQ−1 ) + TC
+
+
+
+T
+θ¨
+r¨
+int
+
+bT
+
+Q−1 (u) = bQ−1 (u) + TR bQ−1 (ℓQ−1 ) + TC bQ−1 (ℓQ−1 )
+
+
+
+
+−1
+
+
+G
++ tb + AT
+KQ (κ Q − κ 0Q )
+Q (0) AQ
+
+where the (non-recursive) decomposition of TintQ−1 (u) on
+EQ−1 is given by equations (15) in appendix A, and TR , TC
+and tb are given by
+
+422
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+
+G
+
+TR = −AT
+
+Q (0) AQ
+
+
+
+
+G
+TC = −AT
+Q (0) AQ
+
+
+
+
+
+ t = −AT (0) AG
+b
+Q
+Q
+
+−1
+−1
+−1
+
+T
+RG
+Q + RQ (0)
+T
+CG
+Q + CQ (0)
+T
+bG
+Q + bQ (0).
+
+The formulas for the decomposition of TQ (u) on EQ−1 ,
+useful for computing Ii,Q−1 , are similar to the ones above.
+4.3. Second pass: solving the dynamics from root to tip
+Once the first pass is processed, we know all cumulate inerG
+G G
+tias and force AG
+Q , RQ , CQ , bQ for 1 ≤ Q ≤ N. In the dynamics equation (10), two parameters remain unknown: r¨ Q (0)
+and θ¨ Q (0). These two parameters can however be reconstructed from root to tip according to the kinematics equations (3). We can thus recursively solve the system (10) for
+κ from root to tip. Here is our detailed algorithm :
+• Initialization: set r1 (0,t + δ t), r˙ 1 (0,t + δ t), r¨ 1 (0,t + δ t),
+θ 1 (0,t + δ t), θ˙ 1 (0,t + δ t) and θ¨ 1 (0,t + δ t) to their
+clamped values at time t + δ t.
+• Loop, for Q = 1 to Q = N:
+1. Build the 3 × 3 differential equation for κ Q
+MQ (t, κ ) κ¨ Q + KQ (κ Q − κ 0Q ) = BQ (t, κ , κ˙ ),
+2.
+
+3.
+
+4.
+
+5.
+
+G ¨ (0) + CG θ¨ (0) + bG .
+where MQ = −AG
+Q
+Q , BQ = R Q r
+Q Q
+Q
+Solve the equation using a semi-implicit scheme. We
+obtain the new local twist and curvatures κ Q (t + δ t)
+as well as their derivatives κ˙ Q (t + δ t).
+Build the kinematics of element EQ from κ Q (t + δ t),
+κ˙ Q (t + δ t), rQ (0,t + δ t), r˙ Q (0,t + δ t), θ Q (0,t + δ t)
+and θ˙ Q (0,t + δ t).
+Compute rQ (ℓQ ,t + δ t), r˙ Q (ℓQ ,t + δ t), r¨ Q (ℓQ ,t + δ t),
+θ Q (ℓQ ,t + δ t), θ˙ Q (ℓQ ,t + δ t) and θ¨ Q (ℓQ ,t + δ t) using
+the kinematics of element EQ .
+Deduce rQ+1 (0,t + δ t), r˙ Q+1 (0,t + δ t), r¨ Q+1 (0,t +
+δ t), θ Q+1 (0,t + δ t), θ˙ Q+1 (0,t + δ t) and θ¨ Q+1 (0,t +
+δ t) from the previous step using the smoothness conditions between elements Q and Q + 1.
+
+4.4. Reduction of the system
+As raised in [Ber06], the mass matrix M in the general
+Super-Helix equation (9) is nearly of rank 2 N in a 3 N system. This is due to the assumption of the infinitesimal crosssection area of the rod, which causes the system to be degenerate. This singularity is not significant in the original
+composite solving method presented in [BAC∗ 06], since the
+final matrix to be inverted is M+dt 2 K which is non-singular
+provided the chosen time step is not too small. However, our
+recursive approach requires the inversion of the mass matrix
+AQ in equation (16). To ensure that AQ is non-singular, we
+
+consider that the temporal evolution of the twist κ0,Q is negligible, and simply freeze its value to the spontaneous twist
+0 . This assumption is actually consistent with the recent
+κ0,Q
+analysis provided by [BWR∗ 08] mentioning that twist waves
+propagate much faster than bending waves in a thin rod, and
+even instantly at the limit of a vanishing cross-section. Finally, we only keep the two actual degrees of freedom κ1,Q
+and κ2,Q as unknowns of our equations, and we solve 2 × 2
+non-singular systems at each time step (using direct matrix
+inversion). Our results show that this simplification has no
+significant visual impact on the simulation of a Super-Helix,
+compared to the original algorithm.
+4.5. External forces
+
+Figure 4: The user is interactively manipulating the free end
+of a highly curly rod composed of 30 elements and subject to
+self-contacts.
+External forces F(s,t) such as gravity, air friction or contact forces can be introduced within our algorithm by simply adding their contribution to the expression of the internal
+force T(s) as
+L
+
+T(s,t) =
+
+F(s′ ,t) − ρ S r¨ (s′ , κ ,t) ds′ .
+
+s
+
+For example, in the case of gravity, F = ρ S g and
+L
+
+T(s,t) = ρ S g(L − s) −
+
+r¨ (s′ , κ ,t) ds′ .
+
+(11)
+
+s
+
+Note that adding a punctual force FL at the free end of
+the rod (see figure 4) is simply achieved by modifying the
+boundary condition (8c) in the first pass as
+TN (ℓN ) = FL .
+In practice we also add some internal friction to the model
+similarly as in [BAC∗ 06] so that the rod is slightly damped
+even in the absence of air friction. This is simply done by
+adding the term −ν K κ˙ Q into the final linear system, and by
+correcting the induction hypothesis (10) accordingly.
+4.6. Featherstone’s gravity
+Within the recursive Articulated-Body algorithm [Fea87],
+Featherstone demonstrated that gravity can be efficiently accounted for by modifying the acceleration of the root element during the second pass, instead of projecting the contribution of gravity onto the frame of each element during
+the first pass.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+423
+
+This method can directly be transposed onto our recursive
+Super-Helix algorithm. Indeed, the contribution of gravity
+on element EQ , already given in equation (11), can be reformulated as
+TQ (u) = ρ S
+
+ℓQ
+u
+
+g − r¨ Q (u′ ) du′ .
+
+We can then compute the modified decomposition of TQ
+on κ¨ Q , r¨ ′Q (0), θ¨ Q (0) where r¨ ′Q (0) is the modified acceleration r¨ Q (0) − g. The first pass of the recursive algorithm thus
+remains unchanged, except that we do not compute the gravity contribution for each element anymore. During the second pass, the gravity component has to be incorporated into
+each linear acceleration r¨ Q (0). Since we recursively compute the next acceleration r¨ Q+1 (u) using the smoothness
+condition (3b) for r¨ Q (u) at u = ℓQ , we only need to add the
+contribution of gravity to the root element E1 . That is, the
+only change to make in the second pass for applying gravity
+is to modify the initialization of r¨ 1 (0) as
+r¨ ′1 (0) = r¨ 1 (0) − g.
+In practice, we noticed that when using the Featherstone’s
+gravity “trick”, simulations are slightly faster. For example,
+the animation of a Super-Helix composed of 50 elements
+is running at 15 FPS when using the Featherstone’s gravity method, compared with 14.5 FPS when using the regular
+way of adding gravity.
+5. Extension to Tree-like Super-Helices
+While animating a tree-like structure of Super-Helices
+would be tricky using the composite method, this becomes
+straightforward with our recursive algorithm. Indeed, the
+only change to make for building the cumulate inertias and
+force is to set a proper boundary condition for TQ (ℓQ ) when
+computing Ji,Q from the induction hypothesis at upper index. Let T SH be a tree of Super-Helices. We call DQ the
+set of indices of the elements that are descendants of the element EQ in the tree (greater index). Note that in the case
+when T SH is a plain Super-Helix with no branches (i.e., a
+degenerate tree), DQ is reduced to the singleton {Q + 1} for
+all Q, 1 ≤ Q ≤ N and TQ (ℓQ ) = TQ+1 (0) as set in equation (14) of appendix A and in the computation of Ji,Q .
+For a general tree-like structure, the new boundary condition for TQ reads
+TQ (ℓQ ) =
+
+∑
+
+TR (0).
+
+R∈DQ
+
+The first pass of the algorithm starts from all the leaves
+of the tree and recursively propagates computations of cumulate inertias and force from a set of descendants to their
+(common) ascendant until it reaches the root.
+As for the second pass, we simply need to propagate the
+kinematics values computed at the last end of element EQ to
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Figure 5: Interactive animation of various trees made of
+Super-Helices. From top to bottom: palm tree manipulated
+by the user (8 elements), algae deforming in a water flow (10
+elements), weeping willow swept by wind (242 elements),
+Super-Helix man manipulated by the user (81 elements).
+
+the first end of all descendants of EQ . Basically, only step 5
+of the algorithm in 4.3 needs to be changed by replacing
+Q + 1 whenever it appears by R ∈ DQ . Note that the second
+pass starts from the root of the tree, recursively propagates
+towards the various branches, and finally stops at the leaves.
+6. Results and Discussion
+6.1. Recursive Super-Helix
+Figures 1, left and middle, and 3, 4, as well as the first part of
+the accompanying video, present a number of examples of
+rods (with various spontaneous curvatures) simulated with
+our recursive method, as well as visual comparisons with
+the original composite approach. The first part of the video
+especially demonstrates both the efficiency and the stability
+of the algorithm for a high number of elements.
+6.2. Performance
+As shown in table 1, our recursive algorithm scales favorably
+compared to the composite approach. Note that the performance of the composite method drastically decreases when
+N > 10 elements, whereas our method keeps on being fast
+
+424
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+for a high number of elements. Our results were processed
+on a single threaded application running on an Intel Core 2
+Duo CPU at 2.1 GHz.
+Model (N elements)
+Straight rod (1)
+Straight rod (2)
+Straight rod (10)
+Straight rod (20)
+Straight rod (30)
+Palm tree (8)
+Algae (10)
+Complex 3D tree (50)
+Super-Helix man (81)
+Weeping willow (242)
+
+FPS recursive
+170
+170
+120
+54
+37
+170
+108
+25
+17
+6
+
+FPS composite
+170
+170
+40
+4
+1.4
+-
+
+Table 1: Comparisons of performance (in frames per second) between the recursive and the composite methods, for
+the examples presented in the accompanying video.
+
+6.3. Stability
+
+Figure 6: Stability of our algorithm: Measure of the maximal time step allowing for convergence, depending on (left)
+the number N of elements of the rod (measurements performed on the motions of figure 3), and (right) the maximum
+acceleration of the rod during motion (computed as max κ¨
+over the time steps). The right image illustrates the ability
+of our approach to simulate “wild” motions in a stable way
+when decreasing the time step - such motions being difficult
+to achieve with the composite method.
+Figure 6 reports a few measurements that we have performed for analyzing the influence of both the number N
+of elements of the rod and the acceleration of the rod on
+stability. The left figure shows that the recursive algorithm
+generally requires a smaller time step than the composite approach. This is due to the explicit computation of κ¨ Q through
+equation (16) in the first pass of our algorithm, which makes
+it slightly less stable than the composite method for an equivalent time step. In the case of articulated rigid bodies, the explicit solving of Featherstone’s algorithm was pointed out by
+Hadap [Had03] who recently proposed an interesting framework for enforcing an implicit solving [Had06]. Note however that in our case, the difference in stability between the
+two methods keeps on being small. This limitation is also
+mitigated by the fact that for “wild” motions involving high
+
+and fast deformations of the rod, our recursive approach is
+actually more stable than the composite method: as illustrated in the right figure, our method can still handle strong
+generalized accelerations of the rod at reasonable frame rates
+(a few seconds per frame) whereas such scenarios (that require small time steps) are hardly achievable using the original composite approach, as decreasing the time step would
+lead to an ill-defined system (see section 4.4).
+6.4. Animation of tree-like structures
+Figures 1, right, and 5, 7, as well as the second part of the accompanying video show some animations of tree-like SuperHelices. They illustrate the benefits of our method compared
+to classical approaches for animating trees:
+• Compared to approaches based on modal analysis [Sta97],
+our model captures the nonlinear deformations of a treelike structure, while being as low time consuming as other
+approaches. It is thus suited for handling large displacements of tree-like structures, which in practice turns out
+to be very useful for animating soft foliages such as weeping willows, algae, or any tree subject to wind gust. In our
+examples, we simulate rigid as well as soft tree-like structures, subject to high deformations. Such systems could
+hardly be simulated realistically using traditional modal
+analysis.
+• Unlike some interactive methods [SO99], our algorithm
+is based on an actual bilateral traversal of the structure
+for updating accelerations of our tree-like structure, from
+the root to the leaves and from the leaves to the root. This
+means that a local perturbation of the tree affects both the
+descendants of the perturbed element and its ascendants.
+Our model is thus suited for handling external forces (such
+as contacts or wind force) properly.
+• As shown by our results, we benefit from the compact
+representation of the Super-Helix model for providing a
+new and versatile dynamic tree model whose parameters
+(mass, stiffness, ...) are very intuitive and easy to tune.
+This allows for the quick generation of various types of
+animations of a given tree (see for example figure 7).
+
+Figure 7: Versatility of our tree model: a complex tree with
+various stiffness values falling under gravity (50 elements).
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+Performance obtained for the examples of figures 1, right,
+and 5, 7 are shown in table 1. Compared to the recent method
+by [BWR∗ 08] that reports a time cost of 22 ms for a 0.1 ms
+time step on a complex tree example, our method runs more
+than 50 times faster when animating a tree with a similar
+complexity (such as the weeping willow). This is first due
+to the good stability of our algorithm, which allows for the
+use of large time steps (11 ms) even when simulating complex objects. Furthermore, using a high-order representation
+of branches enables us to get accurate results by simulating
+only a few hundred elements instead of thousands of nodes.
+7. Conclusion
+We have presented a new, recursive algorithm for solving
+the dynamics of the Super-Helix model for strand simulation. Our algorithm particularly improves the efficiency of
+the original method when simulating long and complex rods
+made of more than 5 elements, and also proves well-suited
+for efficiently animating tree-like structures under large displacements. In the future, we wish to exploit our recursive algorithm for designing adaptive dynamic schemes of rods and
+trees, in the same spirit as [RGL05] and [BKCN03, WL03],
+while using a high-order strand primitive. We would also like
+to investigate the problem of contacts, following the accurate constraints-based methods developed for serial multibody chains [Kok04, Had06].
+Acknowledgments The author would like to thank Basile
+Audoly for sharing with her the code for the kinematics of a
+Super-Helix. She is also grateful to the anonymous reviewers
+for their useful comments.
+References
+[Ant95] A NTMAN S.: Nonlinear Problems of Elasticity. Springer
+Verlag, 1995.
+[BAC∗ 06] B ERTAILS F., AUDOLY B., C ANI M.-P., Q UERLEUX
+B., L EROY F., L ÉVÊQUE J.-L.: Super-helices for predicting
+the dynamics of natural hair. In ACM Transactions on Graphics (Proceedings of the ACM SIGGRAPH’06 conference) (2006),
+pp. 1180–1187.
+[Bar96] BARAFF D.: Linear-time dynamics using lagrange multipliers. In Computer Graphics Proceedings (Proceedings of the
+ACM SIGGRAPH’96 conference) (1996), pp. 137–146.
+[Ber06] B ERTAILS F.: Simulation of Virtual Hair. PhD thesis,
+Institut National Polytechnique de Grenoble, June 2006.
+[BKCN03] B ERTAILS F., K IM T.-Y., C ANI M.-P., N EUMANN
+U.: Adaptive wisp tree - a multiresolution control structure for
+simulating dynamic clustering in hair motion. In ACM SIGGRAPH - EG Symposium on Computer Animation (SCA’03)
+(July 2003), pp. 207–213.
+[BWR∗ 08] B ERGOU M., WARDETZKY M., ROBINSON S., AU DOLY B., G RINSPUN E.: Discrete elastic rods. ACM Transactions on Graphics (Proceedings of the ACM SIGGRAPH’08
+conference) 27, 3 (2008), 1–12.
+[CCK05] C HOE B., C HOI M., K O H.-S.: Simulating complex
+hair with robust collision handling. In ACM SIGGRAPH - EG
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+425
+
+Symposium on Computer Animation (SCA’05) (August 2005),
+pp. 153–160.
+[CJY02] C HANG J., J IN J., Y U Y.: A practical model for hair
+mutual interactions. In ACM SIGGRAPH - EG Symposium on
+Computer Animation (SCA’02) (July 2002), pp. 73–80.
+[Fea83] F EATHERSTONE R.: The calculation of robot dynamics
+using articulated-body inertias. International Journal of Robotics
+Research 2, 1 (1983), 13–30.
+Robot Dynamics Algorithms.
+[Fea87] F EATHERSTONE R.:
+Kluwer Academic Publishers, 1987.
+[FO00] F EATHERSTONE R., O RIN D.: Robot dynamics: equations and algorithms. IEEE International Conference on Robotics
+and Automation (2000), 826–834.
+[Had03] H ADAP S.: Hair Simulation. PhD thesis, Université de
+Genève, January 2003.
+[Had06] H ADAP S.: Oriented strands - dynamics of stiff multibody system. In ACM SIGGRAPH - EG Symposium on Computer
+Animation (SCA’06) (2006), pp. 91–100.
+[HMT01] H ADAP S., M AGNENAT-T HALMANN N.: Modeling
+dynamic hair as a continuum. Computer Graphics Forum 20,
+3 (2001), 329–338. Proceedings of Eurographics’01.
+[Kok04] K OKKEVIS E.: Practical physics for articulated characters. In Proceedings of Game Developers Conference (2004).
+[LMGC04] L ENOIR J., M ESEURE P., G RISONI L., C HAILLOU
+C.: A suture model for surgical simulation. 2nd International
+Symposium on Medical Simulation (ISMS’04) (June 2004), 105–
+113.
+[MA07] M UKHERJEE R., A NDERSON K.: A logarithmic complexity divide-and-conquer algorithm for multi-flexible articulated body dynamics. Journal of Computational and Nonlinear
+Dynamics 2, 1 (2007), 10–21.
+[Mir96] M IRTICH B.: Impulse-based dynamic simulation of rigid
+body systems. PhD thesis, University of California, Berkeley,
+1996.
+[Pai02] PAI D.: Strands: Interactive simulation of thin solids using cosserat models. Computer Graphics Forum 21, 3 (2002),
+347–352. Proceedings of Eurographics’02.
+[PCP01] P LANTE E., C ANI M.-P., P OULIN P.: A layered wisp
+model for simulating interactions inside long hair. In EG workshop on Computer Animation and Simulation (EG CAS’01)
+(Sept. 2001), Computer Science, Springer, pp. 139–148.
+[RCT91] ROSENBLUM R., C ARLSON W., T RIPP E.: Simulating
+the structure and dynamics of human hair: Modeling, rendering,
+and animation. The Journal of Visualization and Computer Animation 2, 4 (1991), 141–148.
+[RGL05] R EDON S., G ALOPPO N., L IN M.: Adaptive dynamics of articulated bodies. ACM Transactions on Graphics (Proceedings of the ACM SIGGRAPH’05 conference) 24, 3 (2005),
+936–945.
+[SLF08] S ELLE A., L ENTINE M., F EDKIW R.: A mass spring
+model for hair simulation. ACM Transactions on Graphics (Proceedings of the ACM SIGGRAPH’08 conference) 27, 3 (2008),
+1–11.
+[SO99] S AKAGUCHI T., O HYA J.: Modeling and animation of
+botanical trees for interactive virtual environments. In VRST ’99:
+Proceedings of the ACM symposium on Virtual reality software
+and technology (New York, NY, USA, 1999), ACM, pp. 139–
+146.
+[ST07] S PILLMANN J., T ESCHNER M.: Corde: Cosserat rod elements for the dynamic simulation of one-dimensional elastic objects. In ACM SIGGRAPH - EG Symposium on Computer Animation (SCA’07) (2007), pp. 63–72.
+
+426
+
+Florence BertailsBiPop - INRIA/LJK, France / Linear Time Super-Helices
+
+[Sta97] S TAM J.: Stochastic dynamics: Simulating the effects of
+turbulence on flexible structures. Computer Graphics Forum 16,
+3 (1997), 159–164.
+[TGAB08] T HEETTEN A., G RISONI L., A NDRIOT C., BARSKY
+B.: Geometrically exact splines. Journal of Computer Aided
+Design 40, 1 (2008), 35–48.
+[WL03] WARD K., L IN M.: Adaptive grouping and subdivision
+for simulating hair dynamics. In Proceedings of Pacific Graphics’03 (Sept. 2003), pp. 234–243.
+
+Appendix A: Proof of the First Pass
+We demonstrate here that the induction hypothesis (10) holds for
+every Q, 1 ≤ Q ≤ N, and we show how to build the cumulate inertias
+and forces from the free end to the clamped end of the Super-Helix.
+For that purpose, we shall prove the following relationships first
+TintQ (u) = AQint (u) κ¨ Q + RQint (u) r¨ Q (0) + CQint (u) θ¨ Q (0) + bQint (u)
+T
+
+T
+
+T
+
+T
+
+T
+T
+¨
+¨ Q (0) + CT
+TQ (u) = AT
+Q (u) θ Q (0) + bQ (u)
+Q (u) κ¨ Q + RQ (u) r
+Ji,Q = aJi,Q · κ¨ Q + rJi,Q · r¨ Q (0) + cJi,Q · θ¨ Q (0) + bJi,Q
+
+where we have defined the following intermediary quantity
+ℓQ
+
+ρ S r¨ Q (u′ )du′ .
+
+(13)
+
+By setting TN+1 (0) = TN (ℓN ) = 0, TQ (u) can be reconstructed
+from tip to root using the following recursive relationship
+TQ (u) = TQ+1 (0) + TintQ (u) for 1 ≤ Q ≤ N.
+
+(14)
+
+We have also introduced the following quantity:
+LQ =
+
+∑
+
+ℓR
+
+R>Q 0
+
+TR (u) × n0,R (u) du.
+
+u
+
+Index N
+In that case, TN (u) = TintN (u), LN = 0, and Ii,N = 0. We have, for
+i = 0, 1, 2,
+1
+Ji,N =
+ℓN
+
+ℓN
+0
+
+ℓQ−1
+
+Ji,Q−1 =
+
+0
+
+TQ−1 (u) · ϕ i,Q−1 (u) × n0,Q−1 (u) du
+
+where TQ−1 (u) = TQ (0) + TintQ−1 (u) through the smoothness condition (14). Note that the only one part of Ji,Q−1 that is not explicitly
+depending on κ¨ Q−1 , r¨ Q−1 (0), θ¨ Q−1 (0) is coming from the integration of the dot product by TQ (0), since TintQ−1 (u) can be decomposed on the element EQ−1 through equation (15). We thus need to
+decompose TQ (0) on the element EQ−1 . This can be achieved by
+considering the induction hypothesis (12) for TQ (u) and taking its
+value at u = 0,
+T
+T
+¨
+¨ Q (0) + CT
+TQ (0) = AT
+Q (0) κ¨ Q + RQ (0) r
+Q (0) θ Q (0) + bQ (0),
+
+−1
+
+G
+¨
+¨ Q (0) − CG
+KQ (κ Q − κ 0Q ) − RG
+Qr
+Q θ Q (0) − bQ
+(16)
+using the induction hypothesis (10). Finally, we use the smoothness
+conditions (3b) of the kinematics for decomposing r¨ Q (0) and θ¨ Q (0)
+on the element EQ−1 ,
+
+r¨ Q (0) = r¨ Q−1 (ℓQ−1 )
+
+
+
+
+
+¨
+
+(ℓQ−1 ) κ¨ Q−1
+= r¨ Q−1 (0) + ArQ−1
+
+
+
+¨
+¨
++ CrQ−1
+(ℓQ−1 ) θ¨ Q−1 (0) + brQ−1
+(ℓQ−1 )
+(17)
+
+
+
+¨
+¨
+
+θ
+θ
+(0)
+=
+(ℓ
+)
+Q
+Q−1
+Q−1
+
+
+
+
+¨
+¨
+
+= θ¨ Q−1 (0) + AθQ−1 (ℓQ−1 ) κ¨ Q−1 + bθQ−1 (ℓQ−1 ).
+
+We are thus able to express TQ (0) as a function of κ¨ Q−1 , r¨ Q−1 (0)
+and θ¨ Q−1 (0) only, and as a consequence to decompose Ji,Q−1 on the
+element EQ−1 .
+Let us now decompose Ii,Q−1 on the element EQ−1 :
+
+First note that proving the recursive relationship for TintQ (u) is
+straightforward, as TintQ (u) only depends on the element EQ . Using
+equations (13) and (3a) we have
+
+ℓQ
+Tint
+
+′
+′
+r¨
+
+
+ AQ (u) = −ρ S u AQ (u ) du
+
+
+ T
+
+
+int
+
+ RQ (u) = ρ S (u − ℓQ )
+∀Q, 1 ≤ Q ≤ N
+(15)
+ℓQ
+Tint
+
+
+CrQ¨ (u′ ) du′
+ CQ (u) = −ρ S
+
+
+u
+
+
+
+ℓQ
+
+T
+
+int
+ b (u) = −ρ S
+brQ¨ (u′ ) du.
+Q
+
+Gi,N =
+
+Let us first have a look at Ji,Q−1 .
+
+κ¨ Q = AG
+Q
+
+(12)
+
+u
+
+We now assume the induction hypothesis (10) and (12) are true at index Q. We aim at showing that they still hold at index Q−1, and give
+insights for building the cumulate inertias and force at index Q − 1.
+
+and by first replacing κ¨ Q with
+
+LQ = ALQ κ¨ Q + RLQ r¨ Q (0) + CLQ θ¨ Q (0) + bLQ
+Ii,Q = aIi,Q · κ¨ Q + rIi,Q · r¨ Q (0) + cIi,Q · θ¨ Q (0) + bIi,Q ,
+
+TintQ (u) = −
+
+Index Q-1
+
+TintN (u) · (ϕ i,N (u) × n0,N (u)) du.
+
+G
+G G
+The cumulate inertias and force AG
+Q , RQ , CQ , bQ are thus deduced
+from the components of TintN , given in equations (15), by the
+dot product with a known function (independent of κ¨ Q , r¨ Q (0) and
+θ¨ Q (0)), and by integration on the element EN .
+
+Ii,Q−1 =
+
+ℓR
+
+∑
+
+R>Q−1 0
+
+=
+
+∑
+
+R>Q−1 0
+
+TR (u) · ϕ i,Q−1 (ℓQ−1 ) × n0,R (u) du
+ℓR
+
+n0,R (u) × TR (u) du · ϕ i,Q−1 (ℓQ−1 )
+
+= LQ−1 · ϕ i,Q−1 (ℓQ−1 )
+with
+
+LQ−1 =
+=
+
+∑
+
+ℓR
+
+R>Q−1 0
+ℓQ
+0
+
+n0,R (u) × TR (u) du
+
+n0,Q (u) × TQ (u) du + LQ .
+
+The above recursive expression for LQ proves that LQ−1 can be decomposed on the element EQ using the induction hypothesis (12) for
+TQ (u) and for LQ . We now need to show how to build the decomposition of LQ−1 on EQ−1 . The method is actually similar to the one
+employed for the decomposition of Ji,Q−1 : the twist and curvatures
+acceleration κ¨ Q is replaced everywhere by its expression (16), then
+we use equations (17) for eliminating r¨ Q (0) and θ¨ Q (0), and we finally express LQ−1 as a decomposition on EQ−1 . The decomposition
+of Ii,Q−1 on EQ−1 is then straightforward.
+Finally, the decomposition for Gi,Q−1 on the element EQ−1 is obtained as the sum of the decompositions for Ii,Q−1 and for Ji,Q−1 .
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+

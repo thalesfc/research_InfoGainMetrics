@@ -1,0 +1,997 @@
+Eurographics Symposium on Rendering 2008
+Steve Marschner and Michael Wimmer
+(Guest Editors)
+
+Volume 27 (2008), Number 4
+
+Precomputed Atmospheric Scattering
+
+Eric Bruneton and Fabrice Neyret
+EVASION – LJK / Grenoble Universités – INRIA
+
+Abstract
+We present a new and accurate method to render the atmosphere in real time from any viewpoint from ground
+level to outer space, while taking Rayleigh and Mie multiple scattering into account. Our method reproduces
+many effects of the scattering of light, such as the daylight and twilight sky color and aerial perspective for all
+view and light directions, or the Earth and mountain shadows (light shafts) inside the atmosphere. Our method is
+based on a formulation of the light transport equation that is precomputable for all view points, view directions and
+sun directions. We show how to store this data compactly and propose a GPU compliant algorithm to precompute
+it in a few seconds. This precomputed data allows us to evaluate at runtime the light transport equation in constant
+time, without any sampling, while taking into account the ground for shadows and light shafts.
+Categories and Subject Descriptors (according to ACM CCS): I.3.7 [Computer Graphics]: Three-Dimensional
+Graphics and Realism
+
+1. Introduction
+Atmospheric effects are very important to increase the realism of outdoor scenes in many applications. The sky color
+gives key indications about the hour of the day, and the
+aerial perspective gives an important cue to evaluate distances. Rendering these effects in real time, continuously
+from ground to space, is desirable in many games or applications, such as flight simulators or Earth browsers like Google
+Earth. This is especially true for applications that target realism, such as Celestia or Nasa WorldWind. However, these
+applications currently use very basic models to render these
+effects, which do not give realistic images.
+In this paper we propose a method to render these effects
+in real time, from any viewpoint from ground to space. This
+method accounts for multiple scattering, which is important
+to correctly render twilight, or the shadow of the Earth inside the atmosphere (see Figure 8). It is based on moderate
+simplifying assumptions that allow us to get a better approximate solution of the rendering equation (compared to previous work), in which most terms can be precomputed. Our
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+method is the first real-time method accounting for all viewpoints, all view and sun directions, and multiple scattering.
+The next sections are organized as follows. Section 2 introduces the physical model and the rendering equation and
+reviews the related work. Section 3 presents our resolution
+method to get a precomputable formulation. Sections 4 and 5
+present our precomputation and rendering algorithms. Section 6 gives implementation details and presents our results.
+2. Atmospheric models
+Rendering atmosphere illumination relies on two aspects: a
+physical model of the local medium properties, and a simulation of the global illumination exchanges up to the viewer
+eyes. This includes exchanges with the ground, which can
+be modeled as a Lambertian surface with a height field of
+reflectance α(x, λ), normal n(x), etc.
+Most computer graphics (CG) papers, starting with
+[NSTN93], rely on a physical model of the medium comprising air molecules and aerosol particles, summarized in
+
+E. Bruneton & F. Neyret / Precomputed Atmospheric Scattering
+
+1080
+
+Section 2.1. However, the classical rendering equation for
+participating media is rarely completely accounted for in atmospheric CG models, especially for interactive rendering.
+We restate the general model in Section 2.2 and we present
+its approximations in previous CG models in Section 2.3.
+2.1. Physical model
+
+Figure 1: Our method. Left: the reference solution includes single-
+
+The physical model commonly used in CG is a clear sky
+model based on two constituents, air molecules and aerosol
+particles, in a thin spherical layer of decreasing density between Rg = 6360 km and Rt = 6420 km (see Figure 1).
+At each point, the proportion of light that is scattered θ degrees away from its incident direction is given by the product of a scattering coefficient βs and of a phase function P.
+βs depends on the particule density and P describes the angular dependency. For air molecules βs and P are given by
+the Rayleigh theory [TS99]:
+8π3 (n2 − 1)2 − Hh
+e R
+3Nλ4
+3
+(1 + µ2 ) where µ = cos θ
+PR (µ) =
+16π
+
+βsR (h, λ) =
+
+(1)
+(2)
+
+where h = r − Rg is the altitude, λ the wavelength, n the
+index of refraction of air, N the molecular density at sea
+level Rg , and HR = 8 km is the thickness of the atmosphere if its density were uniform. As in [REK∗ 04], we use
+βsR = (5.8, 13.5, 33.1)10−6 m−1 for λ = (680, 550, 440) nm.
+Aerosols also have an exponentially decreasing density, with
+a smaller height scale HM 1.2 km. Their phase function is
+given by the Mie theory, approximated with the CornetteShanks phase function [TS99]:
+βsM (h, λ) = βsM (0, λ)e
+
+− Hh
+
+(3)
+
+M
+
+2
+
+PM (µ) =
+
+2
+
+(1 − g )(1 + µ )
+3
+8π (2 + g2 )(1 + g2 − 2gµ)3/2
+
+scattering (a) and multiple-scattering (b) integrated from x to xo , all
+accounting for occlusion. Right: our approximation. Integration is
+done from x to xs , ignoring occlusion (implicit via the use of xs ).
+(a) is unchanged. (b) is affected by ignoring occlusion of secondary
+scatters (this yields both positive and negative bias, and effect is
+small anyway).
+
+(4)
+
+Unlike air molecules, aerosols absorb a fraction of the incident light. It is measured with an absorption coefficient βaM ,
+which gives the extinction coefficient βeM = βsM + βaM (see
+Figure 6 for typical values – βeR = βsR for air molecules).
+Note that the variation of the index of refraction with altitude causes a small bending of rays (less than 2 degrees
+[HMS05]). We ignore it for simplicity.
+2.2. Rendering equation
+We recall here the rendering equation in a participating
+medium, applied to the atmosphere. We note L(x, v, s) the
+radiance of light reaching x from direction v when the sun is
+in direction s, and xo (x, v) the extremity of the ray x+tv (see
+Figure 1). Note that xo is either on the ground or on the top
+atmosphere boundary r = Rt . The transmittance T between
+xo and x, the radiance I of light reflected at xo , and the radiance J of light scattered at y in direction −v are defined as
+
+Figure 2: Definitions. (a) the atmospheric transparency T results
+from absorption and out scattered light. (b) I[L] is the light L reflected at xo . It is null on the top atmosphere boundary. (c) J [L]
+is the light L scattered at y in direction −v. (d) S[L] is the light
+scattered towards x between xo and x, from any direction.
+follows (see Figure 2):
+xo
+
+T (x, xo ) = exp −
+I[L](xo , s) =
+J [L](y, v, s) =
+
+α(xo )
+π
+
+x
+
+2π
+
+∑
+
+βei (y)dy
+
+(5)
+
+i∈{R,M}
+
+ω.n(xo )dω, or 0 (6)
+L(xo , ω, s)ω
+
+∑
+
+4π i∈{R,M}
+
+ω)L(y, ω , s)dω (7)
+βsi (y)Pi (v.ω
+
+Note that I is null on the top atmosphere boundary. With
+these notations the rendering equation is [TS99]:
+L(x, v, s) = (L0 + R[L] + S[L]) (x, v, s)
+
+L0 (x, v, s) = T (x, xo )Lsun , or 0
+
+(8)
+(9)
+
+R[L](x, v, s) = T (x, xo )I[L](xo , s)
+
+(10)
+
+S[L](x, v, s) =
+
+(11)
+
+xo
+
+T (x, y)J [L](y, v, s)dy
+
+x
+
+where L0 is the direct sunlight Lsun attenuated before reaching x by T (x, xo ). L0 is null if v = s, or if the sun is occluded
+by the terrain, i.e., if xo is on the ground. R[L] is the light reflected at xo and also attenuated before reaching x, and S[L]
+is the inscattered light, i.e., the light scattered towards x between x and xo (see Figure 2).
+2.3. Previous rendering methods
+Equation 8 is very complex to solve. Hence, many simplifying assumptions have been made in CG to find approxic 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+E. Bruneton & F. Neyret / Precomputed Atmospheric Scattering
+
+mate solutions that are easier to compute (see [Slo02] for a
+survey). Most real-time methods ignore multiple scattering.
+In this case Equation 8 reduces to L = L0 + R[L0 ] + S[L0 ].
+However, even S[L0 ] is quite complex to solve. Some authors propose analytical solutions at the price of idealisations: flat Earth with constant atmosphere density [HP02],
+or without Mie scattering [REK∗ 04]. The flat Earth hypothesis limits them to observers on the ground. Otherwise, S[L0 ]
+is generally computed by numerical integration [NSTN93],
+which can be done in real time using low sampling [O’N05].
+A notable exception is [SFE07] who rely on precomputations of this integral. However, in order to reduce the number of parameters, they only take into account the view and
+sun zenith angles, and neglect the angle between the view
+and sun directions. Hence they cannot reproduce, e.g., the
+Earth’s shadow inside the atmosphere.
+Ignoring multiple scattering as above is acceptable for
+daylight but not for twilight [HMS05]. This is because sunlight traverses much less atmosphere during the day than
+during sunset or sunrise. Hence, some authors propose methods to account for multiple scattering. [PSS99] fit the results
+of a double scattering Monte-Carlo simulation with an analytical model, but their model is only valid for an observer on
+the ground. [NDKY96] and [HMS05] use volume radiosity
+algorithms to compute multiple scattering, but their methods
+are far from real-time (minutes to hours per image).
+In this paper we propose a new method to render the sky
+and the aerial perspective in real time, from all viewpoints
+from ground to space, while taking multiple scattering into
+account. It is inspired by [SFE07] and extends it with multiple scattering, with the previously ignored view-sun angle
+parameter, with a better parameterization for the precomputed tables, and with a new method for light shafts.
+
+3. Our method
+For efficiency and realism, our goal is to precompute L as
+much as possible, with only minimal approximations. Our
+solution is based on an exact computation for zero and single scattering, and uses an approximation of occlusion effects to compute multiple scattering. In fact we take the detailed ground shape into account for zero and single scattering, in order to get correct ground colors, shadows and light
+shafts. But we approximate it with a perfect sphere of constant reflectance to compute multiple scattering, to allow for
+precomputation.
+Notations Before presenting our method we need some no¯ S)[
+¯ L]
+¯
+tations and auxiliary functions. We note L¯ = L¯ 0 +(R+
+the solution of Equation 8 for the case of a perfectly spher¯ S,
+¯ x¯ o , I¯ and
+¯ L¯ 0 , R,
+ical ground of constant reflectance α.
+so on are defined as before, but for this spherical ground.
+Note that thanks to the ground’s spherical symmetry x and v
+can be reduced to an altitude and a view zenith angle. Hence
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+1081
+
+¯ L]
+¯ can be reduced to funcfunctions of x, v, s such as L¯ or S[
+tions of 4 parameters (2 for x, v and 2 for s). Note also that L
+¯ can be expressed with a series in the linear opera(resp. L)
+¯ and S),
+¯ where the ith term corresponds
+tors R and S (resp. R
+to light reflected and/or scattered exactly i times:
+L = L0 + (R + S)[L0 ] + (R + S) (R + S)[L0 ] + . . .
+= L 0 + L 1 + L 2 + . . . = L0 + L ∗
+
+(12)
+
+Zero and single scattering We compute L0 and R[L0 ] exactly, during rendering. For this we use a shadowing algorithm to compute the sun occlusion (see Equation 9), and a
+precomputed table for the transmittance T , which depends
+on only 2 parameters (see Section 4). S[L0 ] is more complicated. It is an integral between x and xo but, due to the occlusion term in L0 , the integrand is null at all points y that are in
+shadow (this is what gives light shafts). We suppose here that
+these points are between xs and xo (see Figure 1 – the general case is discussed in Section 5). Then the integral can be
+reduced to the lit segment [x, xs ]. Moreover, occlusion can be
+ignored since it is already accounted for via xs , i.e., L0 can
+be replaced with L¯ 0 . This shows that S[L0 ] = xxs T J [L¯ 0 ].
+By rewriting this as xx¯ o T J [L¯ 0 ] − xx¯so T J [L¯ 0 ], extending an
+idea introduced in [O’N05] and reused in [SFE07], we finally get a formulation using precomputable functions of 2
+¯ L¯ 0 ]:
+and 4 parameters, T and S[
+¯ L¯ 0 ](x, v, s)−T (x, xs )S[
+¯ L¯ 0 ](xs , v, s) (13)
+S[L0 ](x, v, s) = S[
+
+Multiple scattering As shown above L0 and L1 can be computed exactly despite the occlusion. Unfortunately accounting for occlusion in the other terms L2 + . . . = R[L∗ ] + S[L∗ ]
+is much more difficult. Hopefully, in this case the occlusion
+can be approximated. Indeed, multiple scattering effects are
+small compared to single scattering during the day, while
+the ground contribution is small when it is not directly lit
+by the sun. So we approximate occlusion effects in S[L∗ ]
+by integrating the contribution of multiple scattering, computed without occlusion, between x and xs . This yields both
+positive and negative bias (see Figure 1). Mathematically,
+xs
+¯
+this approximation gives S[L∗ ]
+x T J [L∗ ]. We also approximate occlusion effects in R[L∗ ] with the ambient occlusion of an horizontal hemisphere due to the ground’s tann¯
+ˆ L¯ ∗ ] with:
+R[
+gent plane, 1+n.
+2 . This gives R[L∗ ]
+¯ o) ¯ ¯
+ˆ L¯ ∗ ] = T (x, xo ) α(xo ) 1 + n(xo ).n(x
+R[
+E[L∗ ](xo , s) (14)
+π
+2
+¯ L¯ ∗ ](xo , s) =
+ω.n(x
+¯ o )dω, or 0
+(15)
+E[
+L¯ ∗ (xo , ω , s)ω
+2π
+
+By using the same rewriting rule as for Equation 13, and by
+¯ L](x,
+¯ L]
+¯
+¯ |x = S[
+v, s), we finally get:
+noting S[
+L
+
+ˆ L¯ ∗ ] + S[
+¯ L]
+¯ L]
+¯ |x − T (x, xs )S[
+¯ |x
+L0 + R[L0 ] + R[
+s
+
+(16)
+
+where the first three terms can be quickly computed with the
+¯ L¯ ∗ ], and where
+help of precomputed 2D tables for T and E[
+¯ L]
+¯ can be precomputed in a 4D table. We now show how
+S[
+to precompute them, in tables of a reasonnable size.
+
+E. Bruneton & F. Neyret / Precomputed Atmospheric Scattering
+
+1082
+Algorithm 4.1:
+
+PRECOMPUTE(norders )
+
+T(x, v) ← T (x, x¯ o (x, v))
+¯ L¯ 0 ](x, s)
+∆E(x, s) ← E[
+¯ L¯ 0 ](x, v, s)
+∆S(x, v, s) ← S[
+E(x, s) ← 0
+S(x, v, s) ← ∆S(x, v, s)
+for i ← 1 to i < norders
+
+∆J(x, v, s) ← J [T απ¯ ∆E + ∆S](x, v, s)
+
+
+
+¯
+¯ α¯ ∆E + ∆S](x, s) = E[∆S](x,
+
+s)
+∆E(x,
+s) ← E[T
+
+π
+do ∆S(x, v, s) ← xx¯ o T (x, y)∆J(y, v, s)dy
+
+
+
+E(x, s) ← E(x, s) + ∆E(x, s)
+
+
+S(x, v, s) ← S(x, v, s) + ∆S(x, v, s)
+
+Figure 3: Viewing angle parameter. Left: using µ gives artifacts.
+Right: using uµ = do /dh or do /dH solves the problem (using 128
+values for µ or uµ in the precomputed sky radiance table S).
+
+4. Precomputations
+
+We precompute T (x, x¯ o (x, v)) for all x, v in a 2D table
+T(x, v). Due to spherical symmetry, T depends only on
+r = x and µ = v.x/r [O’N05]. As [O’N05], we then use the
+identity T (x, y) = T(x, v)/T(y, v), with v = (y−x)/ y−x .
+¯ L]
+¯ L¯ ∗ ] and S[
+¯ in two tables E and S with
+We precompute E[
+an algorithm that computes each scattering order L¯ i one after
+the other. This algorithm uses three intermediate tables ∆E,
+¯ L¯ i ] and
+¯ L¯ i ], S[
+∆S and ∆J containing after each iteration i E[
+J [L¯ i ]. ∆E and ∆S are added to the result tables E and S at
+¯ is computed with the identity
+the end of each iteration (R
+¯
+¯
+xo , s) – see Algorithm 4.1).
+R[L](x,
+v, s) = T (x, x¯ o ) απ¯ E[L](¯
+Angular precision Since S is a 4D table its size increases
+very quickly with resolution. So we can only use a limited angular resolution for v. This poses a precision problem, which is however limited to the strong forward Mie
+scattering. In order to solve it we separate the single Mie
+scattering term from all the others in S, so as to apply
+¯ L]
+¯ as
+the phase function at runtime. For this we rewrite S[
+¯ L¯ ∗ ]. We then store CM = S¯M [L¯ 0 ]
+PM S¯M [L¯ 0 ] + PR S¯R [L¯ 0 ] + S[
+¯ L¯ ∗ ]/PR separately, which requires 6
+and C∗ = S¯R [L¯ 0 ] + S[
+values per entry in S. If necessary, for efficiency, this can be
+reduced to 4 values per entry by storing only the red component CM,r of CM . In this case the other components can
+be approximated with a proportionality rule between S¯M [L¯ 0 ]
+βs βs
+C
+and S¯R [L¯ 0 ], which gives CM C∗ M,r sR,r Ms .
+C∗,r βM,r βR
+
+¯ L]
+¯ into S we need a
+Parameterization In order to store S[
+mapping from (x, v, s) into table indices in [0, 1]4 . A simple
+solution is to use r = x and the cosinus of the view zenith,
+sun zenith, and view sun angles, µ = v.x/r, µs = s.x/r and
+ν = v.s (mapped linearly from [Rg , Rt ] × [−1, 1]3 to [0, 1]4 ).
+The problem of this parameterization is that it requires
+a very high resolution in µ to get a good sampling for the
+aerial perspective. Consider for instance an observer near
+the ground looking horizontally, with a mountain at distance
+d (see Figure 3). The aerial perspective is given by Equation 16 as S(x, v, s) − T (x, xs )S(xs , v, s). Then µ = 0 for x,
+
+Figure 4: Parameterization. ur , uµ , uµs as functions of r, µ, µs .
+√
+1 for
+and d/ r2 + d 2 for xs , which gives ∆µ = 0.016
+d = 100 km. This too small value gives visible artifacts (see
+Figure 3). In order to solve this problem we rely on a better parameterization. We replace µ with uµ , defined as the
+ratio between the distance do = x¯ o − x and the distance
+dh (resp. dH ) from x to the horizon (resp. to the atmosphere
+boundary “behind” the horizon – see Figure 3). In the previous example dH (Rt2 − R2g )1/2 for x and xs , while do dH
+for x and dH − d for xs , which gives ∆uµ = 0.11
+0.016
+for d = 100 km. With this mapping 128 samples for uµ are
+sufficient to avoid the above artifacts.
+Another problem is that S is discontinuous at the horizon, due to the discontinuity of the length of the viewing
+ray here. Hence a continuous mapping yields linear interpolations across this discontinuity, which causes artifacts. We
+solve this problem by ensuring that uµ is itself discontinuous
+at the horizon (see Figure 4). Finally, we use an ad hoc non
+linear mapping for r and µs , chosen so as to get a better precision near the ground and for sun zenith angles near 90o .
+So our mapping from (x, v, s) into [0, 1]4 is finally defined as
+follows:
+ur = ρ/H
+uµ = 1/2 + (rµ +
+1/2 − (rµ −
+
+√
+∆)/(2ρ)
+
+−3µs −0.6
+
+uµs = (1 − e
+
+uν = (1 + ν)/2
+
+if rµ < 0 and ∆ > 0
+
+∆ + H 2 )/(2ρ + 2H)
+−3.6
+
+)/(1 − e
+
+otherwise
+
+)
+
+with ρ = (r2 −R2g )1/2 , H = (Rt2 −R2g )1/2 , and ∆ = r2 µ2 −ρ2 .
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+E. Bruneton & F. Neyret / Precomputed Atmospheric Scattering
+
+1083
+
+Figure 5: Evaluation of l. Left: due to the false boundaries b and
+c, the computed length ∆z−∆n.zg = zg −za +zc −zb is larger than l.
+Clamping this value to zg − zmin fixes the problem. Right: viewpoint
+in shadow. Using only the extruded edges, xo would be seen as lit
+and l would be equal to 0 instead of zg − znear . Projecting the back
+faces (dashed line) on the near plane solves the issue [HHLH05].
+
+Figure 6: Validation. The sky luminance S in fisheye view for several sun zenith angles, in color, and relatively to the zenith luminance. With α¯ = 0.1, βsM = 2 10−5 m−1 , βsM /βeM = 0.9, g = 0.76
+and HM = 1.2 km we get the CIE clear sky model, fitted from actual
+measurements (source [ZWP07]).
+
+5. Rendering
+
+ever l can be clamped to the distance between the nearest
+and farthest faces of the shadow volume. This gives the correct result in most cases, and an approximate value in the
+others. Our detailed algorithm is the following. We associate
+with each pixel 4 values ∆n, ∆z, zmin , zmax initialized to 0, 0,
+∞, 0. In a first step we decrement (resp. increment) ∆n by
+1 and ∆z by the fragment depth z, and update zmin and zmax
+with z, for each front (resp. back) face of the shadow surface.
+In a second step we use (see Figure 5)
+l˜ = clamp(∆z − ∆n.zground , 0, zground − zmin )
+
+In order to render the sky and the aerial perspective we evaluate Equation 16 at each pixel. L¯ 0 can be efficiently computed
+using T. Computing R[L¯ 0 ] involves T, α(xo ) and n(xo ), and
+a shadow test to determine whether xo is lit. Finally E and
+¯ L].
+ˆ L¯ ∗ ] and S[
+¯ As in [SFE07], x is
+S are used to compute R[
+the camera position or, if in space, the nearest intersection
+of the viewing ray with the atmosphere boundary. The only
+remaining non-trivial parameter is xs , which depends on the
+terrain shadows and gives light shafts.
+Most light shaft algorithms use sampling or slicing to perform a numerical integration along the viewing ray, with a
+shadow map to find which samples are lit. Up to 100 samples per ray must be used to eliminate the artifacts due to the
+discrete sampling [IJTN07]. We propose here a new method
+inspired from shadow volumes [HHLH05]. It does not rely
+on numerical integration, and therefore does not suffer from
+these artifacts. We first show that an exact computation is
+possible but not adapted to the GPU. We then present an approximate solution better adapted to the GPU. Our idea is
+to use the precomputed integral S to compute the inscattered
+light due to each lit segment [xi , xi+1 ] along the viewing ray,
+which is given by T (x, xi )S|xi − T (x, xi+1 )S|xi+1 . By definition the points xi are on the boundaries of the shadow volume
+of the terrain. Hence they can be found with a shadow volume algorithm such as [HHLH05]. This algorithm extrudes
+the silhouette edges of objects, as seen from the light; it also
+projects these objects on the near plane to get correct results despite clipping. However these algorithms also generate many surfaces that do not correspond to a boundary
+between light and shadow (see Figure 5). These false boundaries must be ignored when computing the inscattered light,
+otherwise a wrong result is obtained. Unfortunately, detecting them is a non local operation that is not adapted to GPU
+(requiring, e.g., the use of multiple passes, or list structures).
+Our solution is to use the shadow volume algorithm to
+compute the total length l of the shadowed segments, and
+to replace them with a single segment of this length at the
+“ground” end of the ray (see Figure 5). The false boundaries
+still cause problem, i.e., an overestimation of l. Here howc 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+L
+
+ˆ L¯ ∗ ] + S|x − T (x, xs )S
+L0 + R[L0 ] + R[
+(17)
+˜
+|xs =xo −lv
+
+when looking at the ground or, when looking at the sky:
+l˜ = clamp(∆z, 0, zmax )
+L
+
+ˆ L¯ ∗ ] + T (x, xs )S
+L0 + R[L0 ] + R[
+˜
+|xs =x+lv
+
+(18)
+
+6. Implementation, results and discussion
+Precomputations We have implemented the precomputation algorithm on GPU, with fragment shaders processing
+the numerical integration. This is not mandatory but it allows
+us to quickly change atmospheric parameters, and it saves
+disk space (indeed 5 scattering orders are computed in 5 seconds on a NVidia 8800 GTS). We store T(r, µ) and E(r, µ) in
+64 × 256 and 16 × 64 textures. We store S(ur , uµ , uµs , uν ) =
+[C∗ ,CM,r ] in a 32 × 128 × 32 × 8 table, seen as 8 3D tables
+packed in a single 32 × 128 × 256 RGBA texture (using a
+manual linear interpolation for the 4th coordinate). Thanks
+to our optimized parameterization our 4D table has a better
+precision and uses less space than the 3D table of [SFE07]
+(8 MB for S with 16 bits floats vs 12 MB for their 1283 texture).
+Rendering The rendering is done in four passes:
+• we draw the terrain in the depth buffer only;
+• we draw the shadow volume of the terrain into a ∆n, ∆z,
+zmin , zmax texture. For this we use the ADD and MAX blending functions, disable depth write, and use a geometry
+shader that extrudes the silhouette edges (as seen from the
+sun). This shader also projects on the near plane along −s
+
+1084
+
+E. Bruneton & F. Neyret / Precomputed Atmospheric Scattering
+
+the back faces (as seen from the sun) that are between this
+plane and the sun [HHLH05];
+• we draw the terrain and the other objects with aerial perspective, as well as the sky, using Equations 17 and 18.
+If there are transparent objects such as clouds, aerial perspective must be computed for each object, before blending. We use ∆n to compute occlusion in R[L0 ], and l˜ computed as above to get xs (see Section 5);
+• we finally apply a global tone mapping function.
+Results We run several tests with a height field and a reflectance texture from Nasa’s Earth Observatory [SVS∗ 05].
+Results are depicted in Figures 8 and 9. As shown in Figures 6 and 7 our model can reproduce with good accuracy
+the CIE clear sky model, fitted from actual measurements at
+the ground level [DK02]. Since the sky color and aerial perspective are computed with a few texture fetches per pixel
+(< 10), our algorithm is quite fast. For instance, for the right
+view in Figure 8 in 1024 × 768, we get 125 fps without light
+shafts on a NVidia 8800 GTS. This includes 5 ms for the unshaded terrain, 0.4 ms for the first three terms in Equations
+17 and 18 and 2.6 ms for the remaining terms (including
+1 ms to evaluate the non linear parameterization). We get
+25 fps with light shafts (i.e., the first two rendering passes
+cost a lot, about 32 ms). By comparison, we get 50 fps with
+our reimplementation of [O’N05], using ten samples per ray
+(to get the same quality for single scattering, without shafts).
+Limitations A limitation of our method is that the aerosol
+properties are assumed constant, depending only on altitude,
+whereas in fact they can greatly change depending on the
+atmospheric conditions [Slo02]. Since our precomputations
+are very fast we can change these properties quickly, but they
+remain uniform.
+7. Conclusion
+We have presented the first real-time method to render the
+sky and the aerial perspective from all viewpoints, with multiple scattering, terrain shadows and light shafts, and correct
+variation with all view and sun angles. This method is based
+on minimal simplifying assumptions that allow us to get an
+approximate solution of the rendering equation, in which
+most terms can be precomputed. This method can easily be
+extended to more complex physical models, with more constituents or more wavelengths.
+As future work we would like to model the effect of
+clouds on the ground illuminance and on the aerial perspective, to remove the clear sky hypothesis. Indeed with
+many clouds the interreflections between the ground and the
+clouds should be taken into account [BNL06]. And their effect on aerial perspective should also be considered. To our
+knowledge, this has never been done.
+The source code of our implementation is available at
+http://evasion.inrialpes.fr/~Eric.Bruneton/.
+
+Acknowledgments This work was partially funded by the
+Natsim ANR ARA project. We would like to thank Antoine
+Bouthors and Cyril Soler for proofreading.
+References
+[BNL06] B OUTHORS A., N EYRET F., L EFEBVRE S.: Real-time
+realistic illumination and shading of stratiform clouds. In Eurographics Workshop on Natural Phenomena (sep 2006).
+[DK02] DARULA S., K ITTLER R.: CIE general sky standard
+defining luminance distributions. eSim (2002).
+[HHLH05] H ORNUS S., H OBEROCK J., L EFEBVRE S., H ART
+J. C.: ZP+: correct Z-pass stencil shadows. In ACM Symposium on Interactive 3D Graphics and Games (I3D) (April 2005),
+ACM, ACM Press.
+[HMS05] H ABER J., M AGNOR M., S EIDEL H.-P.: Physicallybased simulation of twilight phenomena. ACM Trans. Graph. 24,
+4 (2005), 1353–1373.
+[HP02] H OFFMAN N., P REETHAM A. J.: Rendering outdoor
+light scattering in real time. Proceedings of Game Developer
+Conference (2002).
+[IJTN07] I MAGIRE T., J OHAN H., TAMURA N., N ISHITA T.:
+Anti-aliased and real-time rendering of scenes with light scattering effects. Vis. Comput. 23, 9 (2007), 935–944.
+N ISHITA T., D OBASHI Y., K ANEDA K., YA H.: Display method of the sky color taking into account multiple scattering. In Proceedings of Pacific Graphics
+(1996), pp. 117–132.
+
+[NDKY96]
+
+MASHITA
+
+[NSTN93] N ISHITA T., S IRAI T., TADAMURA K., NAKAMAE
+E.: Display of the Earth taking into account atmospheric scattering. In SIGGRAPH 93 (1993), ACM, pp. 175–182.
+[O’N05] O’N EIL S.: Accurate atmospheric scattering. In GPU
+Gems 2: Programming Techniques for High-Performance Graphics and General-Purpose Computation (2005), Addison-Wesley
+Professional.
+[PSS99] P REETHAM A. J., S HIRLEY P., S MITS . B. E.: A practical analytic model for daylight. In SIGGRAPH 99 (1999).
+[REK∗ 04] R ILEY K., E BERT D. S., K RAUS M., T ESSENDORF
+J., H ANSEN C. D.: Efficient rendering of atmospheric phenomena. In Rendering Techniques (2004), pp. 374–386.
+[SFE07] S CHAFHITZEL T., FALK M., E RTL T.: Real-time rendering of planets with atmospheres. In WSCG International Conference in Central Europe on Computer Graphics, Visualization
+and Computer Vision (2007).
+[Slo02] S LOUP J.: A survey of the modelling and rendering of the
+Earth’s atmosphere. In SCCG ’02: Proceedings of the 18th spring
+conference on Computer graphics (2002), ACM, pp. 141–150.
+[SVS∗ 05] S TOCKLI R., V ERMOTE E., S ALEOUS N., S IMMON
+R., H ERRING D.: The Blue Marble Next Generation – a true
+color Earth dataset including seasonal dynamics from MODIS.
+NASA Earth Observatory (2005).
+[TS99] T HOMAS G. E., S TAMNES K.: Radiative transfer in the
+atmosphere and ocean. Cambridge Univ. Press, 1999.
+[ZWP07] Z OTTI G., W ILKIE A., P URGATHOFER W.: A critical
+review of the Preetham skylight model. In WSCG 2007 Short
+Communications Proceedings I (Jan. 2007), pp. 23–30.
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+0.4
+
+0.2
+
+0
+-40
+
+-20
+0
+20
+View angle
+
+4
+
+40
+
+60
+
+CIE Model
+Our Model
+
+3.5
+3
+2.5
+2
+1.5
+1
+0.5
+0
+-80
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+18
+
+40
+
+60
+
+14
+12
+10
+8
+6
+4
+2
+0
+-80
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+40
+
+60
+
+1
+0.8
+0.6
+0.4
+0.2
+0
+-80
+
+80
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+6
+
+40
+
+60
+
+CIE Model
+Our Model
+
+4
+3
+2
+1
+0
+-80
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+35
+
+40
+
+60
+
+25
+20
+15
+10
+5
+0
+-80
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+40
+
+60
+
+3
+
+80
+
+CIE Model
+Our Model
+
+2
+1.5
+1
+0.5
+0
+-80
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+10
+
+40
+
+60
+
+80
+
+CIE Model
+Our Model
+
+9
+8
+7
+6
+5
+4
+3
+2
+1
+0
+
+80
+
+CIE Model
+Our Model
+
+30
+
+1085
+
+2.5
+
+80
+
+5
+
+80
+
+CIE Model
+Our Model
+
+16
+
+1.2
+
+80
+
+Relative sky luminance (sun zenith angle = 40)
+
+Relative sky luminance (sun zenith angle = 30)
+
+-60
+
+Relative sky luminance (sun zenith angle = 20)
+
+0.6
+
+CIE Model
+Our Model
+
+1.4
+
+Relative sky luminance (sun zenith angle = 50)
+
+0.8
+
+1.6
+
+-80
+
+Relative sky luminance (sun zenith angle = 80)
+
+CIE Model
+Our Model
+
+-80
+
+Relative sky luminance (sun zenith angle = 60)
+
+Relative sky luminance (sun zenith angle = 10)
+
+1
+
+Relative sky luminance (sun zenith angle = 70)
+
+Relative sky luminance (sun zenith angle = 0)
+
+E. Bruneton & F. Neyret / Precomputed Atmospheric Scattering
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+60
+
+40
+
+60
+
+80
+
+CIE Model
+Our Model
+
+50
+40
+30
+20
+10
+0
+-80
+
+-60
+
+-40
+
+-20
+0
+20
+View angle
+
+40
+
+60
+
+80
+
+Figure 7: Validation. The sky luminance relatively to the zenith luminance for several sun zenith and view zenith angles (and null azimuth between view and sun directions). Comparison between our model (with α¯ = 0.1, βsM = 2.2 10−5 m−1 , βsM /βeM = 0.9, g = 0.73 and HM = 1.2 km)
+and the CIE sky model 12 (based on actual measurements). We note an overestimation near the horizon (view angles near 90 and -90), which
+is also visible in Figure 6. As shown in [ZWP07] the Preetham model [PSS99] also suffers from this problem, which probably comes from the
+physical models currently used in CG.
+
+Figure 8: Results. (a), from top to bottom: [SFE07], single scattering, multiple scattering and photo. With [SFE07] the shadow does not
+appear due to the missing ν parameter. It is too dark with single sattering only. (b) sunset viewed from space. (c) the view used for our
+performance measurements.
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+1086
+
+E. Bruneton & F. Neyret / Precomputed Atmospheric Scattering
+
+Figure 9: Results. Our results (no frames) compared with real photographs found on the Web (red frames). The tone mapping may explain
+the sky hue differences on some images compared with the uncalibrated photographs.
+
+Views from space for various altitudes and sun positions.
+
+Views from the ground showing, from left to right, the Earth shadow, the aerial perspective after sunset, sunset, and light shafts at sunrise.
+
+Aerial perspective during the day, and mountain shadows for various view and sun angles.
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+

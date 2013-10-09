@@ -1,0 +1,788 @@
+DOI: 10.1111/j.1467-8659.2008.01197.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 28 (2009), number 1 pp. 154–160
+
+A Comparison of Tabular PDF Inversion Methods
+D. Cline, A. Razdan and P. Wonka
+PRISM-Partnership for Research in Spatial Modeling, Department of Computer Science and Engineering, Arizona State University,
+Box 878809, Tempe, AZ 85287-8809
+E-mail: clinedav@gmail.com
+
+Abstract
+The most common form of tabular inversion used in computer graphics is to compute the cumulative distribution
+table of a probability distribution (PDF) and then search within it to transform points, using an O(log n) binary
+search. Besides the standard inversion method, however, several other discrete inversion algorithms exist that can
+perform the same transformation in O(1) time per point. In this paper, we examine the performance of three of
+these alternate methods, two of which are new.
+Keywords: PDF inversion, importance sampling, sample generation
+ACM CCS: I.3.0 [Computer Graphics]: General
+
+1. Introduction
+
+[LRR05], but in this work we are primarily concerned with
+methods that speed up point transformation rather than with
+methods that save space.
+
+A number of applications in computer graphics require the
+generation of sample points that are distributed according to
+some specified distribution. For example, importance sampling reduces the variance of a Monte Carlo integral estimate
+by distributing sample points as closely as possible according
+to the function being integrated. Stippling applications also
+require points that are distributed according to a specified
+density to guide the placement of stipples. In fact, a number
+of object placement algorithms rely on point sets that are
+both well distributed and conforming to a particular density
+(e.g. [DMS06, KCODL06]).
+
+There are a number of problem contexts in which many
+points must be transformed very quickly. For example,
+bidirectional and resampled importance sampling [BGH05,
+TCE05] require the generation of a large number of tentative samples for each ray cast in a Monte Carlo rendering
+setting. In these techniques, the vast majority of the tentative samples are discarded, making quick sample generation
+paramount. Compounding this issue, ray casting itself has become cheaper with the development of packet and frustumbased ray tracing techniques [RSH05, WSBW01], so that
+sample generation is now becoming as much of a performance bottleneck as ray casting itself. Another motivation
+for simplifying the point transformation routine is to make
+it more amenable to GPU implementation. If the transformation code will be mapped to graphics hardware, it may
+be beneficial to use a simpler routine that does not waste
+valuable shader ops on loops and other branching structures.
+Based on these observations, it makes sense to revisit the
+topic of sample generation from tabular PDFs.
+
+The classic manner of achieving a specific sample density
+is to start with uniformly distributed points and then transform them to the desired density by some form of numerical
+inversion. If the underlying probability distribution (PDF)
+is defined in closed form, it may be possible to symbolically invert the corresponding cumulative distribution function (CDF). This is commonly done, for example with analytical BRDFs.
+On the other hand, if the desired distribution is defined by
+a discrete probability table, the usual inversion method is to
+compute the CDF of the table and then perform an O(log n)
+binary search within the CDF to transform each point, where
+n is the size of the table. Some work has been done to compress the CDF table while retaining the important features
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and
+Blackwell Publishing Ltd. Published by Blackwell Publishing,
+9600 Garsington Road, Oxford OX4 2DQ, UK and 350 Main
+Street, Malden, MA 02148, USA.
+
+1.1. Overview
+This paper compares a number of alternate tabular inversion algorithms to the standard binary search method for
+
+154
+
+Submitted April 2008
+Revised May 2008
+Accepted July 2008
+
+155
+
+D. Cline et al. / A Comparison of Tabular PDF Inversion Methods
+table index
+
+PDF: f =
+
+0
+1
+32
+
+1
+1
+16
+
+2
+1
+4
+
+3
+1
+16
+
+4
+1
+8
+
+5
+5
+32
+
+6
+7
+32
+
+7
+3
+32
+
+alias index:
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+2
+
+5
+
+2
+
+6
+
+6
+
+2
+
+5
+
+6
+
+alias prob: 3/4 1/2 0 1/2
+
+0 1/4
+
+0 1/4
+
+Figure 1: Tabular probability distribution function.
+Figure 3: Alias table.
+
+transforming points based on a tabular PDF. The algorithms
+that we will compare against the standard method are the alias
+method, integer CDF inversion followed by linear search, and
+approximate tabular CDF inversion. To our knowledge, the
+latter two of these methods have not been presented previously. By our comparisons, we will show that each of the
+alternative inversion methods, and in particular the latter
+two, possess significant advantages over the binary search
+method, both in terms of speed and code parsimony, while
+sharing similar startup and memory costs.
+
+2. Existing Inversion Methods for Tabular PDFs
+2.1. The binary search method (standard method)
+A tabular probability distribution function is an array of
+values that defines a probability function. For example,
+Figure 1 shows a tabular PDF with eight elements.
+The PDF table may represent a discrete or continuous
+probability distribution in one or more dimensions. When
+representing a continuous distribution, the PDF is usually
+considered to be piecewise constant, with each table entry defining the probability for a small area of the function
+domain.
+Given a 1D PDF table, f , the corrseponding cumulative distribution function, F, is defined by the equation
+Fi = ij =0 fj . Using the observation that F i = F i−1 + f i ,
+the CDF can be initialized from f in linear time by simply
+looping over the values of F, computing each one in turn.
+Figure 2 gives the CDF table corresponding to the PDF in
+Figure 1.
+In 2D, a CDF table can be constructed by making a separate
+CDF for each row and an additional CDF for the y marginal
+(the table of the row sums). Once F has been computed, it can
+be used to transform uniform points in [0, 1)2 to the desired
+distribution by performing two binary searches within F, one
+for each dimension. Each of these searches takes O(log n)
+steps to complete.
+
+CDF: F =
+
+0
+1
+32
+
+1
+3
+32
+
+2
+11
+32
+
+3
+13
+32
+
+4
+17
+32
+
+5
+11
+16
+
+6
+29
+32
+
+7
+
+1
+
+Figure 2: Tabular cumulative distribution function.
+
+2.2. The alias method
+An alternative to binary searching within the CDF table is
+to use the alias method [Vos91, Wal77]. Introduced to the
+graphics community by Burke [Bur04], the alias method
+works by setting up an alias table whereby sample locations
+with excess probability can point to locations with insufficient probability. Each entry in the alias table consists of
+an alias location along with a probability of reassigning the
+point to that location.
+While slightly more complex to initialize than a CDF, an
+alias table can be initialized in linear time as well. The algorithm to create the table starts by partitioning the elements
+of the PDF into two groups, those with insufficient probability, and those with excess probability. An element from
+each group is then chosen, and the element with excess probability P assigns its excess to the element with insufficient
+probability Q. In other words, P is set to point to Q. P is then
+removed from the list, and Q is checked to see if it now has
+too much probability. If Q does have too much, it is moved
+to the ‘excess probability’ list. Otherwise, it is left in the
+‘insufficient probability’ list. This process repeats until both
+lists are empty. Burke [Bur04] describes this process in detail, and provides sample code for the initialization process.
+Figure 3 shows an alias table created for the example PDF in
+Figure 1. An alias table can be built for a 2D PDF by ignoring
+the fact that it is 2D, allowing table entries to point to each
+other without restriction.
+To transform points from a uniform distribution to the desired distribution, the sampling routine looks up the location
+of the input point in the alias table and then either returns
+that point unmodified, with probability 1 − p, or returns the
+aliased location, with probability p, where p is the probability
+stored in the alias table. The 2D coordinate of a transformed
+point can be calculated based on the array index of the aliased
+location.
+As no searching is involved, transforming points with
+the alias method is quite fast compared to the standard
+method. The transformation code only requires a single table
+lookup, and one if statement. Despite its speed, however, the
+alias method has a critical flaw that makes it unsuitable for
+many applications – it tends to disrupt the stratification or
+disrepancy-reduction efforts that went into creating the input
+point set. This effect can be seen in Figures 8 and 9. The
+explanation for the loss of good sample spacing can be found
+in the manner in which the alias method redistributes samples. Instead of warping sample space to take on the desired
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+156
+
+D. Cline et al. / A Comparison of Tabular PDF Inversion Methods
+
+distribution, the alias method steals points from low density
+regions and stuffs them into high density regions randomly,
+resulting in poor stratification. Another, less critical issue
+with the alias method is that the alias table cannot be directly
+queried to determine f for a given point in the domain. Consequently, applications may need to retain an extra copy of
+the probability table.
+3. Methods Based On Approximate CDF Inversion
+The reason that applications do not simply invert the CDF
+table is that it cannot be done exactly given the constraints of
+the table. Nevertheless, approximate inversions are possible.
+In this section, we describe two new approximate CDF inversion methods that allow points to be transformed to a desired
+distribution in O(1) time per point, providing substantial time
+savings over the binary search method.
+
+(iv)
+(v)
+
+Using x, look up the starting point for searching for x .
+Search in F to determine the value of x .
+
+Note that the above algorithm is essentially a form of hashing in which the inverted CDF table acts as the hash function,
+and the CDF table resolves hash collisions. The benefit of
+integer CDF inversion is that it is faster than the standard
+method while producing exactly the same result. Thus, integer CDF inversion tends to preserve sample spacing better
+than the alias method. The code is somewhat simpler than the
+standard method as well, but a loop construct is still needed
+to perform the search. While the memory requirements are
+about double the standard method, this is still likely to be less
+than the memory used by the PDF itself if it contains spectral
+values (BRDFs and environment maps, for example).
+
+3.2. Approximate CDF inversion
+3.1. Integer CDF inversion with linear search
+The most expensive part of the standard method for searching
+within a CDF is the binary search, which must be performed
+for each sample point. One way to optimize the search would
+be to create some kind of oracle to tell the search routine
+where to start. If the oracle can provide initial guesses that
+are sufficiently close to the correct value, we can replace the
+binary search with a simpler linear search that runs in O(1)
+time on average. In fact, a discrete version of the inverse
+CDF, Fˆ −1 , meets the criteria just described (see Appendix A
+for a proof). The elements of Fˆ −1 are defined as follows:
+i
+Fˆi−1 = j : Fj −1 ≤
+< Fj .
+w
+
+(1)
+
+That is, element i of Fˆ −1 contains the smallest index j such
+that F j is greater than i/w, where w is the size of Fˆ −1
+(8 in our example): Note that since the values of Fˆ −1 are
+monotonically non-decreasing, the table can be initialized
+in linear time. Figure 4 shows Fˆi−1 for the example PDF in
+Figure 1.
+
+In the methods presented so far, the tabular PDF has been
+treated as an absolute ideal when in fact most of the time it is
+a sampled approximation. For many applications, it may be
+acceptable to use an approximate inverted CDF table. Code
+for the resulting inversion algorithm would not require any
+control structures, and would be able to transform points with
+a single table lookup in 1D, and two lookups in 2D.
+
+3.2.1. The approximate inverted CDF table
+We define an approximate inverted CDF table, F −1 , that
+stores real-valued coordinates instead of integer table indices.
+To start with, let F(x) be the linearly interpolated value of F
+at point x. That is, given that j = x ,
+F (x) = Fj −1 + (x − j )(Fj − Fj −1 ).
+F −1
+i is defined as the coordinate x such that F(x) equals i/w,
+where once again w is the table width:
+Fi−1 = x : F (x) =
+
+ˆ −1
+
+As is the case with the CDF, F can be initialized in 2D
+by inverting each of the table rows and the y axis marginal
+separately. Transforming a point (x, y) to (x , y ) using Fˆ −1
+table can be performed as follows:
+(i)
+(ii)
+(iii)
+
+Using y, look up (in the y marginal of Fˆ −1 ) the starting
+point for searching for y in F.
+Search in the marginal of F to find y .
+Using y , determine the row in which to search for x .
+
+^
+
+F
+
+_1
+
+=
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+0
+
+2
+
+2
+
+3
+
+4
+
+5
+
+6
+
+6
+
+Figure 4: Integer-based inverse CDF table.
+
+i
+.
+w
+
+(2)
+
+The value of F −1
+can be calculated by interpolating based
+i
+on values in F:
+Fi−1 = j + (
+
+i
+− Fj −1 )/(Fj − Fj −1 )
+w
+
+(3)
+
+where j = Fˆi−1 . Figure 5 shows the approximate inverse
+CDF table created from the PDF in Figure 1.
+
+0
+
+F
+
+_
+
+1
+
+=
+
+0
+
+1
+1
+
+2
+5
+
+3
+1
+
+4
+3
+
+5
+3
+
+6
+2
+
+7
+6
+
+28 28 32 44 55 67 67
+
+Figure 5: Approximate inverse CDF table.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+157
+
+D. Cline et al. / A Comparison of Tabular PDF Inversion Methods
+Table 1:Memory consumption per table entry for different tabular inversion methods
+
+Binary search method
+The alias method
+Integer CDF inversion
+Approximate CDF inversion
+
+4 bytes
+8 bytes
+8 bytes
+4 bytes
+
+is that the probability of an output point cannot easily be
+calculated without having its corresponding input point as
+well. Thus, the algorithm may be unsuitable for multiple
+importance sampling.
+Figure 6: Approximation error of F −1 for different table
+sizes. The top row shows tabular PDFs with resolution 162 ,
+322 and 642 . The bottom row shows the approximations
+achieved by approximate inversion with the same table size.
+As with several of the other methods discussed so far, F −1
+can be created for a 2D PDF by inverting the table rows and
+y axis marginal separately.
+Figure 6 shows the kinds of approximation error that can
+occur because of the tabular encoding of F −1 . The probability
+function in the figure represents a fairly difficult case because
+it has sharp features. Even in this case, however, the overall
+error quickly diminishes as the table size increases, and the
+642 table is almost indistinguishable from the original.
+In 2D, an input point (x, y) can be transformed to an output
+point, (x , y ) based on two table lookups as follows:
+(i)
+(ii)
+(iii)
+
+4. Comparison
+4.1. Memory consumption
+Table 1 gives the memory usage for the different inversion
+methods described in the paper, assuming that both integers
+and real values are 4 bytes in size. The alternate methods
+all use one or two times as much memory as the standard
+method, so memory consumption is not likely to be more
+of a concern than it is with the standard method. However,
+the numbers given only apply to inversion tables with the
+same number of entries. If we want to represent a continuous
+probability function, the approximate CDF inversion method
+may be more accurate than the other methods because it
+concentrates effort in high probability regions. This is similar
+to the environment map compression technique described by
+Lawrence et al. [LRR05].
+
+4.2. Timing
+
+Look up y in the marginal of F −1 using y.
+Using y , calculate the row in which to look up x .
+Look up x in the specified row of F −1 using x.
+
+Figure 7 shows timing results for each of the four inversion
+methods described in the paper. As demonstrated in the figure, the performance of the standard binary search method
+
+The probability of the output point, p(x , y ), can also be
+calculated during the transformation:
+25
+
+Binary search method
+The alias method
+Integer cdf inversion
+Approximate cdf inversion
+
+(4)
+
+where a = yh , b = xw , c = y h , M is the marginal
+of F −1 , R c is row c of F −1 , and w and h are the width and
+height of F −1 .
+The main strength of using an approximate inverted CDF
+table is that points can be transformed very quickly using a
+few table lookups. The transformation code itself is also quite
+simple, requiring no loop structures or ‘if’ statements. Furthermore, point sets transformed using F −1 tend to maintain
+their good spacing properties as well as the CDF searching algorithms. The F −1 table also has the same memory
+overhead as the CDF table. The main drawback of using approximate CDF inversion is that it does not exactly reproduce
+the probability table. One consequence of the approximation
+
+20
+
+Time (seconds)
+
+p(x , y ) = 1 / (Ma+1 − Ma )(Rc,b+1 − Rc,b )
+
+15
+
+10
+
+5
+
+0
+0
+
+500
+
+2
+
+1000
+
+2
+
+1500
+
+2
+
+PDF table size
+
+Figure 7: Time to transform 107 million points for different
+PDF table sizes and inversion methods.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+158
+
+D. Cline et al. / A Comparison of Tabular PDF Inversion Methods
+
+is strongly dependent on the PDF table size. On the other
+hand, the other three methods are only slightly dependent
+on table size due to their constant time complexity. The standard method is fairly fast, transforming between 4.7 and 11.8
+million points per second. However, even this rate may be
+a bottleneck for some applications. For example, MLRTA
+[RSH05] has been shown to achieve ray casting rates in the
+tens of millions per second. This fact underscores the need
+for extremely fast inversion routines to meet the demands of
+high performance ray tracers. All of the alternate methods
+achieve sampling rates that are between two and three and
+half times faster than the standard method, but once again, the
+alias method tends to destratify an input sequence, leaving
+the approximate CDF inversion techniques as the candidates
+of choice among the alternates.
+
+Pdf table
+
+Input point set
+
+Binary search method and integer cdf inversion
+4.3. Point set quality
+Figure 8 shows point sets generated by the four methods
+described in the paper, using the same Poisson-disk input
+sequence. One drawback with all the CDF-based methods
+is that samples may squeeze together when the sample domain is warped anisotropically. This is still preferable to the
+randomization that occurs in the alias method for most applications, however. Direct methods [KCODL06, Ost07] can
+generate non-uniform point sets of higher quality, but will
+likely be an order of magnitude slower.
+Approximate cdf inversion
+A standard tool for judging the quality of a 2D point set
+is to view its Fourier transform. For a uniform point set, the
+Fourier transform should be radially symmetric and have a
+low energy ring around the origin, called the ‘blue noise’
+property. [LD06] surveys algorithms to generate blue noise
+point sets. Figure 9 shows point sets generated by the methods
+described in the paper along with their Fourier transforms.
+Note that the Fourier transforms of both the CDF search
+methods and approximate CDF inversion have a low energy
+anulus around the origin (excluding a cross of low frequencies). This reflects the fact that the good spacing qualities
+of the input point set are retained by these methods. On
+the other hand, the Fourier transform of the alias method has
+much more energy near the origin. In many ways, this Fourier
+transform looks like a blend between that of the input point
+set and a random point set. This should not be surprising,
+given the sample clumping that occurs in the spatial domain.
+In Figures 10 and 11, we show the effect of the different
+inversion routines on rendering convergence. Figure 10 provides renderings of a scene lit by an environment map, using
+the different inversion methods to choose sampling directions. With 16 samples per pixel, the CDF search methods do
+fairly well. As one might expect, the disruption of the sample
+spacing caused by the alias method results in a noisier image.
+Approximate inversion results in a few bright samples, but
+the overall quality is better than with the alias method. These
+
+The alias method
+Figure 8: Transformed point sets for different tabular inversion methods.
+
+results are mirrored in Figure 11, which plots the RMSE for
+the methods in the paper using different numbers of samples.
+
+5. Conclusion
+In this paper, we compared three alternate methods for transforming points according to a tabular PDF to the standard
+method based on binary search within the CDF table. The
+alternate methods included the alias method, integer CDF inversion with linear search, and approximate CDF inversion.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+159
+
+D. Cline et al. / A Comparison of Tabular PDF Inversion Methods
+1
+
+RMSE
+
+Random
+Alias
+Approximate Inversion
+Standard Inversion
+
+0.1
+
+0.01
+0
+
+Figure 9: Transformed point sets and their Fourier transforms: (a) PDF and input point set, (b) the alias method, (c)
+approximate CDF inversion and (d) binary and linear search
+in the CDF.
+
+50
+
+100
+
+150
+
+200
+
+250
+
+300
+
+Samples Per Pixel
+
+Figure 11: Root mean squared error (RMSE) for the scene
+in figure 10, rendered with different inversion techniques and
+samples per pixel. ‘Random’ shows the results of standard
+inversion using a random point set as input to the transformation routine. The other renderings use a Hammersley
+point set as input.
+
+Appendix A: Integer CDF Inversion with Linear
+Search.
+Here we sketch a proof that the linear search in Section 3.1
+runs in constant time on average:
+Given that F and Fˆ −1 are the same size, the average difference between consecutive entries in Fˆ −1 must be no more
+than 1. Furthermore, a search within F must range between
+consecutive entries in Fˆ −1 , inclusively. Therefore, assuming
+uniform input points, the average number of checks performed during a search must be no more than 2, and the
+search runs in constant time on average.
+
+References
+
+Figure 10: Environment map lighting with 16 samples per
+pixel using the different inversion techniques. All renderings
+transform a Hammersley point set to the environment map
+distribution.
+
+We demonstrated that the new methods can transform points
+several times faster than the binary search method, while having comparable memory overhead. Based on our results we
+believe the alternate methods, and particularly the two based
+on approximate CDF inversion, to be well suited to a number of sampling applications. A possible direction for future
+work would be to speed up the point transformation process
+by processing multiple points at once to take advantage of
+cache coherence.
+
+[BGH05] BURKE D., GHOSH A., HEIDRICH W.: Bidirectional
+importance sampling for direct illumination. In Eurographics Symposium on Rendering (2005), Eurographics
+Association, pp. 139–146.
+[Bur04] BURKE D.: Bidirectional Importance Sampling for
+Illumination from Environment Maps. Master’s Thesis,
+University of British Columbia (2004).
+[DMS06] DIETRICH A., MARMITT G., SLUSALLEK P.: Terrain
+guided multi-level instancing of highly complex plant populations. In Proceedings of the 2006 IEEE Symposium on
+Interactive Ray Tracing ( September 2006), pp. 169–176.
+[KCODL06] KOPF J., COHEN-OR D., DEUSSEN O., LISCHINSKI
+D.: Recursive wang tiles for real-time blue noise. ACM
+Transactions on Graphics (Proceedings of SIGGRAPH
+2006) 25, 3 (2006), 509–518.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+160
+
+D. Cline et al. / A Comparison of Tabular PDF Inversion Methods
+
+[LD06] LAGAE A., DUTRE´ P.: A Comparison of Methods for
+Generating Poisson Disk Distributions. Report CW 459,
+Department of Computer Science, K.U. Leuven, Leuven,
+Belgium, August 2006.
+
+[TCE05] TALBOT J. F., CLINE D., EGBERT P. K.: Importance
+resampling for global illumination. In Eurographics Symposium on Rendering (2005), Eurographics Association,
+pp. 139–146.
+
+[LRR05] LAWRENCE J., RUSINKIEWICZ S., RAMAMOORTHI R.:
+Adaptive numerical cumulative distribution functions for
+efficient importance sampling. In Eurographics Symposium on Rendering (June 2005).
+
+[Vos91] VOSE M.: A linear algorithm for generating random
+numbers with a given distribution. IEEE Transactions on
+Software Engineering 17 (9) (1991), 972–975.
+
+[Ost07] OSTROMOUKHOV V.: Sampling with polyominoes.
+ACM Transactions on Graphics (Proceedings of SIGGRAPH 2007) 26, 3 (2007), 78:1–6.
+
+[Wal77] WALKER A.: An efficient method for generating
+discrete random variables with general distributions. ACM
+Transactions on Mathematical Software 3 (3)(1977), 253–
+256.
+
+[RSH05] RESHETOV A., SOUPIKOV A., HURLEY J.: Multi-level
+ray tracing algorithm. In ACM Transactions on Graphics
+(Proceedings of SIGGRAPH 2005) (2005), ACM Press,
+pp. 1176–1185.
+
+[WSBW01] WALD I., SLUSALLEK P., BENTHIN C., WAGNER
+M.: Interactive rendering with coherent ray tracing. In
+Proceedings of Eurographics 2001, vol. 20(3). Blackwell
+Publishing, 2001, pp. 153–164.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

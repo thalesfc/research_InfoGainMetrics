@@ -1,0 +1,679 @@
+DOI: 10.1111/j.1467-8659.2010.01769.x
+Eurographics Symposium on Geometry Processing 2010
+Olga Sorkine and Bruno Lévy
+(Guest Editors)
+
+Volume 29 (2010), Number 5
+
+Fast and Scalable CPU/GPU Collision Detection
+for Rigid and Deformable Surfaces
+Simon Pabst and Artur Koch and Wolfgang Straßer
+Graphical-Interactive Systems (GRIS)
+Wilhelm Schickard Institute for Computer Science, University of Tübingen, Germany
+
+Abstract
+We present a new hybrid CPU/GPU collision detection technique for rigid and deformable objects based on spatial
+subdivision. Our approach efficiently exploits the massive computational capabilities of modern CPUs and GPUs
+commonly found in off-the-shelf computer systems. The algorithm is specifically tailored to be highly scalable on
+both the CPU and the GPU sides. We can compute discrete and continuous external and self-collisions of nonpenetrating rigid and deformable objects consisting of many tens of thousands of triangles in a few milliseconds
+on a modern PC. Our approach is orders of magnitude faster than earlier CPU-based approaches and up to twice
+as fast as the most recent GPU-based techniques.
+Keywords: computer animation, cloth simulation, physics based animation, collision detection
+
+1. Introduction
+Collision detection (CD) has been an important research
+topic in computer graphics for many years. There is a great
+demand for ever faster and more robust algorithms, with applications to rigid and deformable objects simulation (e.g.,
+n-body systems, cloth), surgical simulation, robotics, virtual
+reality and many more fields. While there have been tremendous advances early on from an algorithmic point of view,
+the major driving force during recent years has been parallelism. CD is, unlike other problems in computer graphics, not easily parallelized, since the workload is usually not
+evenly distributed. Thus, advanced parallel techniques are
+needed to achieve good scalability. Our goal is to accelerate
+the detection by making the best possible use of both CPUs
+and GPUs on current commodity hardware.
+
+since no communication between the GPUs is needed during the most expensive parts of the algorithm. Computation
+times are orders of magnitude faster than CPU-based meth-
+
+Contribution We propose a novel hybrid CPU/GPU collision detection algorithm based on spatial subdivision. We
+efficiently partition the detection workload to exploit the
+large number of parallel threads modern GPU architectures
+can execute concurrently. We use an adapted highly parallel spatial subdivision method to quickly prune away noncolliding parts of the scene in a broad phase, followed by
+GPU-optimized exact collision tests in a narrow phase.
+Our method is applicable to both discrete (DCD) and continuous collision detection (CCD) and addresses external
+as well as self collisions. It exhibits excellent scalability,
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and 350
+Main Street, Malden, MA 02148, USA.
+
+Figure 1: Collision detection is an integral part of most
+physically based simulation systems and often accounts for
+a large percentage of the total runtime.
+
+1606
+
+Pabst, Koch, Strasser / Fast and Scalable CPU/GPU Collision Detection
+
+ods and up to twice as fast as the most recent GPU-based
+approaches. We demonstrate the high performance and robustness of our approach using a variety of commonly used
+benchmark scenes and close with a discussion of strengths
+and limitations.
+Before introducing our method in detail (Sec. 3), we first
+summarize relevant related work.
+
+2. Related Work
+The literature on CD is abundant. We refer the interested
+reader to the survey article by Teschner et al. [THM∗ 05] and
+references therein. In the following section, we will focus on
+works directly related to our approach.
+Collision Detection Bounding volume hierarchy (BVH)
+techniques are the most common approach for accelerating
+collision detection of rigid and deformable objects [Eri04].
+Thomaszewski et al. [TPB08] use dynamic task decomposition of BVH test trees on shared memory architectures.
+Lauterbach et al. [LMM10] present a GPU-based linear
+BVH approach that yields impressive results. Kim et al.
+[KHH∗ 09] use a task decomposition BVH approach similar to [TPB08] computed on the CPU and handle elementary
+vertex-triangle and edge-edge tests on the GPU. CPU and
+GPU computations can be overlapped to a certain degree,
+which yields an additional speedup.
+An alternative approach to CD uses spatial subdivision, as
+opposed to object subdivision employed by BVHs. Teschner
+et al. [THM∗ 03] present a spatial hashing technique optimized for deformable objects. Le Grand [Gra07] describes
+how a spatial hashing approach optimized for GPUs can be
+implemented.
+Many authors introduce techniques to reduce the number
+of redundant elementary tests during CD (e.g., Wong and
+Baciu [WB06], Curtis et al. [CTM08]). Tang et al. [TMT10]
+recently showed how to cull a large percentage of the coplanarity tests during CCD.
+Earlier approaches to use GPUs in the context of CD often
+employed rasterization-based techniques, exploiting depth/stencil buffer tests or distance functions (e.g., [GKJ∗ 05],
+[SGG∗ 06]).
+
+3. Scalable CPU/GPU Collision Detection
+We use an adapted highly parallel spatial subdivision method
+to quickly prune away non-colliding parts of the scene, followed by GPU-optimized exact collision tests in a narrow
+phase. While we try to keep the description of our algorithm
+as platform-independent as possible, some specific design
+choices only make sense when seen from the point of view of
+the implementation. We have used nVidia’s CUDA [CUD10]
+and will thus at times use CUDA-specific vocabulary.
+
+We focus on CD between triangle meshes, which is usually done by treating all primitive collision pairs of potentially colliding triangle pairs, i.e., the six vertex-triangle
+(VT) and the nine edge-edge (EE) pairs. Therefore, our task
+is to find all VT and EE pairs closer to each other than a
+user-specified distance. Special care is needed when dealing
+with self-collisions, as adjacent faces share some features
+which are always in contact, but obviously do not need to
+be treated. This allows us to trivially skip a significant number of tests ([WB06], [CTM08], [TCYM08]). Algorithm 1
+shows a high level overview of our approach.
+Parallel Spatial Hashing Our point of departure is a spatial
+hashing technique (e.g., [THM∗ 03]). To make this text selfcontained, we will quickly summarize the approach in the
+following paragraphs. For further details, especially about
+the implementation on GPUs, we refer the interested reader
+to [Gra07].
+Spatial hashing works by partitioning space into a uniform, sometimes hierarchical, grid, such that the largest object fits into a single grid cell. A hash value is then assigned
+to each of these grid cells. Collision detection is now reduced to checking collisions between the objects with identical hash values (i.e., objects residing in the same grid cell,
+with at least one of their centroids also contained in the cell).
+The constraint on the grid cell size is due to the fact that in
+this way any object can at most appear in 2dim cells. Without restricting the generality, we will from here on assume
+we are working in 3D space, thus an object can only be contained in at most 8 grid cells.
+
+Algorithm 1 CPU/GPU Collision Detection
+1: updates of BVs and grid (CPU(s))
+2: transfer data to GPU
+3: calculate hash values (GPU)
+4: sort hash values (GPU)
+5: prepare hierarchical lookup tables (GPU)
+6: // collision detection, broad phase (GPU(s))
+7: for all Cells do
+8:
+fetch face data
+9:
+BV culling
+10:
+marking scheme culling
+11:
+output candidate VT/EE pairs
+12: end for
+13: // collision detection, narrow phase (GPU(s))
+14: for all candidate VT/EE pairs do
+15:
+fetch vertex data
+16:
+VT/EE proximity test
+17:
+if close then
+18:
+output VT/EE pair
+19:
+end if
+20: end for
+21: transfer results vector to CPU memory
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+1607
+
+Pabst, Koch, Strasser / Fast and Scalable CPU/GPU Collision Detection
+
+Figure 2: High level overview over the CPU/GPU collision detection pipeline.
+Le Grand [Gra07] describes CD between particles, but we
+are interested in applying the technique to triangular meshes,
+which may consist of triangles of varying sizes. If the ratio
+between the largest and the average size of the triangles is
+great, large grid cells can lead to an inefficient partitioning
+of space. Mirtich [MC95] addresses this problem using hierarchical grids; however, we found that this is not a major
+concern for our approach unless the ratio is very unfavorable. We will discuss this in further detail in Sec. 5.
+Spatial subdivision techniques lend themselves very well
+to parallelization. The only major issue that needs to be taken
+care of is to avoid executing collision tests between two
+given triangles multiple times by different threads. We follow a similar approach to the one proposed in [Gra07], using
+control bits (CB) assigned to each triangle, which are used
+to distribute the necessary tests among the threads.
+Before creating the spatial subdivision grid, we identify active objects for the current iteration using a coarse
+top-level k-DOP overlap test. We then compute bounding
+spheres for all triangles on the CPUs in a data-parallel fashion. The grid cell size is defined by taking the largest bounding sphere radius and enlarging it by some user-defined collision epsilon.
+We use the simple hash function:
+H(x, y, z) = zyres xres + yxres + x
+
+(1)
+
+where {x, y, z} are the grid cell coordinates of the current
+triangle’s centroid and {xres , yres } are the dimensions of the
+grid. See [THM∗ 03] for alternative hash functions and an
+in-depth discussion of their properties. The cell containing
+the triangle’s centroid is assigned as its home cell. The surrounding cells (23 − 1) are assigned as phantom cells if the
+triangle’s bounding volume extends into them, otherwise we
+mark the cells as invalid.
+The vector of hash values is then sorted using a parallelized radix sort algorithm [HSO07]. The next step is scanning the sorted vector for hash value changes, which indicate
+a grid cell transition. For each individual hash value in the
+vector we save start and end index in a cell properties vector, as well as the number of home cells and the total number
+of collision tests we need to run for the cell.
+Knowing how many collision tests to run for each cell allows us to calculate the total number of collisions and to inc 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+voke the broad phase CD kernel with a unique potential collision for each thread. Our approach improves on the much
+simpler scheduling in [Gra07]. We impose a strict ordering
+for the sequence in which triangle-pairs are processed by
+each thread. E.g., for a grid cell with 3 home entries and
+2 phantom entries, we order the brute-force home vs. home
+cell tests in the following way:
+potential collision
+0
+1
+2
+
+f ace1
+0
+0
+1
+
+f ace2
+1
+2
+2
+
+and the phantom entry tests as each home entry vs. each
+phantom:
+potential collision
+3
+4
+5
+6
+7
+8
+
+f ace1
+0
+0
+1
+1
+2
+2
+
+f ace2
+3
+4
+3
+4
+3
+4
+
+The total number of collisions that need to be tested for a
+cell is then:
+h(h − 1)
++ hp
+2
+
+(2)
+
+where h is the number of home entries, p is the number of
+phantom entries.
+Note that collisions can also occur between phantomphantom cell pairs. These collisions occur only in rare cases
+(refer to Fig. 3 for a 2D example of a colliding phantomphantom pair), but need to be treated in order to be fully
+conservative. We found a simple indirect approach to be efficient. To be able to safely skip the phantom-phantom tests,
+we add fictitious phantom entries of the current triangle to
+the cell of the other triangle that might be involved in a phantom-phantom collision. In this way, we create new homephantom cell tests for the other triangle, which effectively
+deals with the possible phantom-phantom collision. Since
+we do not yet have access to triangle data at this stage of
+the pipeline, we apply customized distance tests (i.e., circle
+vs. circle in 2D and sphere vs. cylinder in 3D instead of interval overlap tests, see also Fig. 3). In practice, the average
+
+1608
+
+Pabst, Koch, Strasser / Fast and Scalable CPU/GPU Collision Detection
+
+Figure 3: 2D visualization of possible phantom-phantom cell collisions. The blue sphere is located in the current home cell. In
+the left-most image, no collision can possibly occur, so we can safely skip this test. In the second image from the left, a collision
+could possibly take place, but examining the overlap of the involved bounding spheres into the shared grid cell reveals that we
+do not need to consider this pair. The third image shows a different configuration of the same setting, and this case needs to
+be examined closer by the following detection stages. We add this fictitious phantom cell entry of the current triangle into the
+home cell of the other triangle. The rightmost image visualizes the worst-case collision area in grey.
+number of new fictitious phantom entries is around 1 to 3 per
+home cell.
+Now, instead of launching a thread per collision cell, as is
+proposed in [Gra07], we launch a thread per potential collision (i.e., for the cell in our example, 9 threads). This is done
+to minimize the worst case runtime of each thread. CUDA
+performs computations in a SIMD fashion with 32 threads
+(a warp). A warp finishes only after its last thread has terminated. Thus, invoking a kernel with each thread having to
+compute all collisions per grid cell (whose number differs
+to a considerable degree) would lead to large deviations in
+thread runtime and clog up processing units.
+
+Hierarchy At the time of the invocation of the CD kernel,
+each thread only knows the unique index of its potential collision. To perform the computations, it needs to determine
+the data which is associated with the potential collision it is
+supposed to test.
+First of all, the thread needs to identify to what grid cell
+its collision index belongs. A CPU-implementation would
+solve this by a simple loop over the cell properties vector.
+However, this approach is impractical on GPUs, since global
+memory reads at the GPU are not cached and subject to strict
+access rules. Instead, we construct a hierarchy containing the
+number of collisions per cell. The first warp of each block of
+the GPU kernel then loads the first level nodes (16 entries,
+a tree of degree 16 maps best to GPU memory access patterns) of the tree into its shared memory (which is comparable to the CPU cache), and all threads look up their position
+in the current hierarchy level. This process is repeated until
+all threads in the block have found their cell index by reaching the respective leafs in the hierarchy.
+Now each thread can compute its relative collision index
+into the grid cell, and thus find out which triangle-pair it
+needs to process by solving Eqn. 2 using partial sum equations.
+
+Discrete Collision Detection Once the information from
+the cell properties vector has been gathered, the CD kernel
+is invoked. Each potential collision is examined by a single
+thread. The threads deduct the data they need from the precomputed hierarchical data structure and fetch the triangle
+face data for the collision test they are about to perform. Before executing anything more expensive, we first do a simple
+bounding volume test using the data computed while setting
+up the spatial grid. Any triangle-pairs not passing this test
+can be culled. The next step is breaking down the face-face
+test into nine edge-edge and six vertex-face tests. We use a
+randomized marking scheme similar to the one proposed by
+[WB06] to cull a large percentage of these elementary pairs.
+We refer to this first part of detection up to here as the broad
+phase. The output of this stage is a vector of potentially colliding VT and EE pairs that passed all culling tests. In our
+test scenes, the combination of these two culling steps yields
+a reduction of the actual proximity tests we need to perform
+by well over 95 − 98%. The actual VT and EE proximity
+tests are carried out asynchronously by specialized kernels,
+using GPU-adapted versions of standard tests. Due to the
+efficient culling stages before, the actual number of tests is
+reduced by a large percentage compared to a brute-force approach. VT/EE pairs found to be closer to each other than a
+given threshold are stored in the output vectors.
+Continuous Collision Detection For some applications,
+such as physically based simulation, a simple proximity test
+at a specific point in time is often insufficient, as it can easily
+miss collisions. In these cases, CCD needs to be carried out.
+As Provot [Pro97] showed, this can be done by testing the
+involved nodes for co-planarity during the time interval in
+question (usually normalized to [0..1]). This reduces to solving a cubic equation, followed by verifying close proximity
+at the times given by the roots of the cubic.
+The CCD process proceeds in the same manner as the
+proximity detection. We begin by building the spatial subdivision grid, in this case from swept bounding volumes.
+Swept bounding volumes include both the position at the bec 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+Pabst, Koch, Strasser / Fast and Scalable CPU/GPU Collision Detection
+
+1609
+
+Figure 4: This figure demonstrates how updates at CPU (U), computations (C) at CPU/GPU and transfers (T) are overlapped.
+After the bounding volumes have been updated by the CPUs, they are transferred to the master GPU, which then starts to
+compute hash values and to sort (S). Meanwhile the CPUs start to update and transfer the mesh node data to the master- and
+all slave GPU threads. As soon as the sorting is completed, the collision cell list is built and the numbers of possible collisions
+per cell are computed and stored into a hierarchical data structure. These data are then transferred to all GPUs, so that each
+thread in the broad phase kernel can identify its face-pairs. Additionally required data for the collision kernels is transferred
+from the master GPU to the CPUs and then distributed among the slave GPU threads. Finally, broad- and narrow-phase kernels
+are launched on the GPUs. The narrow phase kernels are split among vertex-triangle (VT) and edge-edge collisions (EE), to
+allow overlapping transfers of the detected VT-feature pairs with the EE-detection.
+ginning and the end of the time interval in question. This can
+lead to enlarged grid cells (depending on the nodal velocities
+and the simulation time step), compared to the proximity test
+case, however this is alleviated by the fact that very efficient
+culling techniques exist that drastically reduce the number
+of potentially colliding pairs.
+We begin the culling steps with a swept bounding volume
+overlap test and then apply the same marking scheme as in
+the proximity detection case, drastically reducing the number of VT/EE tests that need to be performed.
+Specialized GPU kernels now process the VT and EE collision candidate lists. They first fetch the vertex coordinates
+and compute the coefficients a3 ...a0 of the cubic equation
+we need to solve.
+Coefficient Culling Tang et al. [TMT10] recently described
+a very efficient culling technique for CCD. However, we
+found that an implementation in a GPU kernel does not yield
+optimal results due to the relatively large number of registers the method requires. The more registers a kernel invocation needs, the fewer concurrent threads can be executed.
+We instead resort to simple coefficient checks. For example,
+with a cubic equation of the form a3 t 3 + a2 t 2 + a1 t + a0 = 0,
+we can be certain that no root in the interval [0..1] can exist if |a0 | > |a1 | + |a2 | + |a3 |. Another very simple argument is that if all ai have the same sign, no root can possibly exist. We additionally employ two more tests, firstly
+a0 , a1 > 0 and a0 + a1 > |a2 | + |a3 |, and secondly a0 , a1 < 0
+and a0 + a1 < −|a2 | − |a3 |. More such criteria can easily be
+found, but we found these four to be sufficient, as they allow
+us to run a large amount of concurrent threads, while still
+achieving good culling efficiency. Our GPU implementation
+of [TMT10] requires 46 registers, as opposed to only 32 for
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+coefficients tests. The culling ratio is almost identical and
+greater than 99% for our benchmark scenes.
+4. Multi-GPU Parallelization
+We exploit data/thread-level parallelism to speed up most
+CPU computations such as BV updates and centroid computation. To distribute the workload to additional GPUs, we
+utilize a master/slave approach [ALT08]. A master-thread
+on the CPU delegates the work to slave threads, which execute the necessary computations at their respective GPU device(s). Fig. 4 visualizes this process in detail.
+Each slave thread can be executed asynchronously, so that
+master/slave CPU/GPU computations can be overlapped.
+Additionally, each slave thread can overlap its CPU/GPU
+computations by calls to kernels, since these invocations are
+implicitly asynchronous, and PCI-e data transfers.
+This provides a large amount of possibly exploitable parallelism, e.g., execution of kernels at the GPU(s) while transferring data from GPU to CPU memory (or vice versa)
+and concurrently doing other parallel computations at the
+CPU(s). On the other hand, data dependencies and synchronizations between different computational units limit the
+available parallelism.
+Multi-GPU systems are distributed memory systems, with
+each GPU having its own address space. Thus, inter-GPU
+data dependencies make pipelining data back and forth
+through the PCI-e bus necessary. The inherent latency and
+bandwidth limitations of the PCI-e bus constitute a serious
+bottleneck.
+Avoiding this bottleneck is crucial for good performance,
+and therefore was one of the main goals in our pipeline and
+
+1610
+
+Pabst, Koch, Strasser / Fast and Scalable CPU/GPU Collision Detection
+
+algorithm design. We break the detection workload down
+into a serial part and a highly parallel part. One of the slave
+threads first becomes the main GPU worker thread and handles the sequential parts of the algorithm, such as sorting the
+hash values. In order to achieve good scalability, these portions must not be too expensive. While the sequential parts
+are being computed on the master GPU, the CPU updates its
+data structures and grabs necessary temporary data from the
+master GPU to distribute it to the other slave GPUs.
+Following these mostly sequential computations, the
+highly parallel parts, which are by far the most computationally intensive (broad- and narrow-phase detection), are
+carried out.
+5. Results and Discussion
+Test System We have implemented the proposed technique
+using CUDA [CUD10] on an off-the-shelf workstation with
+an Intel Core i7 quad-core processor at 3.2GHz. The system
+is fitted with 2 nVidia GT X295 graphics cards. These cards
+feature 2 GPUs each, with 896MB memory per GPU.
+Cloth Simulation The CD system was integrated into a
+standard cloth simulation system. We use a semi-implicit
+backward Euler scheme for time integration [BW98] and
+handle detected collisions within a velocity filter framework
+similar to the one proposed by Bridson et al. [BFA02] and
+later extended by Harmon et al. [HVTG08].
+5.1. Performance
+We measured the performance of our technique using a number of benchmark scenes. The Funnel test shows that we
+properly detect all collisions, as this is a very challenging
+scenario for collision handling. Simple Dress is a fairly static
+low resolution cloth draping example. The remainder of the
+test scenes are pre-baked simulations, allowing for comparison of performance results with related work. The Cloth
+on Ball and Flamenco benchmarks are examples of highly
+challenging cloth scenarios with a large number of selfcollisions. N-body is a complex simulation of quickly moving spheres and some static cones and has the highest triangle count of all test scenes (146, 000). Refer to Fig. 5 and the
+accompanying video for renderings of the simulations.
+We provide timings for DCD and CCD in tables 1 and 2,
+respectively. They include both the CPU updates and GPU
+computations and all data transfers. Timings are given for
+the test system described earlier, using all 4 CPU cores and
+1, 2 or 4 GPU cores.
+Breakdown of Computation Times The most expensive
+parts of the algorithm are by far the CPU-side updates and
+the actual CD kernel that executes the broad and narrow
+phases. These two parts also profit the most from parallelization, as Fig. 6 shows.
+
+Figure 6: Breakdown showing the relative computational
+cost of the key steps in the algorithm for the Flamenco
+benchmark.
+5.2. Comparison
+Comparing the performance of CD systems is not an easy
+task due to many different factors influencing the results.
+The fastest CPU-based detection methods use BVHs combined with much more sophisticated culling techniques than
+the ones we employ. [CTM08] report CCD timings for the
+Flamenco and Cloth on Ball benchmarks on a 3GHz Xeon
+system of about 200ms per frame. Our approach is an order
+of magnitude faster at 17.8ms and 19.4ms, albeit on faster
+hardware.
+The fastest GPU-based approach [LMM10] also uses
+BVHs. They report timings on a fairly comparable system
+to the one we use, employing a slower quad-core CPU but
+a slightly faster GPU (the GT X285 is faster than a single
+GPU core on our GT X295). Their timings of the Flamenco
+and Cloth on Ball are comparable to our results on a single
+GPU for DCD (26.6ms OBB vs. our 25.4ms and 30.5ms vs.
+our 36.6ms), and somewhat slower than our results for continuous detection (38.6ms OBB vs. our 28.3ms and 44.5ms
+vs. our 23.3ms). With 4 GPUs our approach is more than
+twice as fast.
+Lauterbach et al. use an efficient light-weight communication system that works very well for distributing workload
+between the processors on a single GPU, however scaling
+the system to a multi-GPU system might not be straightforward. Communication between GPUs in CUDA needs
+to go through the PCI-e bus and is thus inherently high latency, making a dynamic distribution of the workload difficult. Our approach using a static spatial decomposition needs
+no communication during the most-computationally expensive phases, leading to good scalability.
+Kim et al. [KHH∗ 09] report timings only for CCD. Their
+hardware is similar to ours, except they use 2 GT X285 cards.
+
+tdiscrete (ms)
+
+1 GPU
+
+2 GPUs
+
+4 GPUs
+
+Funnel (7.6k)
+Simple dress (12k)
+Flamenco (49k)
+Cloth on ball (92k)
+n-body (146k)
+
+6.7
+5.8
+25.4
+36.6
+128.1
+
+6.0
+4.4
+18.1
+25.4
+68.7
+
+5.4
+3.5
+14.6
+19.5
+36.9
+
+Table 1: DCD computation times in milliseconds. The timings include both external and self-collision detection.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+Pabst, Koch, Strasser / Fast and Scalable CPU/GPU Collision Detection
+
+1611
+
+Figure 5: Benchmark scenes used in the performance evaluation. Top row: Funnel stress test (7.6k triangles), Simple Dress
+(12k), Bottom row: Flamenco (49k), Cloth on Ball (92k) and n-body (146k).
+tcontinuous (ms)
+
+1 GPU
+
+2 GPUs
+
+4 GPUs
+
+Funnel (7.6k)
+Simple dress (12k)
+Flamenco (49k)
+Cloth on ball (92k)
+n-body (146k)
+
+5.9
+7.6
+28.3
+23.3
+184.8
+
+5.5
+6.1
+20.9
+20.9
+114.5
+
+4.9
+5.2
+17.8
+19.4
+77.7
+
+Table 2: CCD computation times in milliseconds. The timings include both external and self-collision detection.
+Our algorithm with a single GPU is about as fast as theirs
+with 2 GPUs (23.2ms vs. our 23.3ms) for the Cloth on Ball
+benchmark. On the other hand, their n-body performance is
+better than ours even with 4 GPUs (53.8ms vs. our 77.7ms).
+This is in part due to mediocre scaling of the CPU phase, due
+to missing optimizations in our code for the special case of a
+large number of relatively low resolution objects. A second
+factor relevant to this scene is discussed in the Limitations
+section below. However, note the poor scaling of their approach from one GPU to two. Adding a second GPU yields a
+speedup of about 1.3 for the n-body and Cloth on Ball benchmarks, compared to our 1.7 to 1.9 (Fig. 7). It appears as if
+there is not enough parallelism available in their method to
+fully utilize a second GPU.
+
+The sub-optimal gain for the CPU part of the n-body benchmark, as mentioned earlier, could easily be remedied using
+optimizations more tailored to many low resolution objects
+instead of fewer high resolution ones.
+Limitations A general limiting factor most parallel approaches exhibit is the fact that they need a decent amount
+of workload to show improved results over sequential algorithms. However, our approach is fairly light-weight and
+does not impose a high overhead as compared to sequential
+algorithms and thus does reasonably well in low complexity
+scenarios.
+Our approach shares one limitation with other similar spatial subdivision techniques. The grid size needs to be big
+
+5.3. Scalability
+The speedup of the two most expensive parts of the algorithm is visualized in Fig. 7. Both scale very well to a second
+CPU/GPU, and profit considerably from yet two more cores.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+Figure 7: Speedups of the CPU updates and the CD kernel
+(broad+narrow phase) on the GPU using 1, 2 and 4 processors (CPU/GPU respectively).
+
+1612
+
+Pabst, Koch, Strasser / Fast and Scalable CPU/GPU Collision Detection
+
+enough so that the largest triangle is still contained in a single cell. This can affect performance in some scenarios as
+it leads to relatively large grid cells and thus a high number of collision candidates per cell. An example of this is
+the n-body benchmark scene. The cone objects contain fairly
+large triangles compared to the spheres, leading to large grid
+cells. The performance on this benchmark with a single GPU
+is significantly worse than that of [LMM10] (on 1 GPU) and
+[KHH∗ 09] (on 2 GPUs). However, the large amount of work
+per cell allows for very good scaling, leading to excellent
+performance results with 2 and 4 GPUs that are up to two
+times faster than those of [LMM10] and [KHH∗ 09]. A remedy for this problem would be the use of hierarchical grids.
+6. Conclusion
+We have presented a highly parallel and scalable hybrid
+CPU/GPU collision detection approach for the detection of
+discrete and continuous collisions of rigid and deformable
+objects. Our approach runs on off-the-shelf hardware on
+single GPU or multi-GPU systems and can handle even
+very complex scenarios involving a large amount of selfcollisions in a few milliseconds. We have examined the performance using our own cloth simulation engine and a number of publicly available baked-out animations to allow comparison with previous and future work.
+
+[Eri04] E RICSON C.: Real-Time Collision Detection. Morgan
+Kaufmann, 2004.
+[GKJ∗ 05] G OVINDARAJU N., K NOTT D., JAIN N., K ABUL I.,
+TAMSTORF R., G AYLE R., L IN M., M ANOCHA D.: Interactive
+collision detection between deformable models using chromatic
+decomposition. In SIGGRAPH ’05 (2005).
+[Gra07] G RAND S. L.: Broad-Phase Collision Detection with
+CUDA. GPU Gems 3 (2007).
+[HSO07] H ARRIS M., S ENGUPTA S., OWENS J.: Parallel Prefix
+Sum (Scan) with CUDA. GPU Gems 3 (2007).
+[HVTG08] H ARMON D., VOUGA E., TAMSTORF R., G RIN SPUN E.: Robust Treatment of Simultaneous Collisions. SIGGRAPH ’08 (2008).
+[KHH∗ 09] K IM D., H EO J.-P., H UH J., K IM J., YOON S.-E.:
+HPCCD: Hybrid Parallel Continuous Collision Detection. In Pacific Graphics ’09 (2009).
+[LMM10] L AUTERBACH C., M O Q., M ANOCHA D.: gProximity: Hierarchical GPU-based Operations for Collision and Distance Queries. In Eurographics ’10 (2010).
+[MC95] M IRTICH B., C ANNY J.: Impulse-based simulation of
+rigid bodies. In SI3D ’95 (1995).
+[Pro97] P ROVOT X.: Collision and self-collision handling in cloth
+model dedicated to design garments. In CAS ’97 (1997).
+[SGG∗ 06] S UD A., G OVINDARAJU N., G AYLE R., K ABUL I.,
+M ANOCHA D.: Fast proximity computation among deformable
+models using discrete voronoi diagrams. In SIGGRAPH ’06
+(2006).
+[TCYM08] TANG M., C URTIS S., YOON S.-E., M ANOCHA D.:
+Interactive continuous collision detection between deformable
+models using connectivity-based culling. In SPM ’08 (2008).
+
+Future Work An interesting extension would certainly be
+the use of hierarchical grids [MC95], thus alleviating the performance issues related to sub-optimal cell sizes. We would
+also like to examine the performance and scalability on systems with more CPU and GPU cores.
+
+[THM∗ 03] T ESCHNER M., H EIDELBERGER B., M UELLER M.,
+P OMERANETS D., G ROSS M.: Optimized spatial hashing for
+collision detection of deformable objects. In VMV ’03 (2003).
+
+Acknowledgments We thank the reviewers for their helpful
+suggestions and ideas. The Cloth on Ball and n-body simulations are courtesy of the UNC Dynamic Scene Benchmarks
+collection. The Flamenco dancer simulation is courtesy of
+Walt Disney Animation Studios and was provided by Rasmus Tamstorf and Sean Curtis. The first author is supported
+by the DFG grant STR465/21-1.
+
+[TMT10] TANG M., M ANOCHA D., T ONG R.: Fast continuous
+collision detection using deforming non-penetration filters. In
+I3D ’10 (2010).
+
+References
+[ALT08] A NDERSON J. A., L ORENZ C. D., T RAVESSET A.:
+General purpose molecular dynamics simulations fully implemented on graphics processing units. Journal of Computational
+Physics 227, 10 (2008), 5342 – 5359.
+
+[THM∗ 05] T ESCHNER M., H EIDELBERGER B., M ANOCHA D.,
+G OVINDARAJU N., Z ACHMANN G., K IMMERLE S., M EZGER
+J., F UHRMANN A.: Collision Handling in Dynamic Simulation
+Environments. In Eurographics Tutorials (2005).
+
+[TPB08] T HOMASZEWSKI B., PABST S., B LOCHINGER W.:
+Parallel Techniques for Physically-Based Simulation on MultiCore Processor Architectures. Computers and Graphics (2008).
+[WB06] W ONG W. S.-K., BACIU G.: A randomized marking
+scheme for continuous collision detection in simulation of deformable surfaces. In VRCIA ’06 (2006).
+
+[BFA02] B RIDSON R., F EDKIW R., A NDERSON J.: Robust treatment of collisions, contact and friction for cloth animation. In
+SIGGRAPH ’02 (2002).
+[BW98] BARAFF D., W ITKIN A.: Large steps in cloth simulation. In SIGGRAPH ’98 (1998).
+[CTM08] C URTIS S., TAMSTORF R., M ANOCHA D.: Fast
+collision detection for deformable models using representativetriangles. In I3D ’08 (2008).
+[CUD10] nVidia CUDA.
+http://www.nvidia.com/
+object/cuda_home.html, Apr. 2010.
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+

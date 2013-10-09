@@ -1,0 +1,951 @@
+Volume 28 (2009), Number 2
+
+EUROGRAPHICS 2009 / P. Dutré and M. Stamminger
+(Guest Editors)
+
+An Analytical Solution to Single Scattering
+in Homogeneous Participating Media
+Vincent Pegoraro 1
+1 University
+
+of Utah
+
+Steven G. Parker 1,2
+2 NVIDIA
+
+Corporation
+
+Abstract
+Despite their numerous applications, efficiently rendering participating media remains a challenging task due to
+the intricacy of the radiative transport equation. As they provide a generic means of solving a wide variety of problems, numerical methods are most often used to solve the air-light integral even under simplifying assumptions. In
+this paper, we present a novel analytical approach to single scattering from isotropic point light sources in homogeneous media. We derive the first closed-form solution to the air-light integral in isotropic media and extend this
+formulation to anisotropic phase functions. The technique relies neither on pre-computation nor on storage, and
+we provide a practical implementation allowing for an explicit control on the accuracy of the solutions. Finally,
+we demonstrate its quantitative and qualitative benefits over both previous numerical and analytical approaches.
+Categories and Subject Descriptors (according to ACM CCS): I.3.7 [Computer Graphics]: Three-Dimensional
+Graphics and Realism—Color, shading, shadowing, and texture
+
+1. Introduction
+Participating media model a wide variety of elements and the
+ability to faithfully reproduce their characteristics has many
+scientific applications. Although realistic rendering is often
+of concern to the movie and gaming industries, such interest
+also emerged among safety oriented research where typical
+scenarios entail predicting the visibility of traffic signs in a
+foggy weather or exit signs in a smoke-filled room.
+However, efficiently simulating accurate light transport in
+such media remains a challenging task due to the intricacy
+of the equation governing radiative energy transfer. While
+Monte-Carlo and finite element techniques made complex
+problems tractable, generic numerical methods such as raymarching and volume-slicing are most often used to compute
+a solution to the air-light integral even under simplifying assumptions. Although simple and practical, these techniques
+do not exploit the characteristics of the integrand of concern
+and are prompt to under-sampling artifacts.
+Considering optically thin media lit by isotropic light
+sources, this paper presents an analytical approach to solving the single scattering air-light integral. It provides a novel
+reformulation of the latter as to yield a closed-form solution
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+in terms of well-known functions for isotropic media, and
+extends the previous results to anisotropic phase functions.
+This document starts by providing an overview of the related work and theoretical background on the air-light integral. The derivation of the analytical solutions as well as
+a practical implementation are then presented followed by
+both quantitative and qualitative results along with a discussion of the potential limitations of the method.
+2. Related Work
+Several techniques have been proposed in the computer
+graphics literature for rendering participating media, ranging from computationally expensive detailed simulations of
+multiple scattering in complex environments to drastic approximations primarily concerned with interactivity. A good
+survey of these methods is provided in [CPCP∗ 05].
+Optically thin media were first investigated by Blinn
+[Bli82] who introduced an analytical model for homogeneous media under the assumption of an infinitely distant
+light source and viewer. Later, Max [Max86] proposed to
+evaluate the air-light integral by fitting Hermite cubic polynomials on adaptively subdivided intervals along the ray.
+
+330
+
+V. Pegoraro & S. G. Parker / An Analytical Solution to Single Scattering in Homogeneous Participating Media
+
+Despite the conceptual simplicity of single scattering in
+a homogeneous medium, numerical methods provide a convenient means of dealing with the actual complexity of the
+corresponding integrand and many techniques based on raymarching or volume-slicing have consequently been developed. Considering anisotropic media lit by spotlights of
+varying intensity, Nishita et al. [NMN87] proposed to bound
+each light by a cone as to restrict ray-marching to illuminated segments only. Dobashi et al. [DYN00] exploit the
+GPU capabilities to perform hardware blending of viewaligned slices mapped with textures describing the light
+intensity and computed on the CPU. To reduce aliasing
+without compromising interactivity, they [DYN02] subsequently proposed to approximate the integral of a product
+as a product of integrals, allowing the low frequencies to be
+coarsely evaluated on the CPU while higher-frequencies are
+finely sampled via textured subplanes. Being also concerned
+about the trade-offs between aliasing and cost, Imagire et
+al. [IJTN07] proposed to divide the space into a set of sampling hulls of which contributions are hardware-blended, allowing for higher sampling rates while limiting read-write
+memory accesses. In their paper [ET08], the authors also resort to ray-marching to compute the final scattering intensity
+of a pixel based on the number of lit samples, and build a
+min-max MIP-MAP of the shadow map to allow finer sampling in potentially high-frequency regions. Jittering of the
+initial samples along each ray is used to remove aliasing artifacts from regular sampling, alas introducing noise instead.
+Besides the image post-processing technique of Mitchell
+[Mit07], several analytical approaches have also been proposed. Hoffman et al. [HP02] and Riley et al. [REK∗ 04] derived such models for single atmospheric scattering of directional sun light in constant and exponentially decreasing medium densities respectively. Considering point light
+sources, Lecocq et al. [LMAK00] presented an angular formulation of the radiative transport equation and expand the
+resulting integrand into a Taylor series allowing each term to
+be analytically integrated. Biri et al. [BMA03, BAM06] subsequently combined this angular formulation with volumetric shadows by expressing the ray integral as a difference of
+contributions along each segment. While presenting theoretical advantages, the derivation of each term of the Taylor expansion however usually requires a human intervention and
+the method consequently does not lend itself to well-defined
+precision requirements. In their paper, Sun et al. [SRNN05]
+rederive Lecocq’s formulation using a different notation and
+perform an additional linear change of variable to simplify it
+further. The integral is then tabulated via numerical precomputation and cheaply interpolated on the GPU during rendering, hence trading computation for storage. Also, while the
+angular coordinate of this 2D table is bounded, the second
+degree of freedom is a distance of which extent might not be
+known in advance. Wyman et al. [WR08] subsequently combined this approach with ray-marching as to handle lightshafts and anisotropic light sources.
+
+3. An Analytical Solution to Single Scattering
+This section starts by describing the mathematical formulation of the air-light integral in homogeneous participating
+media under the assumption of an isotropic light. An analytical solution for isotropic media is subsequently derived
+before extending this result to anisotropic phase functions.
+3.1. The Air-Light Integral
+
+Figure 1: Illustration of the terms involved in the computation of the air-light integral.
+For a given wavelength, the radiative transport equation
+(RTE) describes the change of radiance L along a ray of direction ω through a medium as [SH81]
+∂L(x, ω)
+= κa (x)(Le (x, ω) − L(x, ω)) +
+∂x
+κs (x)(Li (x, ω) − L(x, ω)),
+
+(1)
+
+where κa is the absorption coefficient, κs the scattering coefficient, Le the emitted radiance, and Li the in-scattered radiance. Defining the boundary condition as the background
+as κt = κa +κs and the
+radiance Lb , the extinction coefficient
+R
+optical thickness as τ(xa , xb ) = xxab κt (x)dx, the RTE accepts
+an integral form which at a point xa reads
+L(xa , ω) = e−τ(xa ,xb ) Lb (xb , ω) +
+Z xb
+xa
+
+−τ(xa ,x)
+
+e
+
+(2)
+
+(κa (x)Le (x, ω) + κs (x)Li (x, ω))dx.
+
+Assuming a homogeneous non-emitting medium of phase
+function Φ illuminated by an isotropic point light source of
+intensity I, the in-scattered radiance reads [NMN87]
+e−κt d(x,ω)
+(3)
+Φ(φ(x, ω))
+d(x, ω)2
+√2
+2
+π
+e−κt h +(x−xh )
+x − xh
++
+= I 2
+Φ arctan
+h
+2
+h + (x − xh )2
+
+Li (x, ω) = I
+
+where h is the distance from the light to the given ray and xh
+the coordinate of its projection onto it, both being constant
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+331
+
+V. Pegoraro & S. G. Parker / An Analytical Solution to Single Scattering in Homogeneous Participating Media
+
+for a given orientation along the ray as illustrated in figure 1.
+Defining Lm as the medium radiance, equation 2 becomes
+−κt (xb −xa )
+
+L(xa , ω) = e
+κt xa
+
+Iκs e
+
+Lb (xb , ω) +
+√2
+2
+
+Z xb −κt x+ h +(x−xh )
+e
+
+h2 + (x − xh )2
+
+xa
+
+In this work, the impact of the medium on surface shading
+is assumed to be dominated by extinction phenomena and
+the background radiance is therefore computed as follows
+e−κt d(xb ,ω)
+β(ω, ωi , n) ωi · n,
+d(xb , ω)2
+
+(5)
+
+where n is the surface normal at xb , ωi is a vector directed
+towards the light source and β is the bidirectional reflectance
+distribution function (BRDF). The evaluation of the medium
+radiance is addressed in the remainder of this document.
+
+3.2. Analytical Reformulation
+We start by simplifying the formulation of the medium radiance such that the integrand becomes a function of only 2
+parameters. For this, we make the following change of varih
+able u = x−x
+h , and define the optical distance from the light
+source to the ray as H = κt h, which yields
+Lm (xa , xb , ω) =
+I
+
+κs κt (xa −xh )
+e
+h
+
+Z
+
+√
+−H(u+ 1+u2 )
+
+xb −xh
+h
+
+e
+
+1 + u2
+
+xa −xh
+h
+
+(6)
+Φ arctan(u) +
+
+π
+2
+
+du.
+
+We also note that almost all phase functions are expressed
+in terms of the cosine of the angle and define Φc such that
+Φ(φ) = Φc (cos(φ)). Plugging this into equation 6 gives
+Lm (xa , xb , ω) =
+I
+
+κs κt (xa −xh )
+e
+h
+
+√
+
+Z
+
+xb −xh
+h
+xa −xh
+h
+
+√
+−H(u+ 1+u2 )
+
+e
+
+1 + u2
+
+(7)
+Φc − √
+
+u
+1 + u2
+
+κs κt (xa −xh )
+e
+2
+h
+
+Z vb −Hv
+e
+va
+
+1 + v2
+
+1 − v2
+1 + v2
+
+Φc
+
+dv
+(8)
+
+x − xh
++
+h
+
+1+
+
+x − xh
+h
+
+2
+
+.
+
+κs κt (xa −xh ) 2
+e
+h
+4π
+
+Z vb −Hv
+e
+va
+
+1 + v2
+
+dv.
+
+(10)
+
+Defining the imaginary entity ı2 = −1 and Ei as the exponential integral function [AS72], the resulting integrand
+accepts an antiderivative known to be
+Z
+
+eav
+ı −ıa
+e Ei(av + ıa) − eıa Ei(av − ıa) . (11)
+dv =
+2
+1 + v2
+
+Noting that Ei(¯z) = Ei(z) and expanding each term into
+its real ℜ and imaginary ℑ parts, equation 11 simplifies into
+a function that we refer to as i0 and which reads
+Z
+
+eav
+dv = sin(a)ℜ(Ei(av + ıa)) − cos(a)ℑ(Ei(av + ıa))
+1 + v2
+= i0 (a, v).
+(12)
+
+Defining I0 (a, va , vb ) = i0 (a, vb ) − i0 (a, va ), equation 10
+can then be rewritten as follows
+2
+κs
+Lm (xa , xb , ω) = I eκt (xa −xh ) I0 (−H, va , vb )
+h
+4π
+2
+κs
+(13)
+= I eκt (xa −xh )
+h
+4π
+sin(−H)ℜ Ei −H(vb + ı) − Ei − H(va + ı)
+− cos(−H)ℑ Ei −H(vb + ı) − Ei − H(va + ı)
+
+.
+
+To the best of our knowledge, this is the first closedform solution expressed in terms of well-known functions
+proposed in the literature to the air-light integral under the
+given assumptions. Although the solution involves a nonelementary special function, namely the exponential integral, it demonstrates the theoretical foundations for how the
+air-light integral relates to this standard mathematical entity.
+3.4. Anisotropic Phase Function
+
+where we note va = v(xa ) and vb = v(xb ) with
+v(x) =
+
+Lm (xa , xb , ω) = I
+
+du.
+
+We finally propose the following substitution v = u +
+2
+−1
+1 + u2 which uniquely defines u = v 2v
+, and yields
+
+Lm (xa , xb , ω) = I
+
+When considering an isotropic medium, the phase function
+1
+1−v2
+(4) reads Φc 1+v2 = 4π and equation 8 becomes
+
+π
+x − xh
++
+dx .
+Φ arctan
+h
+2
+
+Lm (xa ,xb ,ω)
+
+Lb (xb , ω) = I
+
+3.3. Isotropic Phase Function
+
+(9)
+
+While this formulation might still seem relatively convoluted, it is actually key to our approach and will allow the
+derivation of analytical solutions to the air-light integral as
+discussed in the subsequent sections.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+We now show how the previous results can be extended to
+anisotropic media. Since deriving a custom analytical solution for all existing phase functions is obviously impossible,
+we seek a generic mechanism for them to expose a common
+interface. For this, we propose to use an expansion into a
+Taylor series as to express any phase function as a polynomial. Please note that unlike Lecocq’s approach [LMAK00]
+where the entire integrand is expanded via an often arduous
+process into a series in order to easily approximate the integral, we only expand the phase function formulation as to
+provide a common generic representation. Doing so yields
+2
+n
+= ∑N−1
+Φc 1−v
+n=0 cn v and equation 8 then becomes
+1+v2
+Lm (xa , xb , ω) = I
+
+κs κt (xa −xh ) N−1
+e
+2 ∑ cn
+h
+n=0
+
+Z vb −Hv
+e
+n
+va
+
+1 + v2
+
+v dv. (14)
+
+332
+
+V. Pegoraro & S. G. Parker / An Analytical Solution to Single Scattering in Homogeneous Participating Media
+
+As an antiderivative for the resulting integrand did not appear in any of the standard tables of integrals we had access
+to, we derived a generic solution on our own and verified
+the formulations obtained with this potentially new result for
+various individual values of n against the outputs provided
+by Mathematica. This solution reads
+Z
+
+n−2
+eav n
+v dv = eav ∑ v j c(a, j, n) +
+2
+1+v
+j=0
+
+n−2− j
+
+∑
+
+(−1)
+
+n−i− j
+2
+
+i=(n−2− j) mod 2
+i+=2
+
+1
+(i + j)!
+−
+j!
+a
+
+ℑ(Ei(z)) = ϕ +
+
+i+1
+
+(17)
+
+Exploiting the periodicity of ın−1 and expanding each
+term into its real and imaginary parts, it then follows that
+Z
+
+av
+
+e
+vn dv = eav
+1 + v2
+4
+⌊ n mod
+⌋
+2
+
+(−1)
+
+n−2
+
+(18)
+
+j=0
+
+Defining I1 (a, va , vb ) = i1 (a, vb ) − i1 (a, va ), the solution
+to equation 14 finally reads
+N−1
+
+n−2
+
+∑
+
+j=0
+
+(−1)⌊
+
+κs κt (xa −xh )
+e
+2 ∑ cn
+h
+n=0
+
+e−Hvb vb − e−Hva va c(−H, j, n) +
+j
+
+n mod 4
+⌋
+2
+
+j
+
+I(n mod 2) (−H, va , vb ) .
+
+(19)
+
+4. Implementation
+Although several libraries provide implementations of the
+exponential integral, the latter belongs to the class of nonelementary special functions and is not part of the standard
+C/C + + libraries. Therefore, we chose to implement a custom solution optimized for the application of concern by
+amortizing computational efforts in a single iterative loop.
+The exponential integral is most often evaluated via the
+following convergent series assuming z ∈
+/ {−∞, 0}
+Ei(z) = γ + ln(z) +
+
+∞
+
+zk
+
+∑ k k!
+
+k=1
+
+(22)
+
+k=1
+
+ρkv
+sin(a − kϕv )
+k k!
+k=1
+
+(23)
+
+i1 (a, v) = cos(a)(γ + ln(ρv )) + sin(a)ϕv
+∞
+
+ρkv
+cos(a − kϕv )
+k
+k!
+k=1
+
++∑
+
+(24)
+
+from which follows that
+I0 (a, va , vb ) = sin(a) ln
+∞
+
++∑
+
+ρvb
+ρva
+
+− cos(a)(ϕvb − ϕva )
+
+1
+ρkv sin(a − kϕvb ) − ρkva sin(a − kϕva )
+k k! b
+
+I1 (a, va , vb ) = cos(a) ln
+
+ρvb
+ρva
+
+(25)
+
++ sin(a)(ϕvb − ϕva )
+
+∞
+
+i(n mod 2) (a, v).
+
+Lm (xa , xb , ω) = I
+
+ρk
+
+∑ k k! sin(kϕ).
+
+∞
+
+k=1
+
+∑ v j c(a, j, n) +
+
+(21)
+
+k=1
+
++∑
+
+eav
+1 −ıa
+e Ei(av + ıa) + eıa Ei(av − ıa)
+vdv =
+2
+1 + v2
+= cos(a)ℜ(Ei(av + ıa)) + sin(a)ℑ(Ei(av + ıa))
+= i1 (a, v).
+
+ρk
+
+i0 (a, v) = sin(a)(γ + ln(ρv )) − cos(a)ϕv
+
+(16)
+.
+
+In order to express formula 15 in terms of real entities, we
+introduce the following antiderivative
+Z
+
+∞
+
+∞
+
+∑ k k! cos(kϕ)
+
+Defining zv = av + ıa = ρv eıϕv where ρv = a2 (v2 + 1)
+and ϕv = atan2(a, av), equations 12 and 17 become
+
+where
+c(a, j, n) =
+
+ℜ(Ei(z)) = γ + ln(ρ) +
+
+(15)
+
+1 −ıa
+e Ei(av + ıa) + ın−1 eıa Ei(av − ıa)
+ın−1
+
+1
+2
+
+where the Euler-Mascheroni constant is defined as γ ≈
+0.577215664901532860606512 . . . [AS72]. Formulating a
+complex number z = x + ıy into its exponential form z = ρeıϕ
+where ρ = |z| = x2 + y2 and ϕ = Arg(z) = atan2(y, x) gives
+
+(20)
+
+1
+ρkvb cos(a − kϕvb ) − ρkva cos(a − kϕva ) . (26)
+k
+k!
+k=1
+
++∑
+
+To exploit the similarities between the formulations of I0
+and I1 , we implemented a single function computing both results simultaneously and of which pseudo-code is provided
+in figure 2. The quality of the results is determined by line
+25. interrupting the iterative process if the convergence test
+is satisfied. As the sine and cosine terms in the increments
+might reach local minima and provide an erroneous indication of the actual state of convergence, the test is performed
+on a distinct indicator being a conservative estimate of the
+potential amplitude of the increments obtained when the two
+terms have opposite signs. Depending on the needs, the indicator might be directly compared against the desired precision to provide a control on the absolute error or its product
+with each integral for a control on the relative error. Also, it
+is worth noting that the terms I0 and I1 in equation 19 are independent of the value of the iterator n and can consequently
+be computed once only before entering the loop.
+5. Results
+The method was implemented in a software ray-tracer running on an Intel Xeon 3.00GHz processor desktop. Performance characteristics for the various scenes are provided
+in table 1. In order to evaluate the quality of the results
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+V. Pegoraro & S. G. Parker / An Analytical Solution to Single Scattering in Homogeneous Participating Media
+
+1.
+2.
+3.
+4.
+5.
+6.
+7.
+8.
+9.
+10.
+11.
+12.
+13.
+14.
+15.
+16.
+17.
+18.
+19.
+20.
+21.
+22.
+23.
+24.
+25.
+26.
+
+I01(a, va, vb, precision, maxIterations)
+ρva = sqrt(a ∗ a ∗ (va ∗ va + 1));
+ρvb = sqrt(a ∗ a ∗ (vb ∗ vb + 1));
+ϕva = atan2(a, a ∗ va );
+ϕvb = atan2(a, a ∗ vb );
+sina = sin(a);
+cosa = cos(a);
+logv = log(ρvb /ρva );
+phiv = ϕvb − ϕva ;
+I0 = sina ∗ logv − cosa ∗ phiv ;
+I1 = cosa ∗ logv + sina ∗ phiv ;
+k f ac = 1;
+ρkva = 1;
+ρkvb = 1;
+f or(k = 1; k ≤ maxIterations; k + +)
+k f ac∗ = k;
+ρkva ∗ = ρva ;
+ρkvb ∗ = ρvb ;
+ϕkva = a − k ∗ ϕva ;
+ϕkvb = a − k ∗ ϕvb ;
+denom = 1/(k ∗ k f ac);
+I0 + = (ρkvb ∗ sin(ϕkvb ) − ρkva ∗ sin(ϕkva )) ∗ denom;
+I1 + = (ρkvb ∗ cos(ϕkvb ) − ρkva ∗ cos(ϕkva )) ∗ denom;
+indicator = (ρkvb + ρkva ) ∗ denom;
+i f (Converged(indicator, precision, I0 , I1 ))break;
+return(I0 , I1 );
+
+Figure 2: Pseudo-code of the function simultaneously computing I0 (a, va , vb ) and I1 (a, va , vb )
+over a wide range of ray trajectories, we experimented with
+an environment camera as shown in figure 3. When using
+Lecocq’s method with the first 5 terms of the Taylor expansion as provided in [BMA03], ghosting artifacts occur
+in directions opposite to the light sources where negative
+estimates are generated followed by large over-evaluations.
+While the artifacts are less dramatic when bi-linearly interpolating Sun’s 512x512 precomputed table made available
+by the authors, white spots remain due to the inability of
+the tabulated data to capture fine variations of the function.
+Moreover, inaccuracies occur in places where the distance
+parameter falls outside of the range of values handled by
+their table causing an erroneous brightening mostly visible
+under the arcades. On the other hand, our method automatically adapts to the required accuracy as to faithfully match
+the reference image. The quality of the results is highlighted
+in figure 6 where the errors here visible in our results are actually due to noise yet remaining in the reference solutions.
+Figure 4 shows a scene containing an isotropic fog in
+which the air-light integral is evaluated independently for
+each color channel. When adjusting the step size as to match
+the rendering time of our approach, ray-marching yields severe undersampling artifacts. While being less obvious than
+previously, Lecocq’s method also induces inaccuracies most
+noticeable around the glows of the light sources.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Figure
+Metric
+Ray-Marching
+Lecocq
+Sun
+Our Method
+Our Method 6
+Iterations
+
+3 (1024x512) 4 (512x512)
+Time Error Time Error
+35 s 4.2e-2
+172 s 3.7e-2 29 s 3.6e-3
+168 s 3.4e-3
+189 s 1.9e-4 35 s 5.5e-4
+15.944628
+
+6.053324
+
+333
+5 (512x512)
+Time Error
+91 s 2.2e-2
+98 s 3.5e-3
+100 s 3.2e-4
+10.951751
+
+Table 1: Performance characteristics for the various scenes
+rendered at the given resolution with 4 antialiasing samples
+per pixel, including rendering time and average error for
+ray-marching, Lecocq’s method, Sun’s method, and our analytical solution (with 3 and 6 coefficients for anisotropic
+media) along with the average number of iterations it required to reach an accuracy of 0.1%. Reference solutions
+were computed using Monte Carlo integration in 48 hours.
+
+Finally, figure 5 illustrates the results obtained for a
+Rayleigh phase function. In such anisotropic medium, Sun’s
+approach is not practical as it requires a table to be precomputed for each possible value of the parameters of each possible phase function. Using only the first 3 terms of the Taylor expansion as reported by Biri et al. [BAM06], Lecocq’s
+method leads to inaccuracies in the glow and to an erroneous
+darkening of the left side of the image while with the same
+number of terms, our approach matches the reference solution more closely. Also, the formulation of the terms used in
+a Taylor expansion typically requires a cascading derivation
+of the derivatives, generally through human intervention. In
+Lecocq’s formulation, this process here becomes fairly intractable beyond the first 3 terms. Because our method relies on the expansion of the phase function only rather than
+the entire integrand, additional terms could be easily derived
+yielding results that here become virtually indistinguishable
+from the reference solution as shown in figure 6.
+6. Discussion and Future Work
+Besides its obvious coupling with a shadow volume algorithm as to naturally limit the integration domain to nonoccluded ray segments, thus allowing the rendering of light
+shafts caused by the geometry as in [BAM06], we believe
+that our method could be improved in several ways.
+While we demonstrated the potential of the technique for
+accuracy, we acknowledge that formulating the phase function in terms of a Taylor expansion might lead to precision issues, and further investigation is required to alleviate
+this limitation. Moreover, the extension to anisotropic light
+sources could be addressed as to make the method suitable
+to a broader spectrum of applications.
+Regarding performance, while integration bounds distant
+from the light source might moderately affect the convergence rate of the solution, the latter will be more prominently
+
+334
+
+V. Pegoraro & S. G. Parker / An Analytical Solution to Single Scattering in Homogeneous Participating Media
+
+Figure 4: A bridge by a foggy night illuminated by two
+colorful streetlamps, rendered using (top-left) ray-marching,
+(top-right) Lecocq’s method, (bottom-left) our analytical approach, and (bottom-right) Monte Carlo integration.
+
+Figure 3: The Sibenik cathedral filled with isotropic dust
+and illuminated by two white sources, rendered using (from
+top to bottom) Lecocq’s method, Sun’s method, our analytical approach, and Monte Carlo integration.
+
+are probably not representative of the relative performance
+that would result from a GPU implementation and the aforementioned techniques are likely to be more adequate whenever real-time performance prevails over accuracy. Note
+however that the parameters of the integral in equation 8 can
+be trivially expressed in terms of an angular-distance coordinate pair (φ, H) via the relationship u = tan φ − π2 , and that
+the proposed solution is therefore readily applicable in place
+of numerical integration for efficiently precomputing Sun’s
+2D table. Nevertheless, we hope that mathematical advances
+on the study of special functions will allow the technique
+in itself to become more suitable to interactive applications
+in the near future, and have already shown its benefits over
+traditional ray-marching approaches.
+7. Conclusion
+
+impacted by the value of H. Therefore, the computational
+cost will increase as rays get farther away from the light, or
+in optically thick media but where the single-scattering assumption gets violated in the first place.
+
+In this paper, we have presented a novel analytical approach
+to single scattering from point light sources in homogeneous
+media. We have shown how to derive what we believe to
+be the very first closed-form solution expressed in terms of
+well-known functions to the air-light integral in isotropic
+media under the given assumptions, and discussed how this
+solution can be extended to anisotropic phase functions.
+
+Also, the many more relatively expensive iterations required by our technique to achieve high quality results obviously entail a higher cost than Lecocq’s approximation
+[LMAK00] or Sun’s table look-up [SRNN05] as illustrated
+in the previous section. Furthermore, the reported timings
+
+The technique relies neither on pre-computation nor on
+storage, and we have provided a practical implementation
+allowing for an explicit control on the precision of the solution, consequently yielding more accurate results than previous numerical and analytical methods as demonstrated both
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+V. Pegoraro & S. G. Parker / An Analytical Solution to Single Scattering in Homogeneous Participating Media
+
+335
+
+Acknowledgments
+This research was supported by the U.S. Department of Energy through the Center for the Simulation of Accidental
+Fires and Explosions, under grant W-7405-ENG-48. Sibenik
+cathedral model courtesy of Marko Dabrovic at RNA Studios, bridge model courtesy of NVIDIA Corporation, and
+conference room model courtesy of Greg Ward at LBL.
+References
+[AS72] A BRAMOWITZ M., S TEGUN I. A.: Handbook of Mathematical Functions with Formulas, Graphs, and Mathematical
+Tables. U.S. Department of Commerce, 1972.
+[BAM06] B IRI V., A RQUÈS D., M ICHELIN S.: Real Time Rendering of Atmospheric Scattering and Volumetric Shadows. Journal of WSCG 14 (2006), 65–72.
+[Bli82] B LINN J. F.: Light Reflection Functions for Simulation
+of Clouds and Dusty Surfaces. SIGGRAPH Computer Graphics
+16, 3 (1982), 21–29.
+[BMA03] B IRI V., M ICHELIN S., A RQUÈS D.: Real-Time Single Scattering with Shadows, 2003.
+
+Figure 5: The conference room filled with anisotropic smoke
+illuminated by an emergency light, rendered using (top-left)
+Lecocq’s method with 3 terms, (top-right) our analytical approach with 3 terms, (bottom-left) our analytical approach
+with 6 terms, and (bottom-right) Monte Carlo integration.
+
+[CPCP∗ 05] C EREZO E., P EREZ -C AZORLA F., P UEYO X.,
+S ERON F., S ILLION F.: A Survey on Participating Media Rendering Techniques. The Visual Computer 21, 5 (2005), 303–328.
+[DYN00] D OBASHI Y., YAMAMOTO T., N ISHITA T.: Interactive Rendering Method for Displaying Shafts of Light. In Pacific
+Graphics (2000), pp. 31–37.
+[DYN02] D OBASHI Y., YAMAMOTO T., N ISHITA T.: Interactive Rendering of Atmospheric Scattering Effects Using Graphics Hardware. In Graphics Hardware (2002), pp. 99–107.
+[ET08]
+
+E. M., T. S.: Volume Light. NVIDIA White Paper, 2008.
+
+[HP02] H OFFMAN N., P REETHAM A. J.: Rendering Outdoor
+Light Scattering in Real Time. ATI White Paper, 2002.
+[IJTN07] I MAGIRE T., J OHAN H., TAMURA N., N ISHITA T.:
+Anti-Aliased and Real-Time Rendering of Scenes with Light
+Scattering Effects. Visual Computer 23, 9 (2007), 935–944.
+[LMAK00] L ECOCQ P., M ICHELIN S., A RQUÈS D., K EMENY
+A.: Mathematical Approximation for Real-Time Lighting Rendering Through Participating Media. In Pacific Graphics (2000),
+pp. 400–401.
+[Max86] M AX N. L.: Atmospheric Illumination and Shadows.
+SIGGRAPH 20, 4 (1986), 117–124.
+[Mit07]
+
+Figure 6: Visualization of the absolute error mapped to hue
+(from blue to red) of the results (left) from figure 3 for (from
+top to bottom) Lecocq’s method, Sun’s method, and our analytical approach, (middle) from figure 4 for ray-marching,
+Lecocq’s method, and our analytical approach, and (right)
+from figure 5 for Lecocq’s method with 3 terms, and our analytical approach with 3 and 6 terms respectively.
+
+quantitatively and qualitatively. Although not readily suitable to real-time applications, we believe such type of analytical approach to be a promising alternative to traditional
+ray-marching/slice-based volume rendering techniques, and
+hope it will inspire subsequent research in the field.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+M ITCHELL K.: GPU Gems 3. 2007, ch. 13, pp. 275–285.
+
+[NMN87] N ISHITA T., M IYAWAKI Y., NAKAMAE E.: A Shading
+Model for Atmospheric Scattering Considering Luminous Intensity Distribution of Light Sources. SIGGRAPH Computer Graphics 21, 4 (1987), 303–310.
+[REK∗ 04] R ILEY K., E BERT D. S., K RAUS M., T ESSENDORF
+J., H ANSEN C. D.: Efficient Rendering of Atmospheric Phenomena. In Eurographics Symposium on Rendering (2004),
+pp. 374–386.
+[SH81] S IEGEL R., H OWELL J. R.: Thermal Radiation Heat
+Transfer. Hemisphere Publishing Corporation, 1981.
+[SRNN05] S UN B., R AMAMOORTHI R., NARASIMHAN S. G.,
+NAYAR S. K.: A Practical Analytic Single Scattering Model for
+Real Time Rendering. Transactions on Graphics 24, 3 (2005),
+1040–1049.
+[WR08] W YMAN C., R AMSEY S.: Interactive Volumetric Shadows in Participating Media with Single-Scattering. In Symposium
+on Interactive Ray Tracing (2008), pp. 87–92.
+
+

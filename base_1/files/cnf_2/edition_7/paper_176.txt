@@ -1,0 +1,1416 @@
+Pacific Graphics 2009
+S. Lee, D. Lischinski, and Y. Yu
+(Guest Editors)
+
+Volume 28 (2009), Number 7
+
+Linkless Octree Using Multi-Level Perfect Hashing
+Myung Geol Choi1 and Eunjung Ju1 and Jung-Woo Chang2 and Jehee Lee1 and Young J. Kim3
+1 Seoul
+
+National University, Korea
+of Hong Kong, Hong Kong
+3 Ewha Womans University, Korea
+
+2 University
+
+Abstract
+The standard C/C++ implementation of a spatial partitioning data structure, such as octree and quadtree, is
+often inefficient in terms of storage requirements particularly when the memory overhead for maintaining parentto-child pointers is significant with respect to the amount of actual data in each tree node. In this work, we
+present a novel data structure that implements uniform spatial partitioning without storing explicit parent-tochild pointer links. Our linkless tree encodes the storage locations of subdivided nodes using perfect hashing
+while retaining important properties of uniform spatial partitioning trees, such as coarse-to-fine hierarchical
+representation, efficient storage usage, and efficient random accessibility. We demonstrate the performance of our
+linkless trees using image compression and path planning examples.
+Categories and Subject Descriptors (according to ACM CCS): Computer Graphics [I.3.6]: Graphics data structures
+and data types—
+
+1. Introduction
+Uniform spatial partitioning data structures such as
+quadtrees and octrees are widespread in a variety of graphics applications including spatial indexing, image/volume
+encoding and compression, collision detection, visibility
+culling and path planning. These spatial partitioning structures often allow large spatial data sets to be maintained efficiently in terms of storage requirements and random accessibility, in particular, when strong spatial coherence exists in
+the data sets.
+The standard C/C++ implementation of a spatial partitioning
+data structure subdivides each spatial cell into child cells recursively and maintains parent-to-child pointer links. Sometimes, the memory overhead for storing parent-to-child links
+is significant with respect to the amount of actual data in
+each cell. For example, a uniform spatial partitioning tree
+encoding a d-dimensional binary volume maintains a single
+bit (either zero or one) of data in each cell together with 2d
+pointers. In a 32-bit addressing machine, the memory overhead for each non-leaf node is 32 ∗ 2d (bits), which is several
+orders of magnitude larger than the actual amount of data in
+the node.
+A number of techniques have been studied for storing
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+quadtrees and octrees memory efficiently. A linear quadtree
+converts a hierarchical structure into a one-dimensional array by traversing the tree in depth-first order [Gar82, OW83,
+Woo84]. The linear quadtree is memory efficient because it
+does not maintain parent-to-child pointers. The disadvantage
+of the linear depth-first traversal encoding is its inefficiency
+in random access to tree nodes. Accessing an arbitrary node
+necessitates sequential scanning of the array for tree traversal. Many of linear quadtree variants exhibit a trade-off between storage requirements and efficient random accessibility.
+In this work, we present a novel data structure that implements uniform spatial partitioning without storing explicit
+parent-to-child pointers. Our linkless tree maintains non-leaf
+nodes at small extra storage by layering multiple hashing
+functions. Without storing explicit links, it retains several
+important properties of uniform spatial partitioning trees,
+such as coarse-to-fine hierarchical representation, efficient
+storage usage, and efficient random accessibility.
+Our linkless tree is particularly useful for compactly representing high-dimensional binary bitmap volumes. Modeling
+free configuration space for path planning often generates
+such data sets. The free space map is a d-dimensional bi-
+
+1774
+
+Myung Geol Choi et al. / Linkless Octree Using Multi-Level Perfect Hashing
+
+Hash Tables
+
+1024 x 1024
+Original Binary Bitmap
+
+7X7
+
+12 X 12
+
+5X5
+
+7X7
+
+18 X 18
+
+14 X 14
+
+27 X 27
+
+17 X 17
+
+38 X 38
+
+23 X 23
+
+50 X 50
+
+28 X 28
+
+116 X 116
+
+35 X 35
+
+Offset Tables
+Figure 1: The linkless quadtree of a binary image. Each entry of an offset table is a two-dimensional vector and each of its
+components is quantized to 8-bits. Vector values in the tables are color coded using red and green channels. Note that our
+algorithm does not generate the first two levels of the hierarchy because the compact packing of non-leaf cells at those levels is
+not smaller than the original image.
+
+nary bitmap volume, which represents whether each configuration cell is free or occupied. It is impractical to store
+an uncompressed bitmap volume because its size scales exponentially with its dimensionality. We will demonstrate
+three examples using three-, four-, and five-dimensional free
+space maps. The three-dimensional example models a planar rigid mover and static obstacles. The mover is allowed
+to translate and rotate on a plane. The use of an animated
+mover navigating through static obstacles adds an extra dimension (for parameterizing the pose of the mover) to yield
+four-dimensional configuration space. Modeling free configurations between two animated characters requires a fivedimensional binary bitmap, which can be compactly represented by using our linkless spatial partitioning tree.
+
+2. Previous Work
+Spatial partitioning is a standard technique in computer
+graphics. Though the standard pointer-based implementation is extremely popular in a variety of graphics applications, the variants of quadtrees and octrees have also been
+explored for reducing storage requirements, improving the
+performance of dynamic updates, and GPU implementation. Gargantini [Gar82] presented a linear quadtree that
+represents hierarchical tree data without pointers. The linear quadtree encodes only non-empty nodes with a quaternary integer whose digits indicate quadrant subdivision position and preserved the integer data in one-dimensional array. Oliver and Wiseman [OW83] and Woodwark [Woo84]
+compressed the linear quadtree further by providing sophisticated tree traversal code. Their major concern was deriving
+maximum benefit from compressing required storage and,
+therefore, the performance for accessing tree nodes and dynamically updating tree structures was compromised. Fab-
+
+brini [FM86] proposed an autumnal quadtree that stores the
+data of leaf nodes into the pointer fields in their parent nodes.
+The autumnal tree can be used only when the size of pointers
+is longer than data fields in each node. To avoid this restriction, Lefebvre [LH07] encoded each data value into 7 bits
+by using vector quantization method. This approach leads to
+lossy data compression.
+The theoretical lower bound of the size of a binary tree encoding is 2n − o(n) bits, where n is the number of nodes.
+The theoretical lower bound can be achieved by level-order
+bit stream encoding that encodes leaf (zero) and non-leaf
+(one) nodes in a breath-first tree traversal order. Given such a
+succinct data structure, implementing basic operations such
+as finding a parent/child/sibling node is non-trivial. There
+have been significant research on compactly representing
+binary trees and augmenting auxiliary indexing structures
+to perform basic operations efficiently on succinct binary
+trees [Jac89,MR97]. Research on trees of higher-degree has
+arisen recently. Benoit et al. [BDM∗ 05] encoded a tree of
+degree 2d in (( d + 2)n + o(n) + O(lg d)) bits and implemented basic navigational operations in O(1) time and random node access in O(lg n) time. On the other hand, several
+researchers explored efficient methods for constructing and
+dynamically updating quadtrees and octrees. Eppstein and
+his colleagues [EGS05] presented a skiptree data structure
+that allows for fast point insertion and deletion. Quadtrees
+and octrees have been implemented on GPUs by exploiting the general-purpose programming capability of modern
+GPUs [LSK∗ 06, PF05, ZHWG08].
+Spatial hashing techniques pack sparse spatial data into a
+compact table. Lefebvre and Hoppe [LH06] explored the use
+of perfect hashing in graphics applications and its implementation on GPUs. A hash function is perfect if it has no colc 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Myung Geol Choi et al. / Linkless Octree Using Multi-Level Perfect Hashing
+
+small extra storage. Though our structure is called a linkless
+“octree”, we actually refer to its d-dimensional generalization that performs uniform spatial partitioning for all axes.
+Our implementation allows 2D, 3D, 4D, and 5D volumes
+to be stored in an adaptive spatial partitioning structure. We
+will first explain the construction of a binary octree in Section 3.1. The generalization of the construction algorithm for
+dealing with longer data fields will be discussed later in Section 3.2.
+
+su
+bd
+iv
+id
+e
+
+Bk-1
+
+level k-1
+
+su
+b
+
+di
+vi
+de
+
+ng
+
+i
+sh
+ha
+
+Bk
+
+1775
+
+3.1. Octree for Binary Data
+
+level k
+i
+sh
+ha
+su
+
+Bk+1
+
+bd
+iv
+
+id
+e
+
+ng
+
+The linkless octree consists of a pyramid of coarse-to-fine
+bitmaps. Each cell in the bitmap (except the bitmap at the
+finest level) has two bits. One bit encodes whether the cell is
+leaf node or not. A non-leaf cell includes both ones and zeros
+in its bitmap region. The non-leaf cell requires a subsequent
+subdivision to achieve higher resolution. The other bit marks
+the cell as either all-zero or all-one if the cell is leaf node.
+The finest level in the hierarchy has a one-bit binary bitmap
+because the leaf/non-leaf flag is not necessary any more.
+
+level k+1
+g
+in
+sh
+
+ha
+
+Algorithm 1: Linkless octree construction
+input : A binary bitmap volume V of size nd .
+output: Bitmap volumes Bk and offset tables Φk .
+
+Figure 2: Subdivision and hashing.
+1
+
+lisions. Spatial hashing techniques have also been used to
+encode quadtrees/octrees exploiting the coherency in spatial
+data. Warren [WS93] presented a hashed octree that assigns
+unique keys to all (leaf and non-leaf) nodes and indexes them
+in a hash table. To improve search time, Castro [CLL∗ 08]
+proposed a statistical model that selects the most frequenlty
+accessed level instead of the first level, as a starting point
+of the search. Bastos [BF08] similarly mapped octree nodes
+into a perfect hash table and accessed random nodes using
+octree level and point location indexes. The hash table store
+data associated with a sparse subset of the domain. If the
+indexing key does not correspond to a valid point in the domain, the hash function leads to arbitrary data in the table.
+Lefebvre and Hoppe [LH06] discussed several strategies for
+sparsity encoding, such as storing an extra binary bitmap
+over the domain to mark valid cells and augmenting position
+tags in the data fields. Whatever strategy is taken, sparsity
+encoding adds an extra burden for compact octree encoding.
+Our octree representation based on multi-level perfect hashing does not require extra storage for sparsity encoding because it retains the hierarchical structure of an octree. Invalid
+locations are automatically detected while tracing down the
+hierarchy.
+3. Multi-Level Hashing
+Our linkless octree employs a perfect spatial hashing technique [LH06] to maintain references to child nodes with
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2
+3
+4
+5
+6
+7
+8
+
+9
+10
+
+11
+12
+13
+14
+
+G ←SpatialGrids([0, n] × · · · × [0, n]) ;
+b ← 1; /* the size of spatial grids */
+for k ← 0 to lg n do
+b ← 2b ;
+subG ← SubdivideGrids(G, b) ;
+m ← CountNonLeafCells(subG, V ) ;
+if m = 0 then
+Bk ← ConstructOneBitVolume(subG,V ) ;
+/* generate the bitmap at the finest level and*/
+/* terminate the algorithm */
+break ;
+else if m1/d < b then
+/* the bitmap is not generated if its size is not */
+/* smaller than the bitmap of the previous level */
+Bk ← ConstructTwoBitVolume (subG,V ) ;
+Φk ← ConstructOffsetTable(Bk ) ;
+G ← CollectNonLeafCells(subG,hk , Φk ) ;
+b ← m1/d ;
+
+The bitmap volume at level (k + 1) consists of non-leaf cells
+at its previous level k, which are compactly packed and then
+uniformly subdivided to produce finer grids (see Figure 2
+and Algorithm 1). The hash function at each level maps a
+non-leaf parent cell to its child cells at the subsequent level.
+Perfect spatial hashing establishes conflict-free mapping between levels resorting on auxiliary offset tables. More precisely, let Bk be a d-dimensional bitmap at level k and its size
+
+1776
+
+Myung Geol Choi et al. / Linkless Octree Using Multi-Level Perfect Hashing
+
+Binary bitmap of leaf/non-leaf flags
+
+14 X 14
+
+Non-leaf nodes
+
+23 X 23
+
+Leaf nodes
+
+36 X 36
+56 X 56
+73 X 73
+
+75 X 75
+
+RGB(24bits) Color Image
+1024 X 1024
+
+124 X 124
+27 X 27
+
+16 X 16
+
+43 X 43
+
+150 X 150
+
+85 X 85
+
+11 X 11
+
+Compactly packed leaf nodes with RGB color value
+Figure 3: The dual-hashing octree for a RGB color image. At each level, leaf nodes and non-leaf nodes are gathered separately
+and compactly packed using two spatial hashing functions. Only leaf nodes store data fields. Offset tables are omitted in the
+figure for clear presentation.
+
+is (bk )d containing m non-leaf cells and the remaining leaf
+cells (line 6). The hash table of m1/d d can accommodate
+m non-leaf cells. Let p be the spatial location in Bk and p
+be its corresponding location in the hash table. The perfect
+hashing function at level k is
+
+p = h(p) = (p
+
+mod bk+1 ) + Φ(p
+
+mod rk+1 ),
+
+(1)
+
+where bk and rk are the size of bitmap Bk and offset table Φk ,
+respectively (line 11-13). The offset table is a d-dimensional
+array of offset vectors. We refer the reader to [LH06] for details on how to compute the offset table. In practice, the size
+of the offset table is insignificant comparing to the memory
+overhead of the pointer-based implementation. Then, bitmap
+Bk+1 at the subsequent level is the uniform subdivision of the
+hash table (line 4-5). We repeat this process until no non-leaf
+cells remain in the bitmap.
+
+3.2. Octree with Long Data Fields
+The binary linkless octree can be generalized to deal with
+multi-bytes data by simply expanding the data field at each
+cell. However, the storage requirements can further be reduced if we store data only at leaf nodes. The data fields at
+non-leaf nodes are useful in some applications. For example,
+the non-leaf node of an image quadtree usually stores the average color value of its descendants nodes. Progressive transmission of an image can benefit from the average value, because progressively refining images can be viewed while the
+image is being transmitted. However, there are many other
+applications in which non-leaf data fields are useless and
+thus wasted. A number of geometric applications make use
+of octrees for spatial querying. Each octree cell maintains a
+set of assorted geometric primitives. Such an octree does not
+have meaningful values for non-leaf data fields.
+
+Our dual-hashing octree removes the wasted data fields at
+non-leaf nodes to achieve better compression rates. Our
+dual-hashing octree makes use of two hashing functions at
+each level (see Figure 3). One hashing function is for locating non-leaf child nodes at the next level. Its functionality
+is the same as the hashing function for a binary octree. The
+only difference is that each cell in the hash tables has only
+one bit flag and does not have any data fields. The other hashing function is used for compactly packing leaf nodes with
+data fields. The dual-hashing octree performs better than the
+single-hashing octree if a larger amount of data is stored at
+each cell.
+4. Experimental Results
+The timing data provided in this section was measured on a
+2.4GHz Intel Core2 Duo computer with 4Gbyte main memory and an nVidia GeForce 8800GTX GPU unless otherwise
+noted.
+4.1. Free Configuration Space Modeling
+The major advantages of our linkless octrees are efficient
+memory usage and random accessibility. To demonstrate
+the usefulness of the techniques, we modeled massive free
+configuration spaces using octrees. Animating and Planning
+character motions in a complex virtual environment require
+frequent interference-checking between characters and obstacles. Precomputation of free space maps and efficient
+random accessibility allow us to detect collisions very efficiently at runtime. Free space maps of 4D and 5D configuration spaces are too big to be accommodated in main
+memory. Therefore, compression is crucial. We constructed
+octree models of 3D/4D/5D free space maps approximately
+at a finite resolution.
+The precomputation time for free space construction varies
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Myung Geol Choi et al. / Linkless Octree Using Multi-Level Perfect Hashing
+
+significantly depending on its dimension, size and the complexity of geometry. It ranges from several minutes on a personal computer to several hours on a super computer. The
+largest 5-dimensional free space map was computed on a super computer with 484 nodes (5.6 Tflops performance). The
+computation time has nothing to do with octree construction. The collision detection between characters and obstacles was the bottleneck in computation. Collision checking
+was performed using V-COLLIDE, which is a collision detection library for large polygonal objects based on bounding
+volume hierarchies [HLC∗ 97].
+3D free space map. We consider the interference between
+a planar rigid mover and static obstacles (see Figure 4). The
+configuration of the mover can be described with three parameters (x, y, θ), where (x, y) is the position of the mover
+on the horizontal plane and θ is the rotation of the mover
+about the vertical axis with respect to the reference system. We built a free configuration space map having a
+1024 × 1024 × 1024 resolution of grids. The size of raw binary bitmap data is 10243 /8 = 128 (Mbyte), which can be
+compressed to 5.6 Mbyte using our linkless octree (see Figure 5 for details). The compression rate is about 95.6%. The
+top-down construction of the free space map requires the
+ability to check whether a cell is interference-free, partiallyoccupied, or completely-occupied without exhaustively examining all configurations in the range of the cell. This range
+query capability can save the tree construction time. Our system employs a range query method presented by Zhang et
+al. [ZKVM06], which can examine whether two convex objects overlap (or disjoint) for every configuration (translation
+and rotation) in a given spatial range. A concave object need
+to be decomposed into a collection of convex objects.
+4D free space map. The goblin in Figure 5(top, left) is animated using 256 frames of motion data. We built a simple hand-crafted motion graph that allows transitioning between motion frames [LCR∗ 02]. The relative configuration
+(x, y, θ, i) of the animated character with respect to a static
+obstacle is four-dimensional, where (x, y) is the relative
+translation, θ is the relative rotation, and i is the frame index of the motion graph. The garden in the figure includes
+14 different kinds of polygon trees and flowers. A fourdimensional free space map was precomputed for the goblin and each individual object. We constructed 14 free space
+maps of 256 × 256 × 256 × 256 resolution. The size of each
+map ranges from 4 Mbytes to 30 Mbyte depending on the
+size and complexity of geometry. Since a raw bitmap volume requires 2564 /8 = 512 (MByte) memory, the compression rate ranges from 93.9% to 99.2%.
+5D free space map. The free space map of two animated characters has five-dimensional configuration space
+(x, y, θ, i, j). The characters’ poses are described by i and
+j, respectively. We demonstrate two five-dimensional examples. The animal example in Figure 5(top, center) features
+a thousand characters of four different species (bird, frog,
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+1777
+
+y
+θ
+
+x
+
+Figure 4: Path planning of a planar rigid mover through
+static obstacles. The free configuration space can be modeled as a three-dimensional binary volume on the left.
+
+penguin, and pig). Each character has 32 poses for animation. We built a five-dimensional free space map of 1285
+resolution. Its size in memory is about 150 Mbytes. The
+goblin example in Figure 5(top, right) features a thousand
+goblins animated by using a motion graph with 512 poses.
+The skin deformation at each pose was precomputed and
+stored as polygon data. The goblin example used a fivedimensional free space map of 64 × 64 × 64 spatial resolution and 512 × 512 animation resolution. The size of the
+map is about 320 Mbytes. Each goblin character consists of
+ten thousand polygons. Given the free space map, interference between a thousand animated goblins can be checked
+at interactive rate.
+4.2. Performance Comparison
+We used 2D images to compare our linkless quadtrees with
+existing techniques because conducting comparison tests
+with higher-dimensional data is too difficult and timeconsuming. The standard implementation of some existing techniques does not easily generalize to cope with higherdimensional data.
+Binary Image. Though our octrees are not meant to compress 2D binary images, the comparison tests give a good
+sense how it performs in comparison with well-known lossless compression methods, such as pointer-based quadtree,
+ZIP, run-length encoding, and CCITT. CCITT Group3 and
+Group4 are industry standards for compressing bitonal image data and used by most facsimile machines. Group3 compression is a one dimensional algorithm that encodes image data scanline-by-scanline. Group4 compression encodes
+each scanline with reference to the previous scanlines to
+improve compression ratios. The comparison tests are conducted with two test images (see Figure 6). The face image
+has large all-black and all-white regions and the boundary
+between black and white regions is relatively clean. The text
+image, on the other hand, has a lot of details and thus do
+not compress well using octrees. For both images, the linkless octree is an order of magnitude smaller than the pointer-
+
+Myung Geol Choi et al. / Linkless Octree Using Multi-Level Perfect Hashing
+
+1778
+
+jGt
+GZk
+
+Gw
+w
+Gj WX
+j WY
+j WZ
+{WX
+{WY
+n¡WX
+
+G[k
+n
+
+n¡WY
+n¡WZ
+n¡W[
+jWX
+jWY
+jWZ
+jW[
+jW\
+h
+
+G\k
+n
+
+y
+i
+XWY[XWY[XWY[
+v
+i
+v
+i
+v
+i
+v
+i
+v
+i
+v
+i
+v
+i
+Y\]Y\]Y\]Y\]
+v
+i
+v
+i
+v
+i
+v
+i
+v
+i
+v
+i
+v
+i
+v
+i
+XY_XY_XY_XY_XY_
+v
+i
+][][][\XY\XY
+v
+
+sW
+
+sX
+
+sY
+
+sZ
+
+s[
+
+s\
+
+s]
+
+s^
+
+s_
+
+s`
+
+{GOrP
+
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+GGGGGGY__
+GGGGGGZ]_
+
+T
+T
+T
+T
+GGGGGGGGG][
+GGGGXSWY[
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+GGGZ`SY[_
+ZYYS`]_
+G
+GGGG_S_`]
+GGGY\S[WW
+
+T
+T
+GGGGGGGXSWY[
+GGGGGGGYS\WW
+GGGGGGGGGGZY[
+GGGGGGGGGGZY[
+GGGGGGGXSWY[
+GGGGGGGYS\WW
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGYS\WW
+GGGGGGGXSWY[
+GGGGGGGYS\WW
+GGGGGGGXSWY[
+GGGGGGGYS\WW
+GGGGGGGXSWY[
+GGGGGGGYS\WW
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGYS\WW
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGGGGGXSWY[
+GGGG_\`S^[_
+GXS`Z_S_ZX
+GGGGX^ZSWWW
+GGGGY`[S\]_
+
+GGGGGGGXSWY[
+GGGGGGG_S_WW
+GGGGGGG`S]W[
+GGGGGX]SZ_[
+GGGGGGGYS\WW
+GGGGGGGYS\WW
+GGGGGGG\SX_[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGGG\SX_[
+GGGGGGG\SX_[
+GGGGGGG\SX_[
+GGGGGGG`S]W[
+GGGGGGG\SX_[
+GGGGGGG`S]W[
+GGGGGGG\SX_[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGY]SY[[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGX]SZ_[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+GGGGGGG`S]W[
+ZSW_[S`W]
+G
+[SYXXS`[]
+G
+YS^\ZS\\Y
+G
+[SZXXS\W[
+G
+
+GGGGGGGGG`SWW[
+GGGGGGGYYS^`Y
+GGGGGGG_YSZ[[
+GGGGGYWYS\WW
+GGGGGGGX]SZ_[
+GGGGGGGX]SZ_[
+GGGGGGG[WSWWW
+GGGGGGG\_S\][
+GGGGGGG_YS`[[
+GGGGGX\ZS]][
+GGGGGGG_YS`[[
+GGGGGXX[SY[[
+GGGGGGG\_S\][
+GGGGGGG_YS`[[
+GGGGGGG\_S\][
+GGGGGGG_YS`[[
+GGGGGGG\_S\][
+GGGGGXX[SY[[
+GGGGGGG\_S\][
+GGGGGGG_YS`[[
+GGGGGGG\_S\][
+GGGGGXX[SY[[
+GGGGGGG_YS`[[
+GGGGGGG_YS`[[
+GGGGGGG\_S\][
+GGGGGGG_YS`[[
+GGGGGGG_YS`[[
+GGGGGXX[SY[[
+GGGGGGG\_S\][
+GGGGGGG_YS`[[
+XXSY\`SZW_
+G
+XYS^_WSZ]`
+G
+[XS``WS^XY
+G
+[`S`Y]S^YW
+G
+
+GGGGGGGGGZ[SX_]
+GGGGGGGGG]XSXW_
+GGGGGGG][WSWWW
+GGGGGGG`Z^SWY[
+GGGGGGGXX[SY[[
+GGGGGGGXX[SY[[
+GGGGGGG[X`S`W[
+GGGGGGG][WSWWW
+GGGGGGG\YXSY_[
+GGGGXSXX`SZ][
+GGGGGGG][WSWWW
+GGGGXSZY^SXW[
+GGGGGGG[X`S`W[
+GGGGGGG\YXSY_[
+GGGGGGG[X`S`W[
+GGGGGGG][WSWWW
+GGGGGGG[X`S`W[
+GGGGGGG`Z^SWY[
+GGGGGGG[X`S`W[
+GGGGGGG^^^S`Y[
+GGGGGGG\YXSY_[
+GGGGXSZY^SXW[
+GGGGGGG][WSWWW
+GGGGGGG`Z^SWY[
+GGGGGGG\YXSY_[
+GGGGGGG^^^S`Y[
+GGGGGGG\YXSY_[
+GGGGGGG^^^S`Y[
+GGGGGGG\YXSY_[
+GGGGGGG^^^S`Y[
+GGGZ_S[^ZSW[_
+GGGZYS]Y_SX_W
+G
+Y[ZS]ZWS_YW
+T
+
+GGGGGGG_ZSZY_
+GGGGGYW\S[XY
+GG\SZ[\SZ[[
+GG`SY\ZS^][
+GGGGG^^^S`Y[
+GGGGG`Z^SWY[
+GGYS_Y`SXY[
+GGZS]`[SW_[
+GG[SX`[SZW[
+GG]S^X_S[][
+GG[S^[ZS]_[
+GG]S^X_S[][
+GGZSY[WSWWW
+GG[SX`[SZW[
+GGZSY[WSWWW
+GG]SWWYS\WW
+GGZSY[WSWWW
+GG[S^[ZS]_[
+GGZSY[WSWWW
+GG[SX`[SZW[
+GGZS]`[SW_[
+GG]S^X_S[][
+GG[SX`[SZW[
+GG]S^X_S[\[
+GGZS]`[SW_[
+GG[S^[ZS]_[
+GG[SX`[SZW[
+GG\SZ[\SZ[[
+GGZS]`[SW_[
+GG[SX`[SZW[
+\XSXYYSW]\
+G
+T
+T
+T
+
+GGGGGZW_SXX[
+GGGGG^^ZSW_[
+X[S]YZSYZY
+G
+T
+GGGXS_[^SW[Y
+T
+GGG_SYWXSY\W
+T
+XYS\WWSWWW
+G
+T
+X[S]YZSYZY
+G
+T
+GGG_S`\[S`XY
+T
+GGG_S`\[S`XY
+T
+GGG`S^\`SZ]Y
+T
+GGG`S^\`SZ]Y
+T
+XWS]X]S_ZY
+G
+T
+XXS\Y`S]WY
+G
+T
+XWS]X]S_ZY
+G
+T
+XXS\Y`S]WY
+G
+T
+XWS]X]S_ZY
+G
+T
+T
+T
+T
+T
+
+GXSW\[SYWW
+GXS___SX__
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+
+GXS[X]SXZ`
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+T
+
+GGGGYS`W\S``\
+GGGGYS`\`SZ_[
+GGYWS^WXS\[_
+GGXWS[XYSX^Y
+GGGGYS^\_S[_Y
+GGGGXSW^XS\WW
+GGXXS[`]S[_]
+GGGG[S[W[S^\Y
+GGX^SZW`SX]W
+GGGG_SWWYSXYW
+GGYWSXWWS[__
+GGGG_SX^WS[[W
+GGXYS]^`S\__
+GGGG[S_W]SYX]
+GGXYS]^`S\__
+GGGG]S^Z^S\[_
+GGXZS[_[SWZ_
+GGGG\S_W^SW\]
+GGXZS[_[SWZ_
+GGGG\SW]^SY^]
+GGX[S`WXSZ`Y
+GGGG_SX_^SW_W
+GGX]S[\^S[^_
+GGGG^S^\WS\Y]
+GGX[S`WXSZ`Y
+GGGG\S]YXS`]W
+GGX]SZZ_S^]Y
+GGGG]SY[_SX[W
+GGX[S`WXSZ`Y
+GGGG\SW]\S_WW
+XW[S_Z_SZYZ
+G
+GG\XS__YSY`[
+Y__S\\^SY]_
+G
+GG\[S\\_S\]W
+
+G{
+OtP
+GGGGG\U]
+GGGY`U^
+GGGGGZU^
+GGGX\UY
+GGGY[UX
+GGGY^UW
+GGGX]U^
+GGGX_U\
+GGGX_U[
+GGGX^U^
+GGGYYUW
+GGGYZUX
+GGGX`U]
+GGGYXU\
+GGGX`UW
+GX[`U\
+GZY^UY
+
+Figure 5: Examples of free configuration space maps. (Up left) Goblins in a garden. A 4D map was precomputed for the goblin
+and each individual object in the garden. (Up middle) A thousand animal characters were animated using 256 frames of motion
+data. The interference between characters were checked in realtime using a 5D free space map. (Up right) A thousand animated
+goblins were animated using 512 frames of motion data. (Down) The size of free space maps.
+
+based octree. The linkless octree performs better than runlength encoding and ZIP for the face image, but not as well
+as CCITT Group3 and Group4. The text image is a particularly bad example for octree encoding because not many
+internal cells are pruned in the octree hierarchy. In our comparison tests, the linkless quadtree was not the best for compressing black-and-white images, but at least adequate for
+images with strong spatial coherency.
+Color Image. The color image in figure 3 has a 1024 × 1024
+resolution and each pixel has 24 bits for RGB color. The size
+of the raw uncompressed image is 10242 /8 = 3072(Kbyte).
+The size of the pointer-based quadtree is 439.6 Kbytes. Our
+single-hashing octree constructed by simply expanding the
+data field in each cell requires 203.2 Kbytes, which can
+further be compressed by using dual hashing functions, as
+explained in Section 3.2. Our dual-hashing octree requires
+179.4 Kbytes, which achieves a compression rate of 11.7%
+with respect to the single-hashing octree. The compression
+
+rate is directly related to the length of the data field. A higher
+compression rate can be achieved for an octree with longer
+data fields.
+Quadtree Comparison. We encoded the face image in Figure 6 in four quadtrees (pointer-based, sibling [HW91], autumnal [FM86] and our linkless tree) and compared the
+memory overhead for maintaining parent-to-child pointers,
+sibling pointers, and auxiliary hash tables (see Figure 7).
+The pointer-based tree has four pointers in every non-leaf
+node and each pointer uses 4 bytes. Therefore, the tree requires 16 bytes per node. The sibling tree and autumnal
+tree require 4 bytes and 1.125 bytes per node, respectively
+[LH07]. The size of auxiliary hash tables for our linkless
+tree is about one-fourth of the memory overhead of the autumnal tree, which is much more memory-efficient than the
+other two tree encodings. Succinct k-nary tree by Benoit et
+al. [BDM∗ 05] requires (4n + o(n) + C) bits for storing a
+quadtree, where (o(n) +C) is the size of the auxiliary indexc 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Myung Geol Choi et al. / Linkless Octree Using Multi-Level Perfect Hashing
+pG
+OJGGGP
+
+ͷΒΔΖ
+ͽΚΟΜΝΖΤΤ͑΢ΦΒΕΥΣΖΖ
+΁ΠΚΟΥΖΣ͞ΓΒΤΖΕ͑΢ΦΒΕΥΣΖΖ
+΋ΚΡ
+΃ΦΟ͞ΝΖΟΘΥΙ
+ʹʹͺ΅΅͙͑ΘΣΠΦΡ͚ͤ
+ʹʹͺ΅΅͙͑ΘΣΠΦΡ͚ͥ
+
+΃ΖΤΠΝΦΥΚΠΟ͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑
+ͣͩ͢
+ͣͦͧ
+ͦͣ͢
+ͣͥ͢͡
+
+ͤͣ
+
+ͧͥ
+
+ͣͣͣ͟͡
+
+ͥͨ͟͢͡
+
+ͪͦͪ͟͡
+
+ͣͨͧ͟͢
+
+ͥͤͥͪ͟
+
+ͪͣͦͪ͟
+
+ͣͥͣ͟͢
+
+ͦͧͥ͟͢
+
+ͣͩͥ͢͟͢
+
+ͣͧͦͩ͟͢
+
+ͦͨͦͣ͟͢
+
+ͣͤͧ͢͢͟͢
+
+ͣ͟͢͢͡
+
+ͤͧͦ͟͡
+
+ͩͤͪ͟͡
+
+ͪͧͤ͢͟
+
+ͥͩͪ͟
+
+ͣͣͤͧ͢͟
+
+ͥ͟͡
+
+ͨ͟͡
+
+ͦ͢͟
+
+ͤͥ͟
+
+ͨͩ͟
+
+ͧͪ͢͟
+
+ͥ͟͡
+
+ͧ͟͡
+
+ͪ͟͡
+
+ͩ͢͟
+
+ͤͨ͟
+
+ͨͪ͟
+
+ͤ͟͡
+
+ͥ͟͡
+
+ͧ͟͡
+
+͢
+
+ͩ͢͟
+
+ͤͥ͟
+
+(Kbyte)
+
+΅ΖΩΥ
+ͽΚΟΜΝΖΤΤ͑΢ΦΒΕΥΣΖΖ
+΁ΠΚΟΥΖΣ͞ΓΒΤΖΕ͑΢ΦΒΕΥΣΖΖ
+΋ΚΡ
+΃ΦΟ͞ΝΖΟΘΥΙ
+ʹʹͺ΅΅͙͑ΘΣΠΦΡ͚ͤ
+ʹʹͺ΅΅͙͑ΘΣΠΦΡ͚ͥ
+
+΃ΖΤΠΝΦΥΚΠΟ͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑͑
+ͣͩ͢
+ͣͦͧ
+ͦͣ͢
+ͣͥ͢͡
+
+ͤͣ
+
+ͧͥ
+
+ͣͥͦ͟͡
+
+ͩͨ͟͡͡
+
+ͥͣͨ͟͡
+
+ͨͪ͢͢͟͡
+
+ͤͦͪͤͨ͟
+
+ͪͤͧ͢͟͢
+
+ͦͨͥ͟͢
+
+ͩͨͨͥ͢͟
+
+ͩͨͩͪ͟͡
+
+ͣͤͩͨͧͨ͟
+
+ͨͨͦͤ͢͟͢
+
+ͪͨ͢͢͟͡͡͡
+
+ͣͣͥ͟͡
+
+ͦͦ͟͡͡
+
+ͤͨͨ͢͟
+
+ͥͤͩͪ͟
+
+ͦͩͥͣ͢͟
+
+ͥͤͣ͟͡͡
+
+ͥ͟͡
+
+ͨ͟͡
+
+ͨ͢͟
+
+ͦ͟͡
+
+ͦͩ͢͟
+
+ͥͨ͟͢
+
+ͥ͟͡
+
+ͨ͟͡
+
+ͨ͢͟
+
+ͥͦ͟
+
+ͦ͢͟͢
+
+ͤͣͪ͟
+
+ͥ͟͡
+
+ͧ͟͡
+
+ͧ͢͟
+
+ͤͪ͟
+
+ͥͤ͢͟
+
+ͣͨͧ͟
+
+(Kbyte)
+
+Figure 6: 2D image compression performance comparison.
+
+ing structure and C is a large constant. For the 1024 × 1024
+image with 15,409 octree nodes, the succinct quadtree takes
+7, 705 + o(n) (bytes), which is 14.9% larger than our linkless
+octree.
+Computation time. We compare our hash-based quadtree
+and the pointer-based quadtree for the 1024 × 1024 face image in Figure 6. The construction of the hash-based quadtree
+takes 0.735 seconds, which is ten times slower than the
+pointer-based tree construction (0.076 seconds). Evaluating
+a perfect hash function requires two modulo and one table lookup operations. Therefore, the random access to the
+hash-based quadtree is slower than the random access to
+the pointer-based quadtree, which requires only one pointer
+indirection. In our experiments, accessing a million random nodes in the hash-based quadtree and the pointer-based
+quadtree took 0.625 and 0.095 seconds, respectively. Though
+tree accessing using hash functions is slower than pointer indirection, it is much more efficient than other compressed
+linear quadtrees that requires O(n) time for random node access.
+
+ZY
+OY``P
+
+][
+O^[ZP
+
+1779
+XY_
+OX]\^P
+
+Y\]
+OZ\_\P
+
+\XY
+O^ZWZP
+
+XWY[
+OX\[W`P
+
+sG
+
+XX`
+
+Y`\
+
+]WX
+
+X\W_
+
+X`]_
+
+]^Y[
+
+wTG
+
+[^_[
+
+XX___
+
+Y]\XY
+
+\^Z]W
+
+XX]_[_
+
+Y[]\[[
+
+zG
+
+XX`]
+
+Y`^Y
+
+]]Y_
+
+X[Y[W
+
+Y`YXY
+
+]X]Z]
+
+hG
+
+ZZ]
+
+_Z]
+
+X_][
+
+[WZZ
+
+_YX]
+
+X^ZZ\
+Oi P
+
+Figure 7: Memory overhead comparison. We measured the
+size of pointers and hash tables of four quadtrees. The data
+fields are not included in the size.
+
+storage efficiency and the construction time. In our implementation, the tree construction was considered as a preprocessing phase and we were mainly concerned with reducing
+storage costs while allowing efficient access to data at runtime.
+Another limitation is the lack of local refineability. Inserting
+and deleting a point in a perfect hash table usually lead to rebuilding the entire hash table. Therefore, our linkless octree
+cannot allow for frequent local updates and thus may not be
+adequate for representing dynamically changing data. Developing a dynamically updateable perfect hashing function
+is an interesting direction for future research.
+Acknowledgements
+We sincerely appreciate the advice of Prof. Srinivasa Rao
+Satti. This work was supported by the Korea Research Foundation Grant funded by the Korean Government (MOEHRD)
+(KRF-2007-511-D00332) and the grant from the strategic
+technology development program (Project No. 2008-F-03302) of both the MKE (Ministry of Knowledge Econemy) and
+MCST (Ministry of Culture, Sports and Tourism) of Korea.
+References
+[BDM∗ 05] B ENOIT D., D EMAINE E. D., M UNRO J. I., R AMAN
+R., R AMAN V., R AO S. S.: Representing trees of higher degree.
+Algorithmica 43, 4 (2005), 275–292. 2, 6
+[BF08] BASTOS T., F ILHO W. C.: Gpu-accelerated adaptively
+sampled distance fields. In Proceedings of IEEE International Conference on Hsape Modeling and Applications (2008),
+pp. 171–178. 3
+
+5. Discussion
+
+[CLL∗ 08] C ASTRO R., L EWINER T., L OPES H., TAVARES G.,
+B ORDIGNON A.: Statistical optimization of octree searches.
+Computer Graphics Forum 27, 6 (march 2008), 1557–1566. 3
+
+We have presented a pointerless octree that makes use of
+multi-level perfect spatial hashing. Our linkless implementation would allow octrees to be employed in a wider variety
+of applications.
+
+[EGS05] E PPSTEIN D., G OODRICH M. T., S UN J. Z.: The skip
+quadtree: Asimple dynamic data structure for multidimensional
+data. In Proceedings of the 21st Annual Symposium on Computational Geometry (SoCG’05) (2005), pp. 296–305. 2
+
+Our linkless octree has several limitations. The perfect hashing functions we employed are near optimal in the sense that
+the storage requirement for storing offset tables is small, but
+may not be optimal. There exists a trade-off between the
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+[FM86] FABBRINI F., M ONTANI C.: Autumnal quadtrees. The
+Computer JOURNAL 29, 5 (1986), 472–474. 2, 6
+An effective way to represent
+[Gar82] G ARGANTINI I.:
+quadtrees. Communications of the ACM 25, 12 (1982), 905–910.
+1, 2
+
+1780
+
+Myung Geol Choi et al. / Linkless Octree Using Multi-Level Perfect Hashing
+
+[HLC∗ 97] H UDSON T. C., L IN M. C., C OHEN J.,
+V-collide: accelerated
+G OTTSCHALK S., M ANOCHA D.:
+collision detection for vrml. In Proceedings of Symposium on
+Virtual Reality Modeling Language (VRML ’97) (1997). 5
+[HW91] H UNTER A., W ILLIS P. J.: Classification of quadencoding techniques. Computer Graphics Forum 10, 2 (1991),
+97–112. 6
+[Jac89] JACOBSON G.: Space-efficient static trees and graphs. In
+Proceedings of the 30th Annual Symposium on Foundations of
+Computer Science (SFCS ’89) (1989), pp. 549–554. 2
+[LCR∗ 02] L EE J., C HAI J., R EITSMA P. S. A., H ODGINS J. K.,
+P OLLARD N. S.: Interactive control of avatars animated with human motion data. ACM Transactions on Graphics (SIGGRAPH
+2002) 21, 3 (2002), 491–500. 5
+[LH06] L EFEBVRE S., H OPPE H.: Perfect spatial hashing. ACM
+Transactions on Graphics (SIGGRAPH 2006) 25, 3 (2006), 579–
+588. 2, 3, 4
+[LH07] L EFEBVRE S., H OPPE H.: Compressed random-access
+trees for spatially coherent data. In Proceedings of the Eurographics Symposium on Rendering (2007). 2, 6
+[LSK∗ 06] L EFOHN A. E., S ENGUPTA S., K NISS J., S TRZODKA
+R., OWENS J. D.: Glift: Generic, efficient, random-access gpu
+data structures. ACM Transactions on Graphics 25, 1 (2006),
+60–99. 2
+[MR97] M UNRO J. I., R AMAN V.: Succinct representation of
+balanced parentheses, static trees and planar graphs. In Proceedings of the 38th Annual Symposium on Foundations of Computer
+Science (FOCS ’97) (1997), p. 118. 2
+[OW83] O LIVER M. A., W ISEMAN N. E.: Operations on
+quadtree encoded images. The Computer Journal 26, 1 (1983),
+83–91. 1, 2
+[PF05] P HARR M., F ERNANDO R.: GPU Gems 2: Programming Techniques for High-Performance Graphics and GeneralPurpose Computation (Chapter 1. Octree Textures on the GPU).
+Pearson Education, 2005. 2
+[Woo84] W OODWARK J.: Compressed quad trees. The Computer
+Journal 27, 3 (1984), 225–229. 1, 2
+[WS93] WARREN M. S., S ALMON J. K.: A parallel hashed octtree n-body algorithm. In Proceedings of the 1993 ACM/IEEE
+conference on Supercomputing (Supercomputing ’93) (1993),
+pp. 12–21. 3
+[ZHWG08] Z HOU K., H OU Q., WANG R., G UO B.: Real-time
+kd-tree construction on graphics hardware. ACM Transactions
+on Graphics (SIGGRAPH Asia 2008) 27, 5 (2008), 1–11. 2
+[ZKVM06] Z HANG L., K IM Y. J., VARADHAN G., M ANOCHA
+D.: Fast c-obstacle query computation for motion planning. In
+Proceedings of IEEE International Conference on Robotics and
+Automation (ICRA 2006) (2006), pp. 3035–3040. 5
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

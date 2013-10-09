@@ -1,0 +1,882 @@
+DOI: 10.1111/j.1467-8659.2011.02074.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 30 (2011), number 8 pp. 2387–2396
+
+Hierarchical Deformation of Locally Rigid Meshes
+Josiah Manson and Scott Schaefer
+Texas A&M University, College Station, TX, USA
+josiahmanson@gmail.com, schaefer@cs.tamu.edu
+
+Abstract
+We propose a method for calculating deformations of models by deforming a low-resolution mesh and adding details
+while ensuring that the details we add satisfy a set of constraints. Our method builds a low-resolution representation
+of a mesh by using edge collapses and performs an as-rigid-as-possible deformation on the simplified mesh. We
+then add back details by reversing edge-collapses so that the shape of the mesh is locally preserved. While
+adding details, we deform the mesh to match the predicted positions of constraints so that constraints on the
+full-resolution mesh are met. Our method operates on meshes with arbitrary triangulations, satisfies constraints
+over the full-resolution mesh and converges quickly.
+Keywords: mesh deformation, as-rigid-as-possible, multi-scale
+ACM CCS: I.3.5 [Computer Graphics]: Computational Geometry and Object Modelling—Boundary representations, I.3.5 [Computer Graphics]: Computational Geometry and Object Modelling—Hierarchy and Geometric
+Transformations
+
+1. Introduction
+Modelling tools have improved to the point that it is common
+for artists to design characters with intricate details directly
+encoded in the geometry rather than simulated through textures. These character models may have hundreds of thousands to millions of vertices. To animate these shapes, each
+vertex must be positioned for each frame of animation. Unfortunately, directly positioning individual vertices is not feasible due to the size of these models, so deformation methods
+have been developed to reduce the degrees of freedom while
+providing artists with simple, intuitive controls. Many methods provide a separate structure to control the deformation,
+such as a cage [JSW05] or skeleton [Zel82], but it is difficult
+to add degrees of freedom to these structures when finer control is needed; sometimes an entirely new control structure
+needs to be created. Additionally, the deformation tool needs
+to provide immediate feedback to the artist, so deformations
+must be computed in real-time.
+An ideal deformation method requires no auxiliary control structure and allows an artist to add and remove degrees of freedom at will. Controls should also manipulate
+the mesh directly so that animated characters can be constrained to touch specific objects, like holding a cup. We
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics
+Association and Blackwell Publishing Published by Blackwell
+Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+believe that the most effective control scheme is to directly
+constrain the positions of vertices of the mesh. Furthermore,
+a deformed mesh should retain its shape under deformation.
+The exact meaning of shape-preserving is ambiguous, but
+has been defined by previous researchers as locally approximating rigid deformations [SA07]. However, computing a
+nearly rigid deformation of a mesh requires minimizing a
+global system of equations and becomes very slow for high
+resolutions.
+We approach the problem by allowing an artist to specify constraints on a high-resolution mesh, but calculate the
+large-scale features of the resulting deformation at a lower
+resolution. Calculating deformations at a lower resolution not
+only increases the speed at which we calculate deformations,
+but also increases the quality of deformations. Because constraints on the detailed mesh do not directly map to vertices
+in the low-resolution mesh, we developed a method for constraining low-resolution deformations with high-resolution
+constraints. Our key contribution, however, is to introduce
+a new method of adding details back to the deformed mesh
+while conforming to constraints. We add the details in a way
+that depends only on local neighbourhoods of vertices and
+treats all vertices symmetrically.
+
+2387
+
+2388
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+1.1. Related work
+Surface deformation is a well-studied topic, and we refer the
+reader to a recent survey by Botsch and Sorkine [BS08]. The
+classic approach for reducing the dimensionality of surface
+deformations is to project the space of all possible deformations onto a smaller, user-defined subspace. The most popular
+projection is skeletal deformation, which represents the position of each vertex as a weighted combination of rigid transformations controlled by ‘bones’ [Zel82]. Although skeletal
+deformation has been applied successfully to animation, it is
+poorly suited to representing plastic deformations that occur
+in soft materials. Additionally, it can be difficult to correctly
+assign weights to vertices in flexible regions between bones,
+such as at the shoulders and elbows.
+As an alternative to bones, free-form deformations have
+been used to represent deformations of organic objects by
+warping space. In these methods, a low-resolution control
+structure is built to enclose a space that encompasses the
+object. Sederberg et al. [SP86] use a simple uniform grid that
+smoothly deforms space when vertices of the grid are moved.
+Other methods [JSW05, JMD*07] enclose objects in a tightfitting, low-resolution cage to provide more intuitive and
+direct control of the shape. Unfortunately, these cages do not
+provide fine control of a mesh and provide no mechanism for
+adding more degrees of freedom to control the deformation
+at finer resolutions.
+Differential surface editing methods express vertex positions relative to neighbouring vertices. Laplacian surface
+editing [SCOL*04] encodes vertex positions as offsets relative to neighbouring vertices and can introduce undesirable shearing in the deformation because local differences
+do not rotate with the surface. Yu et al. [YZX*04] define
+positions and orientations for the triangles of a mesh and
+then stitch the triangles back together by solving a Poisson
+equation over the gradient of vertex coordinates. Lipman
+et al. [LSLCO05] build rotationally invariant coordinates at
+the cost of solving two global equations: one for local coordinate frames at each vertex and another for the vertex locations
+themselves.
+Some methods enforce the one-ring of each vertex to locally deform as rigidly as possible. Most of these methods,
+such as [SA07], iteratively solve a least-squares problem over
+the entire mesh. The time required to perform this minimization grows quickly with the number of vertices in a mesh and
+is expensive to perform over large meshes. PriMo [BPGK06]
+minimizes the elastic energy between prisms connected over
+the surface of a mesh to produce robust, rigid deformations.
+A more recent method [SSP07] reduces the computational
+cost of rigid deformations by deforming a coarse approximation of the mesh. Detail vertices are stored relative to nearby
+nodes and move with the local frames of vertices in the control mesh. In this method, the user manipulates the simplified
+mesh rather than the full-resolution mesh, whereas, in our
+
+method, constraints are placed on the full-resolution mesh
+and are enforced during expansion of the collapse hierarchy.
+Other methods use the hierarchical structure of meshes
+to accelerate global optimization. Shi et al. [SYBF06] use
+multi-grid optimization of a discretized Poisson equation to
+calculate mesh deformations. Mesh Puppetry [SZT*07] employs an alternate approach of using inverse kinematics on
+a skeleton to first approximate the deformed mesh, which
+is then refined by minimizing a global surface energy to
+preserve local shape. This global optimization is accelerated through a cascading optimization that forwards partially computed results between multiple threads. Tools like
+ZBrush allow the artist to manipulate an object at multiple
+resolutions, but these tools require the surfaces to have subdivision connectivity. In the same line of thought, subdivision
+surfaces with displacement maps have been used in surface
+deformation where deformations are applied to the control
+mesh [LMH00, ZHX*07].
+Early work for unstructured meshes [KCVS98] uses only
+a few levels of resolution and applies global smoothing to
+each resolution using a Gauss–Seidel solver. Guskov et al.
+[GSS99] add details at each level of a multi-resolution hierarchy formed by edge collapse operations. However, this
+method operates on a large neighbourhood (three-ring), is not
+symmetric, allows stretching and skewing and provides only
+indirect control of the final surface, because high-resolution
+vertices cannot be directly positioned. On the other hand,
+our method operates on small regions (one-ring) that we
+treat symmetrically and estimates rigid transformations at
+each step to predict and optimize surface positions to meet
+constraints.
+Kilian et al. [KMP07] developed a multi-resolution
+method for interpolating between poses. Their method defines meshes as points in shape space and interpolates between them by finding a shortest path in this space, where
+distance is measured by how close the shapes are to being isometric. Finding a minimal path is a costly optimization that
+they accelerated by finding a path for a simplified mesh and
+refining the path both by increasing the number of vertices
+and by increasing the number of interpolatory meshes.
+
+2. Calculating Deformations
+Our method uses a hierarchy of mesh resolutions, and we
+refer to the resolution by a superscript. If there are N + 1
+resolutions generated through N edge collapses, we refer to
+the input mesh as PN and the fully simplified (base) mesh as
+P0 . Our method operates on both an undeformed mesh P and
+a deformed mesh Q simultaneously, where Q has the same
+topology as P, but different geometry.
+We define deformations of QN by specifying the positions
+of a few vertices in QN . We then deform Q0 as rigidly as
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+2389
+
+same transformation as the vertices in their neighbourhood,
+we find that ql = M c pl and qr = M c pr . We finish by updating
+the mesh topology to add two new triangles. If constrained
+vertices are in the neighbourhood of qc , we use the additional
+steps in the boxed region of Figure 2. We move qc so that the
+positions of the constrained vertices in the undeformed mesh
+ci match the constraints in the deformed mesh di under the
+transformation M c .
+Figure 1: Edge collapses to a vertex during simplification
+are reversible. To add back details, vertices are expanded to
+form edges.
+
+Figure 2: An expansion operation consists of the three steps
+that are not boxed. First, we calculate the best transformation
+M c from the one-ring of pc in the rest mesh to the deformed
+mesh. Second, we apply M c to pl , pr to calculate the deformed
+positions ql , qr . Finally, we update the topology of the surface.
+When constraints exist, we use the steps in the boxed region
+to modify the position of qc such that applying M c to ci
+matches di .
+
+2.1. Edge collapse
+As a one-time preprocessing step, we calculate P0 from PN
+through a series of edge collapses. While simplifying, we
+store the order of edge collapses so that we can later reverse
+the collapses to add details back to the simplified mesh. There
+are several metrics that choose which edge to collapse and
+decide the location of the vertex that replaces the edge. One
+popular metric [GH97] minimizes the distance to the planes
+formed by triangles in the high-resolution mesh, but depends
+on Gaussian curvature and can generate triangles with poor
+aspect ratios in cylindrical features. Although these triangles
+approximate the undeformed shape well, they do not allow
+the degrees of freedom required to represent the shape when it
+bends. For example, Figure 3 (left) bends sharply enough that
+sliver triangles protrude through the opposite side of the bent
+cylinder. Instead, we choose a metric that favours uniform
+triangulations [ACSE05] at all levels of the hierarchy, and
+allows a more natural bending of the shape, as shown in
+Figure 3 (right).
+We define the error function for a vertex k as the summed,
+squared distance to all points on the triangles that touch that
+vertex. We use the notation that N (k) is the set of triangles
+
+possible and add back details in a way that approximates
+an as-rigid-as-possible deformation calculated directly over
+QN . Constraints on vertices of QN do not directly correspond
+to vertices in Q0 , so we develop a method to predict the
+positions of mesh vertices in QN from Q0 .
+The details that we add back to Q0 must satisfy two properties: they must meet constraints on vertices in QN and must
+deform as rigidly as possible. We achieve both objectives
+through an inverted edge collapse operation. Figure 1 shows
+how collapsing an edge into a vertex can be reversed to expand a vertex into an edge. Each vertex expansion adds two
+triangles and one vertex.
+We choose the positions of the deformed vertices affected
+by an edge expansion by expanding the undeformed (rest)
+mesh P in parallel with the deformed mesh Q. Figure 2 shows
+the steps of an expansion operation. Our goal is to determine
+the deformed positions of the edge vertices ql and qr that are
+added during the expansion. We determine their positions by
+calculating the best-fit, rigid deformation, M c , of the local
+neighbourhood around the vertex pc before expanding pc
+into an edge. Using the assumption that pl and pr undergo the
+
+Figure 3: The deformation of a cylinder collapsed to 100
+vertices using a plane distance metric [GH97] (left), and using a point distance metric [ACSE05] (right). The top shows
+the simplified meshes, and the bottom shows the result after
+adding details.
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+2390
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+that touch vertex k. The error at a point x is then equal to
+Es (x) =
+
+|pi (s, t) − x|2 dt ds
+i∈N (k)
+
+=
+
+s
+
+the vertex pi between the rest and the deformed meshes. Because the relative positions between points is invariant under
+translation, Ec can be written as
+
+t
+
+⎛
+
+⎝|x − p¯ i |2 + 1
+12
+i∈N (k)
+
+Ec =
+
+⎞
+
+3
+
+|pi,j − p¯ i |2 ⎠
+
+i,
+
+j =1
+
+where pi (s, t) is a point on the ith triangle that is parameterized
+by s and t, pi, j is the j th vertex of triangle i, i is the area of
+the i th triangle, and p¯ i is its centroid. The minimum of this
+error function is given by
+xmin =
+
+i
+
+p¯ i
+i
+
+i
+
+,
+
+i
+
+and we define the error associated with this vertex as Es (xmin ).
+Suppose that an edge has the end points pl , pr and will be
+replaced by the vertex pc . We define the error function of the
+edge as the sum of the error functions of pl and pr . We then
+place the vertex pc that will represent the collapsed edge at
+the minimum of the edge error function in a greedy fashion,
+collapsing edges with the smallest error first. We apply this
+process until we reach the target number of vertices.
+An important question is then, ‘How many vertices should
+one use in the simplified mesh?’ Lower numbers of vertices
+make the model deform more like a solid and increase the
+speed of convergence, whereas higher numbers of vertices
+represent fine features, such as fingers, better. Several factors
+influence the choice and, in the end, a human must decide
+how many simplified vertices to use on a case-by-case basis.
+For most of our examples, we have found that 200 vertices
+represent movements well. We discuss the effect of the resolution of P0 on the resulting deformation in Section 3.
+
+2.2. Global optimization
+At the base resolution, we solve for the best rigid deformation of P0 using As-rigid-as-possible Surface Modeling
+(ARAPSM) [SA07]. The only difference between our optimization and ARAPSM is that ARAPSM uses a single resolution, whereas we constrain vertices of QN but optimize Q0 .
+This complicates the optimization because there is no direct
+mapping between vertices in QN and Q0 . Lack of a direct
+mapping means that a simplified vertex may be influenced
+by multiple constrained vertices in QN , which means that we
+cannot use hard constraints.
+Instead, we add a constraint energy Ec to the rigid deformation energy Ed of ARAPSM. The constraint energy Ec
+measures the distance between the constrained vertices in the
+deformed mesh dk ∈ QN and their predicted positions. The
+position of dk relative to qi ∈ Q0 is predicted by the position
+of its dual, constrained vertex ck ∈ PN relative to pi ∈ P0
+under the rotation Ri , where Ri is the best-fit rotation around
+
+|(dk − qi ) − Ri (ck − pi )|2 .
+i
+
+k
+
+The variable i indexes the vertices in Q0 , and k indexes the
+constrained vertices in QN that are under the influence of qi .
+The collapse hierarchy forms a binary tree and we consider
+a constrained vertex ck to be under the influence of pc if pc is
+an ancestor of ck . Note that many vertices of P0 may influence the position of ck while we use only the direct ancestor.
+Because our collapse metric favours uniform triangulations,
+the influence of a vertex tends to fall off smoothly, and we
+have found that a fast approximation of influence by ancestry
+works well. We find the best deformation under these constraints by minimizing Ed + wEc , where w is a weight that
+we set to 100.
+We use the same alternating minimization described in
+ARAPSM to minimize the deformation and constraint energies. We alternately solve for rotations, then hold the rotations constant and solve for vertex positions that minimize
+the energy.
+
+2.3. Expansion
+After deforming the simplified mesh from Section 2.2, we
+expand the surface to full resolution, while preserving the
+nearly rigid properties of the deformed shape. We estimate
+that local details near a vertex pc ∈ P move rigidly with the
+corresponding local neighbourhood around qc ∈ Q in the
+deformed mesh because as-rigid-as-possible deformations
+are almost rigid at small scales.
+We use the local transformation M c to calculate the vertices
+of the newly expanded edge as qr = M c pr and ql = M c pl
+(see Figure 2). The rigid transformation M c consists of a
+rotation Rc and a translation T c , such that M c x = Rc x + T c ,
+where x and T c are column vectors. We find T c in terms of
+Rc by subtracting the centroid of the neighbouring triangles
+[SMW06]. The translation component is then
+¯
+Tc = q¯ − Rc p,
+where
+
+p¯ =
+
+j ∈N (c)
+
+pj (s, t)dtds
+s
+
+j ∈N (c)
+
+t
+
+dtds
+s
+
+t
+
+n
+
+=
+
+j =1
+
+(pc +pj +pj +1 )
+
+j
+
+.
+
+n
+j =1
+
+j
+
+¯ we make the simplifying
+In the right-hand formula for p,
+assumption that vertices in the one-ring are ordered circularly
+from 1 to n and that j is the area of the jth triangle. The
+¯ but in the deformed
+formula for q¯ has the same form as p,
+mesh.
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+We calculate Rc as the minimizer of
+¯ − Rc (pj (s, t) − p)|
+¯ 2 dtds.
+|(qj (s, t) − q)
+
+min
+
+Rc RcT =I
+
+j ∈N (c)
+
+s
+
+2391
+
+for qc and Rc , but have found that using a single iteration
+is sufficient. We then determine the positions of ql and qr
+as ql = Rc pl + T c and qr = Rc pr + T c .
+
+t
+
+The best-fit rotation is found through an singular value decomposition (SVD) of the matrix
+Bc =
+
+¯ j (s, t) − q)
+¯ T dtds.
+(pj (s, t) − p)(q
+j ∈N (c)
+
+s
+
+t
+
+This matrix can be written in closed form, using the notation
+that Pj1 , Pj2 and Pj3 are the three vertices of triangle j in the
+¯ We use a similar notation for
+rest mesh, and Pˆj k = Pj k − p.
+the vertices of the deformed mesh, Q, so that
+⎛
+⎞
+211
+j
+ˆ j2 Q
+ˆ j 3 )T .
+ˆ j1 Q
+( Pˆj 1 Pˆj 2 Pˆj 3 ) ⎝ 1 2 1 ⎠ ( Q
+Bc =
+24
+j ∈N (c)
+112
+We compute Rc using the SVD of Bc = Uc c VcT such that
+Rc = Uc VcT [AHB87]. When det(Rc ) < 0, Rc is a reflection,
+so we negate the last column in U c .
+While adding details, we also need to ensure that constraints on the positions of detail vertices are satisfied. We do
+this by optimizing local neighbourhoods so that we modify
+low-resolutions first. We show the full expansion operation,
+including the constraint matching steps, in Figure 2. If there
+are any constrained vertices under the influence of qc , we
+modify the position of qc before expanding qc into an edge.
+We set the position of qc to minimize the distance between
+the predicted positions M c ck of the constrained vertices and
+their target positions dk . This energy is given by
+Ex =
+
+¯ − Rc (ck − p)|
+¯ 2.
+|(dk − q)
+k
+
+The formula for Ex is nearly the same as the formula for Ec ,
+except that rather than summing the error over all vertices
+in the mesh, we only add the contribution from pc . Another
+difference is that Ex is calculated relative to the centroid p¯
+rather than pi . Using p¯ instead of pi in Ex produces smoother
+deformations during the expansion, because the translational
+component is computed over the entire one-ring rather than
+simply using the central vertex. After substituting the formulae for p¯ and q¯ into Ex , it is straightforward to differentiate
+Ex and solve for the qc that minimizes Ex . The minimizer of
+Ex , with m constraints and n neighbour vertices, is
+3
+qc =
+m
+
+n
+
+m
+
+j =1
+
+dk −
+
+(qj + qj +1 )
+
+k=1
+
++Rc p¯ −
+
+j
+
+n
+j =1
+
+3
+m
+
+m
+k=1
+
+j
+
+ck .
+
+Once we have calculated the position of qc , we update Rc by
+recalculating Bc and performing an SVD of Bc again. We can
+iterate this process of solving for qc by alternately solving
+
+3. Results
+Our method produces deformations that look nearly asrigid-as-possible by calculating an as-rigid-as-possible deformation over a simplified model and adding approximately
+rigidly deformed details. This approach greatly reduces the
+complexity of calculating a deformation while producing
+high-quality results. Unfortunately, the perceived quality of
+a deformation is subjective. We provide a qualitative comparison between some deformation methods in a series of
+examples shown in Figure 4 that have been used in a survey of deformation methods [BS08] to highlight difficult
+situations where methods often fail to produce reasonable
+deformations.
+In these standard examples, our method produces reasonable deformations with simplified meshes containing 200
+vertices. For the cylinder, PriMo is able to prevent compression of the cylinder by bending the shape outwards, as
+does our method. One may notice that the bumpy plane does
+not match the orientation of the bottom constraints with our
+method in the comparison diagram. This is an artefact of the
+constrained region being too thin for the resolution of our
+mesh with 200 vertices. Figure 5 shows the low-resolution
+meshes at 200 and 500 vertices for the bumpy plane and
+the resulting deformations. With 500 vertices, the mesh resolution is high enough that the constrained region is almost
+a triangle in thickness, and can constrain the orientation of
+the plane rather than just its position. The bumpy plane,
+twisted bar and cactus behave in a plausible fashion for our
+method, while the methods other than PriMo show obvious
+artefacts.
+Our method also produces nice deformations for complex
+shapes. Figure 6 shows the complex surface of a dragon
+that we deformed using our method. As can be seen from
+the control points that are displayed as yellow dots, few
+constraints are required to produce a natural pose.
+The global, alternating minimization for the deformation
+of the base mesh is much slower for high-resolution meshes
+than it is for low-resolution meshes. If the base mesh is the
+same as the input mesh, our method is the same as ARAPSM
+[SA07], because we use ARAPSM to optimize the base mesh.
+The difference between ARAPSM and our method is that
+ARAPSM operates only on high-resolution meshes, whereas
+we add details to a base mesh that we optimize quickly. In
+part, global minimization of a detailed mesh is slow because
+each iteration takes a long time. The time taken to calculate
+best-fit rotations and to back-substitute the LU factorized
+global system is proportional to the number of vertices in the
+simplified mesh. For the dragon model, we measured that the
+time to calculate an iteration of the global deformation over
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+2392
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+Figure 4: This grid of images compares deformations produced by a variety of methods in challenging configurations. The
+constraints in the first row are moved purely by a translation, while the remaining rows contain a bend or twist. The columns from
+left to right are the resulting meshes after performing (a) no deformation, (b) PriMo [BPGK06], (c) thin shells with deformation
+transfer [BSPG06], (d) gradient-based editing [ZRKS05], (e) Laplacian-based editing with implicit optimization [SCOL*04],
+(f) rotation invariant coordinates [LSLCO05] and (g) our method.
+100 vertices was 0.30 ms. For 1000 vertices the time was
+3.1 ms, the time for 10 000 vertices was 32 ms, and the full
+mesh of 112 776 vertices took 0.35 s for an iteration. Note
+that the time taken to calculate a deformation of the base
+mesh is independent of the number of constraints placed on
+the model.
+Another reason for slow convergence of ARAPSM is the
+large number of iterations required for the solution to converge. Figure 7 shows the root mean square (RMS) error
+of vertex positions in the fully expanded, deforming mesh
+compared to vertices in the converged mesh, normalized by
+the diagonal of the mesh’s bounding box. We calculated the
+time taken to deform the dragon with different resolution
+base meshes. The plot for the full mesh of 112 776 vertices is
+shown in yellow, 10 000 vertices is shown in green, 1000 vertices is shown in red and 100 vertices is shown in blue. The
+vertical axis shows the log10 of the RMS error, and 10−7 error
+is at the limit of floating-point precision. After 400 iterations,
+the mesh with 100 vertices has a thousandth of the error that
+the mesh with 1000 vertices has and a hundred-thousandth
+
+of the error of the full-resolution mesh. The time to converge
+is the product of the time to perform an iteration and the
+number of iterations required, which means that using fewer
+vertices is highly desirable.
+For simplified meshes, a single global iteration takes far
+less time than the expansion of the simplified model to its full
+resolution, so we can greatly speed up the rate of convergence
+by calculating multiple global iterations per expansion. We
+measure the time taken to expand the model, and run as many
+iterations over the simplified mesh as possible in that period
+of time. If the time to expand is e and an iteration over the
+simplified mesh takes s time, the update interval is bounded
+by 2e + s.
+We plot convergence as a function of time using this technique on the dragon model in Figure 8 . Notice that base
+meshes with few vertices converge very quickly. Our method
+converges quickly because we are able to run many global
+iterations in the time it takes to do one full expansion. The
+time to fully expand the model from 100 vertices with no
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+2393
+
+Figure 5: A comparison of the bumpy plane example using
+our method at 200 (top) and 500 (bottom) vertices in Q0 .
+The low-resolution meshes are shown on the left, with the
+full-resolution meshes on the right.
+
+constraints is 0.33 s, and we were unable to measure a difference in time between expanding with no constraints and
+with 30 constraints distributed evenly over the surface of the
+dragon. The effects of slow iterations and requiring many
+iterations compound to make ARAPSM unfeasible to use
+for high-resolution meshes. Even after several minutes, the
+complexity of optimizing the full dragon mesh means that
+ARAPSM is unable to converge, whereas our method can run
+several iterations very quickly and converge to a reasonable
+result in less than a second.
+
+Figure 6: Deformations of a dragon (bottom, middle) from
+the rest pose (top) are shown with constraints shown as yellow spheres.
+
+Optimizing a low-resolution mesh before adding back
+details confers another benefit besides speed. As-rigid-aspossible surface deformation methods minimize a thin-shell
+energy. Under large deformations, this energy allows the surface to fold and pinch in ways that appear unnatural in a
+solid object. However, when the discretization of the surface
+is coarse, the edge connectivity is closer to that of a tetrahedralization. By simplifying a model, we approximate the
+results of a tetrahedralization while performing only surface
+operations. We then add back details such that we maintain
+near-rigidity while enforcing vertex constraints.
+Figure 9 shows an example of this effect using a base
+mesh at 200, 500 and 2000 vertices, and at full-resolution of
+15 002 vertices. The undeformed model is shown on the left,
+the top row of images shows the low-resolution mesh, and
+the bottom row shows the resulting mesh after adding back
+details. The right image shows the result after performing
+as-rigid-as-possible deformation on the unsimplified mesh,
+and is equivalent to ARAPSM. Notice that the stomach of the
+armadillo man collapses in the high-resolution mesh, but that
+the low-resolution mesh does not collapse and deforms more
+
+Figure 7: A single global iteration is allowed per expansion.
+The log10 RMS error is plotted versus the time to deform the
+dragon.
+
+like a volume. As the resolution of the base mesh increases
+to the right, the object appears more like a thin-shell and our
+method approaches ARAPSM.
+Although we use multiple mesh resolutions to calculate
+a deformation, our method is not a multi-grid solver for
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+2394
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+Figure 9: The rest pose of the armadillo man is shown on the left, followed by deformations with base meshes of 200, 500,
+2000 vertices and unsimplified. Using more vertices makes the mesh deform more like a rubber skin.
+one optimization because there is a unique ancestor for each
+level. Therefore, the time taken to optimize m constraints
+during expansion is O(m log n). Since each expansion takes
+constant time to update mesh topology, the time taken to
+apply constrained details to the mesh is O(n + m log n).
+Hence, we can deform even massive meshes with our method,
+because expansion time is nearly linear in vertices, and the
+time to optimize the simplified mesh is independent of the
+number of vertices in the detailed model.
+
+4. Conclusions and Future Work
+
+Figure 8: Multiple global iterations are allowed per expansion, up to how long the expansion takes. The log10 RMS
+error is plotted versus the time to deform the dragon.
+as-rigid-as-possible deformations. A multi-grid approach
+would speed up convergence of a deformation, but would
+converge to the same undesirable thin-shell solution, whereas
+the deformation calculated by our method makes the object
+act more like a solid as the number of vertices in the base
+mesh decreases.
+Conceptually, the edge collapses in our hierarchy form
+a nearly balanced binary tree because our collapse metric
+favours a uniform triangulation, so the edge collapse tree for
+n vertices will have an approximate depth of log n. For every
+level of the tree, any position constraint is included in at most
+
+In conclusion, our surface deformation method meets vertex
+constraints of a high-resolution mesh while preserving local
+rigidity in the deformed model. Additionally, we calculate
+deformations quickly enough for artists to interactively deform models with hundreds of thousands of triangles. Artists
+can add to or remove constraints from models that have already been deformed and can manipulate surfaces with arbitrary triangulations. Although we deform the low-resolution
+model with an as-rigid-as-possible deformation method, our
+method of adding details to a low-resolution model does not
+depend on how the low-resolution model is deformed. For
+example, it is possible to deform the low-resolution model
+using skeletal deformation and add back details with our
+method to reduce artefacts from poor skin weights.
+Our method has several benefits over directly optimizing
+a full-resolution mesh, but has some limitations as well. One
+problem is that the resulting deformation depends on the
+resolution of the simplified mesh. Low resolutions can potentially miss important features of the deformation when
+constraints are close together, but high resolutions will take
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+longer to optimize. We currently do not have an automatic
+method for choosing a base-resolution, and leave resolution
+as a user-specified parameter.
+Another limitation is that the choice of edge-collapse metric has a strong influence on the resulting deformation, because it affects both the simplified mesh and the order in
+which we add back details. We chose a metric that favours
+uniform triangulations so that the mesh will deform uniformly, but when bends should occur at clear joints in the
+model, the error metric by Garland and Heckbert [GH97]
+works well. We may be able to take advantage of the effects that different edge collapse metrics have on our method
+if an artist provides example poses that indicate how joints
+should bend. When this is the case, we could guide the edge
+collapses using a deformation-aware collapse metric such as
+[LS09] to produce better deformations.
+There are also a few details of our method that we feel
+could be improved. A more subtle problem with our collapse
+metric is that input models that are symmetric can become
+asymmetric during simplification, which can produce unexpected results. There is also a subtle problem during expansion operations. When we attempt to satisfy constraints during expansion operations, we approximate which vertices are
+affected by the constraints by using ancestry in the collapse
+tree. In reality, constrained vertices influence more vertices in
+the simplified mesh than just their ancestors, and the amount
+of influence falls off with distance. It would be interesting
+if we could approximate the influence of vertices better, but
+as we calculate the contribution of more constraints per expansion, it may become difficult to enforce a low bound on
+computation time.
+Our method may still not be fast enough to be interactive
+for extremely large models. However, we can take advantage
+of the multi-resolution nature of our method and perform
+vertex expansions until a time limit has expired to maintain
+a high frame rate during interaction. The partially expanded
+mesh approximates the full-resolution mesh and allows editing of truly massive models. It may also be possible to reduce
+the cost of estimating rigid transformations in our method by
+exploiting temporal coherence in the SVD calculation and
+reusing previously computed results as done in FastLSM
+[RJ07].
+
+Acknowledgements
+Funding is provided in part by NSF grant CCF-07024099 and
+J.M. is supported by an NSF Graduate Research Fellowship.
+References
+[ACSE05] ATTALI D., COHEN-STEINER D., EDELSBRUNNER H.:
+Extraction and simplification of iso-surfaces in tandem.
+In Proceedings of the Symposium on Geometry Process-
+
+2395
+
+ing (Vienna, Austria, 2005), Eurographics Association,
+p. 139.
+[AHB87] ARUN K. S., HUANG T. S., BLOSTEIN S. D.: Leastsquares fitting of two 3-d point sets. IEEE Transactions
+on Pattern Analysis and Machine Intelligence 9, 5 (1987),
+698–700.
+[BPGK06] BOTSCH M., PAULY M., GROSS M., KOBBELT L.:
+Primo: Coupled prisms for intuitive surface modeling. In
+Proceedings of the Symposium on Geometry Processing
+(Sardinia, Italy, 2006), pp. 11–20.
+[BS08] BOTSCH M., SORKINE O.: On linear variational surface deformation methods. IEEE Transactions on Visualization and Computer Graphics 14, 1 (2008), 213–230.
+[BSPG06] BOTSCH M., SUMNER R., PAULY M., GROSS M.:
+Deformation transfer for detail-preserving surface editing.
+In Vision, Modeling, and Visualization (VMV) (Aachen,
+Germany, 2006), pp. 357–364.
+[GH97] GARLAND M., HECKBERT P.: Surface simplification
+using quadric error metrics. In Proceedings of SIGGRAPH
+(Los Angeles, CA, USA, 1997), pp. 209–216.
+[GSS99] GUSKOV I., SWELDENS W., SCHRO¨ DER P.: Multiresolution signal processing for meshes. In Proceedings of
+SIGGRAPH (Los Angeles, CA, USA, 1999), pp. 325–334.
+[JMD*07] JOSHI P., MEYER M., DEROSE T., GREEN B.,
+SANOCKI T.: Harmonic coordinates for character articulation. ACM Transactions on Graphics 26, 3 (2007),71:1–
+71:9.
+[JSW05] JU T., SCHAEFER S., WARREN J.: Mean value coordinates for closed triangular meshes. In Proceedings of
+SIGGRAPH (Los Angeles, CA, USA, 2005), pp. 561–566.
+[KCVS98] KOBBELT L., CAMPAGNA S., VORSATZ J., SEIDEL
+H.-P.: Interactive multi-resolution modeling on arbitrary
+meshes. In Proceedings of SIGGRAPH (Orlando, FL,
+USA, 1998), pp. 105–114.
+[KMP07] KILIAN M., MITRA N. J., POTTMANN H.: Geometric
+modeling in shape space. ACM Transactions on Graphics
+(SIGGRAPH) 26, 3 (2007), 64:1–64:8.
+[LMH00] LEE A., MORETON H., HOPPE H.: Displaced subdivision surfaces. In Proceedings of SIGGRAPH (New
+Orleans, LA, USA, 2000), pp. 85–94.
+[LS09] LANDRENEAU E., SCHAEFER S.: Simplification of articulated meshes. Computer Graphics Forum 28, 2 (2009),
+347–353.
+[LSLCO05] LIPMAN Y., SORKINE O., LEVIN D., COHEN-OR D.:
+Linear rotation-invariant coordinates for meshes.
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+2396
+
+ACM Transactions
+479–487.
+
+J. Manson & S. Schaefer / Hierarchical Deformation of Locally Rigid Meshes
+
+on
+
+Graphics
+
+24,
+
+3
+
+(2005),
+
+[RJ07] RIVERS A. R., JAMES D. L.: Fastlsm: Fast lattice
+shape matching for robust real-time deformation. In
+Proceedings of SIGGRAPH (San Diego, CA, USA, 2007),
+pp. 82:1–82:6.
+[SA07] SORKINE O., ALEXA M.: As-rigid-as-possible surface
+modeling. In Proceedings of the Symposium on Geometry
+processing (Barcelona, Spain, 2007), pp.109–116.
+[SCOL*04] SORKINE O., COHEN-OR D., LIPMAN Y., ALEXA
+M., R¨ossl C., SEIDL H.-P.: Laplacian surface editing. In
+Proceedings of the Symposium on Geometry Processing
+(Nice, France, 2004), pp. 175–184.
+[SMW06] SCHAEFER S., MCPHAIL T., WARREN J.: Image deformation using moving least squares. ACM Transactions
+on Graphics 25, 3 (2006), 533–540.
+
+[SYBF06] SHI L., YU Y., BELL N., FENG W.-W.: A fast
+multigrid algorithm for mesh deformation. In Proceedings of SIGGRAPH (Boston, MA, USA, 2006), pp. 1108–
+1117.
+[SZT*07] SHI X., ZHOU K., TONG Y., DESBRUN M., BAO H.,
+GUO B.: Mesh puppetry: Cascading optimization of mesh
+deformation with inverse kinematics. ACM Transactions
+on Graphics 26, 3 (2007), 81:1–81:9.
+[YZX*04] YU Y.,
+GUO B., SHUM
+based gradient
+of SIGGRAPH
+pp. 644–651.
+
+ZHOU K., XU D., SHI X., BAO H.,
+H.-Y.: Mesh editing with poissonfield manipulation. In Proceedings
+(Los Angeles, CA, USA, 2004),
+
+[Zel82] ZELTZER D.: Motor control techniques for figure animation. IEEE Computer Graphics and Applications 2, 9
+(1982), 53–59.
+
+[SP86] SEDERBERG T. W., PARRY S. R.: Free-form deformation of solid geometric models. SIGGRAPH Computer
+Graphics 20, 4 (1986),151–160.
+
+[ZHX*07] ZHOU K., HUANG X., XU W., GUO B., SHUM H.-Y.:
+Direct manipulation of subdivision surfaces on GPUs. In
+Proceedings of SIGGRAPH (San Diego, CA, USA, 2007),
+pp. 91:1–91:9.
+
+[SSP07] SUMNER R., SCHMID J., PAULY M.: Embedded deformation for shape manipulation. ACM Transactions on
+Graphics 26, 3 (2007), 80:1–80:7.
+
+[ZRKS05] ZAYER R., R¨ossl C., KARNI Z., SEIDEL H.-P.:
+Harmonic guidance for surface deformation. Computer
+Graphics Forum 24, 3 (2005), 601–609.
+
+c 2011 The Authors
+Computer Graphics Forum c 2011 The Eurographics Association and Blackwell Publishing
+
+

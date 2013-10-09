@@ -17,9 +17,9 @@ names = ["IEEE Symposium on Information Visualization (INFOVIS)","IEEE Conferenc
 
 count = 0
 if MODE == 'PAPERS':
-        f = open('papers.txt', 'w')
+        f = open('../data/papers.txt', 'w')
 elif MODE == 'KEYWORDS':
-        f = open('keywords.txt', 'w')
+        f = open('../data/keywords.txt', 'w')
 print >> sys.stderr, "# Priting to:", f.name
 
 for i_url, url in enumerate(urls):

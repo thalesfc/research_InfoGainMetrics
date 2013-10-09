@@ -1,0 +1,1647 @@
+DOI: 10.1111/j.1467-8659.2010.01775.x
+Eurographics Symposium on Geometry Processing 2010
+Olga Sorkine and Bruno Lévy
+(Guest Editors)
+
+Volume 29 (2010), Number 5
+
+Fast Generation of Pointerless Octree Duals
+Thomas Lewiner1 , Vinícius Mello2 , Adelailson Peixoto3 , Sinésio Pesco1 and Hélio Lopes1
+1 Departamento
+
+de Matemática, PUC–Rio de Janeiro, Brazil
+de Matemática, Universidade Federal da Bahia, Brazil
+3 Instituto de Matemática, Universidade Federal de Alagoas, Brazil
+2 Instituto
+
+Abstract
+Geometry processing applications frequently rely on octree structures, since they provide simple and efficient hierarchies for discrete data. However, octrees do not guarantee direct continuous interpolation of this data inside
+its nodes. This motivates the use of the octree’s dual structure, which is one of the simplest continuous hierarchical structures. With the emergence of pointerless representations, with their ability to reduce memory footprint
+and adapt to parallel architectures, the generation of duals of pointerless octrees becomes a natural challenge.
+This work proposes strategies for dual generation of static or dynamic pointerless octrees. Experimentally, those
+methods enjoy the memory reduction of pointerless representations and speed up the execution by several factors
+compared to the usual recursive generation.
+Categories and Subject Descriptors (according to ACM CCS): Computer Graphics [I.3.6]: Graphics data structures
+and data types—Data Storage Representations [E.2]: Hash-table representations—
+
+1. Introduction
+Hierarchical structures are widely used to store discrete geometrical data. In particular, regular hierarchies like octrees [Sam90] are fundamental ingredients in several geometry processing applications. However, octrees are discontinuous structures, in the sense that information in a refined
+node may not be directly accessible to a neighbor node.
+Defining data interpolation inside each node is thus not always continuous. This discontinuity makes the use of octree
+very delicate for certain applications [VHB87, SS92], such
+as adaptive extraction of isosurface [NY06]. A simple solution that preserves the simplicity and regularity of octrees
+but remains continuous is the octree dual, which is already
+widely used [JLSW02,SW04,PLLdF06,SLS∗ 07]. This work
+introduces fast algorithms for the generation of dual octrees.
+The regularity of the octree, subdividing in the middle
+independently of the data, reduces the adaptability of the
+structure, but it provides several advantages in terms of ease
+of use and performance. Classical representations of octrees
+use pointers, which leads to large memory footprint and random memory access during traversal. This is particularly inefficient, but can be avoided if using pointerless representations [Gar82, Sam90]. Such representations associate to
+each node of the octree a unique key [Mor66, SS09], and the
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+traversal operations resume to key manipulations that can be
+performed in local memory [Sch92, GDB03, CLL∗ 08]. This
+work proposes to generate the dual of an octree using such
+key manipulations, enjoying the reduced memory footprint
+of pointerless representations and improving the execution
+time by several factors.
+Related works. Dual octrees have been first used in
+geometry processing for isosurface extraction [JLSW02,
+SW04, PLLdF06, NY06]. Since it is a continuous structure,
+usual trilinear interpolation [SW04], higher order interpolation [JLSW02] or finite element method [SLS∗ 07] fit nicely,
+while preserving the adaptability of the octree [PLLdF06].
+All those works use a recursive generation of the dual, which
+is recalled in Section 3. Recently, León et al. [LTV08] proposed a data structure, which preprocesses the octree for
+dual generation, storing an extra marker per leaf (see Section 3). This allows enumerating the interior vertices and
+generating the dual from those. Our proposal also builds the
+dual cells from the octree vertices, but reduces the execution
+time using key manipulations and is also able to avoid preprocessing and extra memory usage.
+Pointerless representations of octrees [Gar82] have become popular for sparing memory [CJC∗ 09] and for their
+ability to work on parallel [WS93] and GPU architec-
+
+1662
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless Octree Duals
+
+tures [BC08]. The use of Morton codes [Mor66, SS09]
+for indexing the octree (see Section 2) is widely used,
+since they allow for efficient manipulation as dilated integers [Sch92,SS95] and optimized search [GDB03,CLL∗ 08].
+Contributions. This paper introduces algorithms to efficiently generate dual of pointerless octrees. Our method enjoys the possibility offered by such representations to access
+the octree nodes directly, instead of following the subdivision hierarchy. More precisely, we propose two strategies
+(see Section 4). The first one stores the interior vertices of
+the octree during preprocessing and then generates the dual
+volumes from those vertices. This is efficient for static octree since it factors the vertex generation, but require an extra memory to store the vertices. The second strategy decides during the octree leaves’ traversal which vertices to
+process. This removes the preprocessing and avoids storing
+the vertices and fits nicely for dynamically adapted octrees.
+We also propose simple key manipulations on dilated integers [SS95] to efficiently represent the vertices of the octree,
+and an optimized search to retrieve the dual volumes from
+those vertices. Those methods accelerate the dual generation
+by an average factor above 3, as shown in the experiments of
+Section 5.
+For the sake of clarity, the figures of this work represent
+quadtrees, while the text and the algorithms refer to the 3D
+case. All the results naturally generalize to any dimension.
+The notation abc means the cyclic repetition abcabcabc . . . .
+
+11110
+
+11111
+
+111
+
+110
+
+11100
+
+11101
+
+1
+
+10010
+
+100
+1110
+
+100
+1111
+
+10011
+
+100
+100 1100
+
+100
+1101
+
+101
+
+10000 10001
+
+Figure 1: Quadtree with the Morton keys of each node.
+1
+
+100
+100
+00
+
+101
+
+100
+01
+
+100
+10
+100
+1100
+
+110
+
+100
+11
+100
+1101
+
+111
+111
+00
+
+100
+1110
+
+111
+01
+
+111
+10
+
+111
+11
+
+100
+1111
+
+000 001 010 011 100 101 110 111
+2. Octrees and their Representations
+An octree [Sam90] is a hierarchical data structure based
+on recursive decomposition of an initial cube in 3D, where
+each node of the hierarchy represents a part of the initial cube as follows. The root node of an octree represents
+the whole cube. Each node may be subdivided, generating
+eight children, each of which represents one octant (see Figure 1). Usually, a piece of data is associated only to the un–
+subdivided nodes, called leaves. The depth of a node n is the
+number of divisions between the root and n.
+Classical octree structures. The two most common representations of octrees use pointers to represent the subdivisions hierarchy. The first one relies on an exhaustive tree
+representation (see Figure 2(top)): each node has eight pointers, one for each of its children, and a reference to the associated data. The second one, called sibling/child representation, stores for each node a pointer to its first child and to the
+next child of its parent, and a reference to the data.
+Besides, some implementations add pointers to the parent
+to accelerate bottom-up traversals. Observe that the second
+option uses a fourth of the memory (2 pointers per node,
+instead of 8), but requires in average 4.5 more pointer dereferencing to access a given node.
+
+100
+00
+
+1
+
+100
+01
+
+100
+10
+
+100
+11
+
+100
+
+101
+
+110
+
+111
+
+111
+00
+
+111
+01
+
+111
+10
+
+111
+11
+
+100
+1100
+
+100
+1101
+
+100
+1110
+
+100
+1111
+
+Figure 2: Two representations for the quadtree of Figure 1,
+using pointers (top) and hash table (bottom). The hash table
+¯
+uses the three last bits of the key: k & 0111.
+Hashed octree. Another type of octree representation, more
+compact, replaces pointers by index manipulation. The
+nodes are then stored in a hash table, which allows direct access to any node (see Figure 2(bottom)). This representation
+assigns to each node a key, which is used to identify it and
+to compute its address in the hash table. This key may represent the position of the node in the subdivision hierarchy or
+the geometry of the associated cube. In efficient schemes, the
+key cumulates both significations (see Figure 3). This allows
+at the same time to identify the children of a node by the octant orientation for traversal algorithms, and to access a node
+directly from its position, for search procedures [CLL∗ 08].
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+1663
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless Octree Duals
+
+3. Octree Duals
+x110
+
+x10
+
+x11
+
+x100
+
+x101
+x
+
+x
+x00
+
+x111
+
+x01
+
+z
+
+x011
+
+x010
+y
+
+x000
+
+The definition of the dual of an octree follows the notion of
+Poincaré duality for cell complexes [Hat02]. In the 2D case,
+the dual can be obtained informally by creating dual vertices
+at the center of each leaf of the quadtree, and drawing a dual
+edge between vertices of adjacent leaves, i.e. leaves of the
+quadtree sharing an edge (see Figure 5).
+
+x001
+
+x
+
+●
+
+Figure 3: Suffixes to append to the Morton code x of a node
+to obtain the codes of its children, in 2d (left) and 3d (right).
+●
+
+center(n) = (x, y) ∈ [0, 1]
+x = 0.x1 x2 . . . xl . . . xM
+
+k
+
+2
+
+●
+
+l
+●
+
+●
+
+y = 0.y1 y2 . . . yl . . . yM
+g
+
+kl (n) = ¯0 1 y1 x1 y2 x2 . . . yl xl
+
+●
+
+Figure 4: Bit interleaving for the Morton key of n at depth l.
+
+d
+a
+
+Morton codes. There are several efficient definitions
+of such keys [SS09], the most usual being Morton
+codes [Mor66]. The Morton key kn of a node n can be generated either recursively from the octree hierarchy or from the
+geometry of the associated cube.
+Following the first approach, the key of the root is 1, and
+the key of a child of n is the concatenation of kn with the 3
+bits coding the octant of the child (see Figure 3). The depth
+of n is then l = � 13 log2 (kn )� and the key of the parent of n is
+obtained by removing the 3 last bits of kn : kn � 3.
+The key kn can also be generated from the depth l of n and
+the position (x, y, z) of its center: assuming that the root is the
+unit cube [0, 1]3 , the side of the cube associated to n is 2−l
+and the key kn is computed by interleaving the bits of x, y and
+z: if x = 0.x1 x2 . . . xM , y = 0.y1 y2 . . . yM and z = 0.z1 z2 . . . zM ,
+then kn = 1z1 y1 x1 z2 y2 x2 . . . zl yl xl (see Figures 1 and 4). This
+interleaving can be accelerated using dilated integer operations [Sch92, SS95].
+Morton hashing. The usual hash function for Morton keys
+assigns to a node n the b last bits of its key: kn mod 2b =
+¯ . . . 1. This leads to a hash table of size 2b . Two
+kn & 011
+nodes would collide (i.e. have the same Morton key) if they
+have the same path from their b3 -ancestry. This scheme intends to equalize the hash table (see Figure 2), in the sense
+that its entries are regularly distributed, especially when the
+octree is unbalanced. To obtain good hashing performances,
+b must be big enough to avoid hash collisions, which may
+require large amount of continuous memory, although the
+amount of memory actually used is always less than for
+pointer representation.
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+●
+
+●
+
+●
+
+h
+e
+b
+
+●
+
+●
+
+i
+
+j
+
+f
+c
+
+●
+
+●
+
+Figure 5: Dual of the quadtree of Figure 1, with the leaf
+vertices corresponding to dual volumes marked.
+More formally, the cell complex is associated to the last
+level of the octree, where the 3-dimensional cells are the
+cubes associated to the leaves of the octree. The cells of dimension 2, 1 and 0 are respectively the faces, edges and vertices of those leaf cubes. The dual is the cell complex whose
+cells of dimension c are in bijection to cells of dimension
+3 − c of the octree. In particular, leaf cubes of the octree are
+identified to vertices of the dual, and vertices of those cubes
+in the interior of the octree are identified to volumes (3-cells)
+of the dual.
+The adjacency in the dual is defined as follow. If a c-cell
+e of the octree has (primal) cells v1 and v2 as faces, then the
+dual cells identified with v1 and v2 are adjacent in the dual
+complex, sharing the dual cell identified with e. In particular,
+the dual vertices identified with adjacent leaves of the octree
+are linked by a dual edge.
+Frequently, the volumes associated to vertices on the
+boundary of the octree are discarded [PLLdF06, SLS∗ 07,
+LTV08]. The dual volumes are frequently represented by
+eight octree leaves (i.e. dual vertices), although some of
+those leaves may be repeated. This redundancy is useful in
+applications such as Dual Marching Cubes [SW04] since it
+allows handling dual volumes as combinatorial cubes, although their geometry may differ.
+
+1664
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless Octree Duals
+face
+Proc
+
+face
+
+face
+
+face
+Proc
+
+face
+Proc
+
+edge
+
+edge
+Proc
+
+face
+Proc
+
+edge
+
+edge
+
+edgeProc
+
+face
+
+vert
+
+edge
+Proc
+
+face
+Proc
+
+edge
+face
+
+j
+
+edge
+
+faceProc
+
+l
+
+edge
+
+i
+
+i
+
+edge
+
+edgeProc
+
+k
+
+edge
+
+vert
+Proc
+
+vert
+
+j
+
+vert
+
+l
+
+vert
+
+k
+
+Figure 6: Illustration of the recursive generation of the dual quadtree (middle bottom), made of four faces (i,j,k,l). The sequence
+of calls of the recursive procedures of Figure 7 starts from the root node (middle top).
+
+Recursive generation. The usual computation of dual octrees requires a recursive implementation [JLSW02, SW04],
+returning each dual cell by its dual vertices, or equivalently
+the associated octree leaves. The recursion starts with the
+root of the octree, which corresponds to a single dual vertex.
+A recursive function is implemented for each kind of dual
+cell, namely dual vertex / primal cube cubeProc(n0 ),
+dual edge / primal face faceProc(n0 , n1 ), dual face / primal edge edgeProc(n0 , n1 , n2 , n3 ) and dual volume / primal vertex vertProc(n0 , . . . , n7 ). Those functions stop
+when all of their arguments are leaf nodes. They recurse
+when some of its arguments are not leaves, and call the functions corresponding to all the dual cells created by subdividing those nodes. The dual volumes are returned only from
+vertProc.
+In the 2D case, the creation of the quadtree dual use three
+functions represented in Figure 7, and their use is illustrated
+in Figure 6.
+
+tion once for each cell it traverses, i.e. once for all the cells of
+all the levels of the octree. Its complexity is therefore linear.
+Our proposal is also linear, but its complexity is proportional
+only to the number of vertices of the leaves of the octree,
+which is around nine times less.
+Volume octree. Recently, León et al. [LTV08] proposed to
+store extra information within the octree leaves to accelerate
+the dual generation. More precisely, they assign each dual
+cell to one of its dual vertex, i.e. a leaf node. Each octree
+node has eight extra bits to mark if it is responsible for each
+of the eight possible primal vertices (see Figure 8). This
+assignment is done in a two-passes traversal of the octree.
+Then, the dual extraction traverses the octree and for each
+leaf, processes the leaf vertices assigned to it by searching
+for the eight possible adjacent leaves. It returns the dual cell
+as the eight search results (see Figure 9).
+
+Observe that this algorithm calls one of the recursive func-
+
+face
+Proc
+
+●
+
+●
+
+●
+
+edge
+Proc
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+●
+
+●
+
+●
+
+●
+
+●
+●
+
+●
+
+●
+
+●
+
+vert
+Proc
+
+●
+
+●
+
+●
+
+●
+
+Figure 7: Recursive procedures to generate the dual of a
+quadtree (image inspired from [JLSW02]).
+
+●
+
+●
+
+Figure 8: Illustration of the volume quadtree data structure:
+each vertex is assigned to an adjacent leaf.
+
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless Octree Duals
+
+Our proposal also builds the dual cells from the octree
+vertices. However, it optimizes the final search, simplifies
+the assignment and is able to avoid the preprocessing and
+the extra memory used for it.
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+●
+
+Figure 9: Computing the dual volume from a vertex by
+searching for leaves at the four (eight for octree) adjacent
+positions, here marked as orange dot for two of the vertices.
+For the upper right vertex, the four searches returns immediately. For the lower left one, one of the searches returns
+immediately, and the three others must look one level up in
+the quadtree, two of them eventually leading to the same leaf.
+
+4. Optimized Dual Generation
+The use of keys and hash table to represent octrees allows bypassing the hierarchic traversal. We propose here a
+scheme to enjoy this aspect in the dual generation with two
+different strategies. The first one uses Morton-like codes to
+represent the vertices of the octree, permitting to store all the
+octree vertices at preprocessing and efficiently search for the
+dual vertices from the Morton-like codes. It suits for applications where the octree is static, factoring on the preprocessing time. The second strategy avoids the extra storage
+of the octree vertices, but with a small execution overhead.
+It suits for dynamic octrees. Both strategies support parallel
+implementations.
+4.1. Static strategy
+This strategy consists in a preprocessing step, required only
+when the octree structure is modified, which generates a
+code for each leaf’s vertex; and a dual traversal step which
+generates the dual volumes by fast local searches (see Algorithms 1 and 2).
+The preprocessing step traverses all the octree leaves
+stored in the hash table, and generates Morton-like codes
+for all the vertices of those leaves that are in the interior of
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+1665
+
+Algorithm 1: Preprocessing step: vertex generation
+in : The octree
+out: Auxiliary hash table aux with the vertices
+1 foreach key k of the octree’s leaves do
+// codes for k’s vertices, see Algorithm leaf2vertopt
+2
+level, v_codes[8] ← leaf2vert(k) ;
+3
+for i ∈ [0 · · · 7] do
+4
+if v_codes[i] = ∅ then next vert i ;
+// get current vertex/level data of aux
+5
+v, lv ← aux[ v_codes[i] ] ;
+6
+if v = ∅ then aux[ v_codes[i] ] ← level ;
+7
+else lv ← min(level, lv) ;
+Algorithm 2: Traversal step: dual generation
+in : The octree and the auxiliary hash table
+out: The dual volumes
+1 foreach vertex code / level v, lv in aux do
+// node keys at level lv, see Algorithm vert2leafopt
+2
+keys[8] ← vert2leaf(v,lv) ;
+3
+for j ∈ [0 · · · 7] do
+// optimized search for leaf: up from level lv
+4
+while keys[ j] �= ∅ & ¬node_exists(keys[ j]) do
+5
+keys[ j] �= 3;
+6
+output keys ;
+
+the octree. Those codes are stored in an auxiliary hash table
+aux, together with the depth of the leaf. When two leaves
+share a vertex, the deepest depth is retained. The structure of
+those Morton-like codes is described in the next paragraph.
+Those codes can be computed efficiently from the Morton
+key of the leaf, as described in the subsequent paragraph.
+The dual traversal step then reads the auxiliary hash table
+and, for each dual vertex / leaf depth pair, searches for the
+eight octree leaves associated to that vertex. Since the depth
+of the deepest leaf is known, the search can be optimized
+further than generic optimized searches [CLL∗ 08].
+Morton-like codes for vertices. The Morton key of an octree node corresponds to the geometric position of its center.
+The centers of all the possible nodes of depth l form a regular
+grid of 2l units per side. The interior vertices of those nodes
+actually form a similar grid, obtained from the previous one
+by a translation of vector (2−l−1 , 2−l−1 , 2−l−1 ) and removing the vertices on the boundary. Since those are binary positions, they can be represented directly by Morton codes, using the geometric key generation (see Algorithm leaf2vert).
+
+Table 1: Morton codes for the vertices of Figure 5.
+a: 10011000¯
+b: 10011010¯
+c: 10110000¯
+d: 10011100¯
+
+e: 10011110¯
+f: 10110100¯
+g: 11001000¯
+h: 11001010¯
+
+i : 11100000¯
+j : 11101000¯
+k: 11110000¯
+l : 11111000¯
+
+1666
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless Octree Duals
+
+Algorithm leaf2vert: Morton codes for vertices (slow)
+in : The Morton key k of the leaf
+out: The eight codes for its vertices
+1 c ← key2cube(k) ;
+// see Figure 4
+2 for i ∈ [0 · · · 7] do
+// get the vertex coordinates at maximal level
+3
+vert ← cube(c.[xyz] ± c.side, MAX_LEV EL) ;
+// overflow test
+4
+if vert.[xyz] ∈
+/ [0, 1]3 then output ∅ ;
+5
+else output cube2key(vert) ;
+
+On the contrary to octree nodes, which have a depth limiting
+the key size, the leaves’ vertices have no specific depth associated to them. Therefore, their codes must be generated at
+the maximal depth instead of � 13 log2 (kn )�. This requires adjusting the hashing of the auxiliary hash table, as detailed at
+the end of this subsection. The Morton codes for the vertices
+of Figure 5 are given in Table 1.
+Algorithm leaf2vertopt : Morton codes for vertices
+in : The Morton key k of the leaf
+out: The eight codes for its vertices
+1 dilx ← 001001 ; dily ← 010010 ; dilz ← 100100 ;
+2 lv ← key2level(k) ; lvk ← 1 � 3 · lv ;
+3 for i ∈ [0 · · · 7] do
+// dilated integer addition k + i
+4
+vk ← { [ (k | ¬dilx ) + (i & dilx ) ] & dilx } |
+{ [ (k | ¬dily ) + (i & dily ) ] & dily } |
+{ [ (k | ¬dilz ) + (i & dilz ) ] & dilz } ;
+// overflow test (repeat or for [xyz])
+5
+if (vk ≥ (lvk � 1)) or ¬((vk − lvk ) & dil[xyz] )
+then output ∅ ;
+6
+else output vk ;
+return lv ;
+Algorithm vert2leafopt : Leaves’ keys from vertex code
+in : The Morton-like code c of a vertex and its level lv
+out: The eight codes of the adjacent leaves
+1 dilx ← 001001 ; dily ← 010010 ; dilz ← 100100 ;
+// removes trailing 0’s
+2 dc ← c � 3 · (MAX_LEV EL − lv) ;
+3 for i ∈ [0 · · · 7] do
+// dilated integer substraction dc − i
+4
+output { [ (dc & dilx ) − (i & dilx ) ] & dilx } |
+{ [ (dc & dily ) − (i & dily ) ] & dily } |
+{ [ (dc & dilz ) − (i & dilz ) ] & dilz } ;
+Fast code translations. A direct implementation of the previous key generation requires translating Morton codes to
+coordinates, check the validity of those integers and translate back (see Algorithm leaf2vert). However, one advantage
+of Morton codes is that they can be efficiently manipulated
+
+using dilated integers [Sch92]. We therefore adapt usual dilated integer addition and propose overflow test for converting between Morton-like codes of vertices and Morton keys
+of adjacent leaves avoiding coordinate representations in Algorithms leaf2vertopt and vert2leafopt . No overflow test is
+required for Algorithm vert2leafopt since all the input keys
+come from Algorithm leaf2vertopt .
+Optimized search for dual volume. The auxiliary hash table stores a code of a vertex v together with the depth l of
+the deepest adjacent leaf. Using Algorithm vert2leafopt , the
+Morton keys ki of the eight adjacent nodes of depth l are
+computed. The dual vertices (i.e. octree leaves) of the dual
+volume associated to v is then retrieved performing a search
+in the hash octree with those codes (see Figure 9). Observe
+that some dual vertices may be repeated, which is the desired
+representation of dual volumes as combinatorial cubes.
+The search in hash octrees from a Morton key ki looks for
+leaves at, below and above the depth of ki until the hash table
+lookup returns a leaf. However, since we know the depth l
+of the deepest adjacent leaf, we do not need to search deeper
+than l (see Algorithm 2, lines 4,5).
+Moreover, we guarantee that at least one of the hash table lookup search will return a leaf at the first try, and 2.37
+searches at least return immediatly (8 for the central vertex
+of the father of a leaf, at least 4 for its 6 faces centers, at
+least 2 for its 12 edges centers and at least one for its 8 vertices). The other searches have an (improbable) worst-case
+complexity of l, but constant in practice (see Section 5). This
+leads to a total complexity of the dual generation of less than
+200 bit operations per leaf and one auxiliary hash table access for the preprocessing, and less than 100 bit operations
+per dual volume plus the search accesses for the traversal.
+From the outputs of Algorithm 2, the combinatorial cube
+representing the dual volume has vertices keys[0] . . . keys[7],
+where the indexes written in binary �are the unit cubes’
+� coordinates. The dual edges are then keys[a] keys[b] when
+a and
+� b differ from exactly one bit.
+� Finally, the dual faces
+are keys[a] keys[b] keys[c] keys[d] where a, b, c, d have only
+one bit in common. The degenerated edges and faces can be
+removed by testing if all their vertices have the same key.
+Hash function for the leaf vertices. The auxiliary hash table access may thus be crucial for good performance of the
+preprocessing. As we mentioned earlier, the least significant
+bits of Morton keys for octree nodes are good hash functions.
+However, since the vertex codes must always be generated
+at the maximal depth, most of the vertex codes end with a
+sequence of 0. Using the least significant bits for hashing
+would induce a huge collision in the auxiliary hash table.
+Therefore, we use here bits starting from the median depth
+of the octree. This maintains the spirit of Morton hashing by
+using the least significant bits, but avoid incorporating the
+final sequence of 0 for at least half of the leaf vertices. Since
+we know the octree statistics before the preprocessing step,
+this is easily implemented.
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless ●Octree Duals
+●
+
+●
+11110
+
+k
+
+●
+110
+
+l
+●
+11100
+
+100 i
+●
+1111
+
+●
+●
+
+●
+11101
+
+j
+
+●
+
+10011
+●
+
+●
+●
+101
+
+●
+
+●
+
+●
+
+1667
+
+●
+
+●
+
+●
+11111
+
+●
+
+●
+
+110
+01
+
+●
+11100
+
+100 i
+●
+1111
+
+101 10
+
+●
+
+●
+
+●
+
+●
+
+101 10
+
+●
+11101
+
+j
+
+101 11
+
+●
+
+10011
+●
+
+●
+11100
+
+●
+
+●
+●
+
+●
+101
+
+Figure 10: Illustration of the dynamic strategy, processing leaf kn = 11100 of the quadtree of Figure 1, with the notation of Algo●
+●
+●
+●
+rithm 3. (left) The codes of the vertices of kn are computed: lv = 2, v_codes = {i, j, k, l} (see Table 1). (center) Processing vertex
+i: the Morton keys of the nodes of level lv = 2 adjacent to vertex i are computed: keys = {11100 = kn , 11001, 10110, 10011}.
+The first key 11100 is kn itself, and is thus skipped (line 6). The second key 11001 is not a leaf (test of line 8), so vertex i will not
+be processed from leaf kn : indeed it has been processed from leaf 1001111. (right) Processing vertex j: the Morton keys of the
+nodes of level lv = 2 adjacent to vertex j are computed: keys = {11101, 11100 = kn , 10111, 10110}. The first key has the same
+level as kn , leading to a tie with kn . Since kn appears before in the order around j (test of line 9), vertex j will be processed from
+kn . The second key is skipped since it is kn itself (line 6). The third and last keys do not correspond to existing nodes (they do not
+appear in the hashtable of Figure 2), so the algorithm skips those keys (test of line 7). The two other vertices are similar to j.
+4.2. Dynamic strategy
+The above strategy processes each leaf vertex exactly once,
+but this requires storing all the vertices, leading to more
+memory operations. This extra preprocessing cost is amortized if building several times the dual without modifying the
+octree. However, some applications such as view-dependent
+isosurface generation constantly adapt the octree before the
+dual generation. Moreover, the extra memory cost of the
+auxiliary hash table may be prohibitive for very large data.
+We propose here a dynamic dual generation that avoids
+the vertex generation as preprocessing (see Algorithm 3 and
+Figure 10). Since an interior vertex is always shared by several leaves, the main difficulty is to guarantee that each vertex is processed only once. We thus define a one-to-one mapping from the vertices to the leaves. This would correspond
+to the assignment defined in the volume octree structure of
+León et al. [LTV08], with the difference that it is defined
+here systematically and online, allowing for a one-pass dual
+generation without preprocessing.
+The mapping associates a vertex to the deepest adjacent
+leaf. More precisely, for each leaf k, the eight codes vi of
+its vertices are generated. For each vertex, the eight keys of
+the adjacent nodes n j , i.e. neighbors of k in the direction of
+vi , are computed. If k is deeper than all the adjacent nodes
+n j , then it is associated to vi (lines 7,8 of Algorithm 3). In
+case of tie, i.e. if k and n j have same depth, we choose the
+first one in Morton order around the vertex. We can observe
+from Algorithms leaf2vertopt and vert2leafopt that k is always generated as the i-th node adjacent to vi , since the first
+algorithm adds i while the seconds subtracts i. This observation leads to a simple test to avoid checking k against itself
+(line 6 of Algorithm 3), and to resolve ties (line 9).
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+Algorithm 3: Dynamic dual generation
+in : The octree
+out: The dual volumes
+1 foreach key k of a leaf of the octree do
+// get the vertex codes of the leaf
+2
+lv, v_codes[8] ← leaf2vert(k) ;
+3
+for i ∈ [0 · · · 7] do
+4
+if v_codes[i] = ∅ then next vert i;
+5
+6
+
+7
+
+8
+
+9
+10
+11
+12
+
+// get the nodes of level lv adjacent to vertex
+v_codes[i], i.e. a neighbor node of leaf k
+keys[8] ← vert2leaf(v_codes[i],lv) ;
+for j ∈ [0 · · · 7] \ {i} do
+
+// leaf k is deeper than neighborkeys[ j]: OK,
+check next neighbor key
+if ¬node_exists(keys[ j]) then next key j;
+
+// neighbor is deeper than leaf: skip vertex
+since it will be processed by that neighbor
+if ¬is_lea f (keys[ j]) then next vertex i;
+// neighbor has same level: tie, it will
+process the vertex if j < i
+if j < i then next vertex i;
+
+// the vertex is processed as in Algorithm 2
+for j ∈ [0 · · · 7] do
+// optimized search for leaf: up from level lv
+while keys[ j] �= 0 & ¬node_exists(keys[ j])
+do keys[ j] �= 3;
+output keys ;
+
+1668
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless Octree Duals
+
+Table 2: Execution time and memory consumption for the dual generation of randomly generated octrees, as average on 200
+runs, including the preprocessing of the static strategy. The gain for each strategy is given for comparable memory consumption.
+number of nodes (millions)
+number of vertices (millions)
+
+0.03
+0.05
+
+0.07
+0.14
+
+0.12
+0.22
+
+0.19
+0.33
+
+0.65
+0.22
+
+1.01
+1.87
+
+3.19
+5.69
+
+13.04
+2.23
+
+24.81
+3.18
+
+octree maximal level M
+subdivision probability p
+
+8
+30%
+
+10
+30%
+
+8
+40%
+
+8
+45%
+
+12
+30%
+
+10
+40%
+
+10
+45%
+
+12
+40%
+
+12
+45%
+
+21
+40
+
+21
+34
+
+21
+40
+
+21
+40
+
+21
+34
+
+24
+34
+
+24
+34
+
+24
+34
+
+24
+34
+
+recursive with pointer
+recursive pointerless
+static
+dynamic
+pointer / static
+hash / dynamic
+
+82
+35
+33
+32
+2.5x
+1.1x
+
+223
+97
+73
+79
+3.1x
+1.2x
+
+349
+151
+101
+117
+3.4x
+1.3x
+
+528
+227
+148
+176
+3.6x
+1.3x
+
+2 033
+901
+166
+150
+12.2x
+6.0x
+
+2 990
+1 278
+893
+1 012
+3.3x
+1.3x
+
+9 151
+3 978
+2 737
+3 091
+3.3x
+1.3x
+
+38 449
+17 675
+2 357
+1 975
+16.3x
+8.9x
+
+70 528
+34 093
+3 878
+3 341
+18.2x
+10.2x
+
+recursive with pointer
+recursive pointerless
+static
+dynamic
+
+0.64
+0.21
+0.62
+0.21
+
+1.67
+0.56
+1.65
+0.55
+
+2.79
+0.93
+2.61
+0.93
+
+4.31
+1.44
+3.96
+1.43
+
+14.93
+4.98
+6.63
+4.97
+
+23.07
+7.69
+21.95
+7.68
+
+73.09
+24.36
+67.80
+24.36
+
+298.47
+99.49
+116.50
+99.48
+
+567.81
+189.27
+213.50
+189.26
+
+bits for node hashing
+median bits used for vertex hashing
+
+time (ms)
+
+memory (MB)
+
+The resulting association is the one actually illustrated in
+Figure 8, although the volume octree structure assignment
+may be different. Observe that this strategy does not use any
+extra memory, and performs only a few more memory accesses per leaf than the static approach (tests of lines 7 and
+8 of Algorithm 3 can be done with the same access).
+5. Experiments
+We experimented on random octrees and octrees adapted to
+isosurfaces, on a 3GHz MacPro with 18GB of RAM.
+
+Execution time (milliseconds)
+
+Random octrees. We first tested on random octrees, with
+different maximal levels M and Bernouilli probabilities p for
+a node to be subdivided. We compared the execution time
+and memory consumption of our static and dynamic strategies with the usual recursive implementation on pointer and
+pointerless octrees (see Table 2 and Figure 11). The average
+gain in memory consumption of the pointerless representations is a factor 3x, which is preserved in the dynamic strategy. For the static strategy, the extra memory of the auxiliary
+70
+
+pointer
+
+hash
+
+static
+
+50
+40
+30
+20
+10
+
+0.25
+
+Octrees adapted to isosurface. We compared the gain of
+our dynamic dual generation over the recursive generation
+on the total time of an isosurface extraction application. We
+experimented on Dual Marching Cubes [SW04] using robust
+adaptation [PLLdF06]. We generated results from 24 different implicit functions in the unit cube, refined to maximal
+depth 9 and with curvature threshold 0.6 (see Table 3 and
+Figure 12). Since the timings include the octree adaptation
+and Marching Cubes calls on the dual volumes, the total gain
+is in average 30%, and 64% if we weight by the number of
+nodes. The two methods compared use hashtables with the
+same parameters, leading to the same memory consumption.
+
+dynamic
+
+60
+
+0
+0.025
+
+hashtable reduces this average memory gain to a factor 1.5x.
+Both the static and dynamic strategies speeds up the execution by an average factor above 3.3x on the recursive implementation with hashtable, and above 7.3x over the recursive
+algorithm with the octree representation with eight pointers
+per node. Note that this includes the preprocessing time for
+the static strategy, which represents 53% of the total execution time. This means that, for the second and further runs
+on the same octree, the gain of the static strategy is doubled.
+
+2.5
+
+25
+
+number of nodes (log millions)
+
+Figure 11: Execution time, in milliseconds, versus the octree
+size, in millions of nodes / logarithmic scale (see Table 2).
+
+Limitation. We can observe on Table 2 that the gain obtained by the proposed algorithms varies brutally when the
+number of bits b used for the hashing function is changed
+to cope with the size of the data. Actually, the speed of
+hashtable manipulation is a crucial ingredient in pointerless representations. In particular, increasing b size may
+be delicate in the static strategy, since it would require
+two large blocks (of size 2b ) of data for the hashtable. A
+solution to optimize the hashing is to use perfect hashing techniques, which are already used for pointerless octrees [LH06, BC08, CJC∗ 09].
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+total DMC time (seconds)
+
+T. Lewiner & V. Mello & A. Peixoto & S. Pesco & H. Lopes / Fast Generation of Pointerless Octree Duals
+250
+
+hash
+
+1669
+
+References
+
+static
+
+[BC08] BASTOS T., C ELES W.: GPU-accelerated adaptively
+sampled distance fields. In Shape Modeling and Applications
+(2008), pp. 171 –178. 2, 8
+
+200
+
+150
+
+[CJC∗ 09] C HOI M. G., J U E., C HANG J.-W., L EE J., K IM Y. J.:
+Linkless octree using multi-level perfect hashing. Computer
+Graphics Forum 28, 7 (2009), 1773–1780. 1, 8
+
+100
+
+50
+
+[CLL∗ 08] C ASTRO R., L EWINER T., L OPES H., TAVARES G.,
+B ORDIGNON A.: Statistical optimization of octree searches.
+Computer Graphics Forum 27, 6 (2008), 1557–1566. 1, 2, 5
+
+0
+0
+
+20
+
+40
+
+60
+
+80
+
+100
+
+120
+
+140
+
+number of nodes (millions)
+
+Figure 12: Total execution time of robust DMC, in seconds,
+versus the number of octree nodes, in millions (see Table 3).
+
+[Gar82] G ARGANTINI I.: Linear octrees for fast processing of
+three-dimensional objects. Computer Graphics and Image Processing 4, 20 (1982), 365–374. 1
+
+Table 3: Total execution time for the robust generation of
+implicit surfaces using a robust Dual Marching Cubes.
+
+[GDB03] G UMEROV N. A., D URAISWAMI R., B OROVIKO
+E. A.: Data structures, optimal choice of parameters and complexity results for generalized multilevel fast multipole methods
+in d dimensions. Tech. rep., University of Maryland, 2003. 1, 2
+
+Implicit
+nodes
+x106
+function
+Torus
+0.00
+Blob
+0.03
+Cross cap
+0.05
+Spheres in
+1.0
+Cylinders
+1.3
+2 Spheres
+2.0
+Glob tear
+2.9
+Weird cube
+3.8
+Lemniscate
+7.8
+Clebsch cubic
+9.2
+Cayley cubic
+9.7
+Steiner relative
+27.1
+Mitre
+56.0
+Bifolia
+72.1
+Chair
+72.5
+Gumdrop torus
+92.0
+Bretzel 123.4
+15
+Klein bottle
+147.7
+Smile 147.9
+727
+Heart 148.6
+998
+2 Torii
+148.7
+Hunt’s surface 148.8
+Barth sextic
+150.2
+Spheres dif
+152.6
+
+verts
+x106
+1
+4
+10
+85
+159
+105
+24
+3
+140
+225
+119
+39
+158
+310
+966
+1159
+193.5
+1195
+243.8
+246.7
+67
+1128
+561
+1165
+
+hash
+sec
+0.1
+0.1
+0.2
+1.8
+2.5
+2.9
+3.8
+4.8
+10.4
+12.6
+12.8
+34.9
+75.7
+101.0
+105.0
+136.5
+117.0
+246.3
+143.3
+144.7
+243.3
+247.6
+248.8
+254.2
+
+dyn
+sec
+0.3
+0.4
+0.4
+1.8
+2.3
+2.6
+3.2
+4.0
+8.3
+10.0
+10.2
+26.4
+54.5
+70.2
+72.9
+92.0
+65
+144.6
+70
+71
+140.7
+144.8
+144.1
+149.2
+
+gain
+%
+-67
+-65
+-53
+2
+6
+11
+17
+21
+25
+25
+26
+33
+39
+44
+44
+48
+70
+73
+71
+73
+70
+
+[Hat02] H ATCHER A.: Algebraic topology. Cambridge University Press, 2002. 3
+[JLSW02] J U T., L OSASSO F., S CHAEFER S., WARREN J.: Dual
+contouring of Hermite data. In Siggraph (2002), ACM, pp. 339–
+346. 1, 4
+[LH06] L EFEBVRE S., H OPPE H.: Perfect spatial hashing. In
+Siggraph (2006), ACM, pp. 579–588. 8
+[LTV08] L EÓN A., T ORRES J. C., V ELASCO F.: Volume octree
+with an implicitly defined dual grid. Computers & Graphics 32,
+4 (2008), 393–401. 1, 3, 4, 7
+[Mor66] M ORTON G. M.: A computer oriented geodetic data
+base and a new technique in file sequencing. Tech. rep., IBM,
+Ottawa, 1966. 1, 2, 3
+[NY06] N EWMAN T. S., Y I H.: A survey of the Marching Cubes
+algorithm. Computers & Graphics 30, 5 (2006), 854–879. 1
+[PLLdF06] PAIVA A., L OPES H., L EWINER T., DE F IGUEIREDO
+L. H.: Robust adaptive meshes for implicit surfaces. In Sibgrapi
+(2006), IEEE, pp. 205–212. 1, 3, 8
+[Sam90] S AMET H.: The design and analysis of spatial data
+structures. Addison-Wesley, 1990. 1, 2
+[Sch92] S CHRACK G.: Finding neighbors of equal size in linear
+quadtrees and octrees in constant time. Computer Vision, Graphics and Image Processing 55, 3 (1992), 221–230. 1, 2, 3, 6
+[SLS∗ 07] S HARF A., L EWINER T., S HKLARSKI G., T OLEDO
+S., C OHEN -O R D.: Interactive topology-aware surface reconstruction. In Siggraph (2007), ACM, pp. 43.1–43.9. 1, 3
+[SS92] S IVAN R., S AMET H.: Algorithms for constructing
+quadtree surface maps. In Symposium on Spatial Data Handling
+(1992), pp. 361–370. 1
+
+6. Conclusions
+In this work, we introduced efficient algorithms for dual generation of pointerless octrees. We proposed two strategies,
+one using a preprocessing, which requires an extra hashtable,
+doubling the memory, but achieving, after preprocessing,
+and average speedup of factor 7x compared to pointerless
+representation and 15x compared to the usual pointer representation. The second strategy does not require preprocessing nor extra memory, and achieves an average speedup of a
+factor above 3x compared to pointerless representation, and
+almost 8x compared to pointer octrees.
+
+[VHB87] VON H ERZEN B., BARR A. H.: Accurate triangulations of deformed, intersecting surfaces. In Siggraph (1987),
+ACM, pp. 103–110. 1
+
+Acknowledgements The authors would like to thank
+FAPERJ, FAPEAL and CNPq for financing this research.
+
+[WS93] WARREN M. S., S ALMON J. K.: A parallel hashed octree n-body algorithm. Supercomputing (1993), 12–21. 1
+
+c 2010 The Author(s)
+�
+c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Journal compilation �
+
+[SS95] S TOCCO L. J., S CHRACK G.: Integer dilation and contraction for quadtrees and octrees. In Communications, Computers and Signal Processing (1995), IEEE, pp. 426–428. 2, 3
+[SS09] S TOCCO L. J., S CHRACK G.: On spatial orders and location codes. Transactions on Computers 58, 3 (2009), 424–432.
+1, 2, 3
+[SW04] S CHAEFER S., WARREN J.: Dual Marching Cubes: primal contouring of dual grids. In Pacific Graphics (Washington,
+2004), IEEE, pp. 70–76. 1, 3, 4, 8
+
+

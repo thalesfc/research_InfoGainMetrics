@@ -1,0 +1,1249 @@
+Eurographics Symposium on Geometry Processing 2008
+Pierre Alliez and Szymon Rusinkiewicz
+(Guest Editors)
+
+Volume 27 (2008), Number 5
+
+Fast Parallel Construction of Smooth Surfaces from Meshes
+with Tri/Quad/Pent Facets
+A. Myles and T. Ni and J. Peters
+University of Florida
+
+Abstract
+Polyhedral meshes consisting of triangles, quads, and pentagons and polar configurations cover all major sampling and modeling scenarios. We give an algorithm for efficient local, parallel conversion of such meshes to an
+everywhere smooth surface consisting of low-degree polynomial pieces. Quadrilateral facets with 4-valent vertices
+are ‘regular’ and are mapped to bi-cubic patches so that adjacent bi-cubics join C 2 as for cubic tensor-product
+splines. The algorithm can be implemented in the vertex and geometry shaders of the GPU pipeline and does not
+use the fragment shader. Its implementation in DirectX 10 achieves conversion plus rendering at 659 frames per
+second with 42.5 million triangles per second on input of a model of 1300 facets of which 60% are not regular.
+Categories and Subject Descriptors (according to ACM CCS): I.3.5 [Computer Graphics]: Computational Geometry
+and Object Modeling
+
+satisfy connectivity or quad-layout constraints. Polar configurations, that is closed triangle fans whose outer vertices
+have valence 4 and central vertex has arbitrary (possibly
+large) valence, naturally model features such as finger tips
+and eyes (Figures 1, 2). This paper gives a local, parallel al-
+
+1. Motivation
+
+(a)
+
+(b)
+
+(c)
+
+Figure 1: Transition of feature lines. (a,b) Axe handle detail (see Figure 12) using a triangle and a pentagon to transition between detailed and coarser areas. (c) Polar configurations naturally terminate parallel feature lines along elongations, like fingers.
+Compared to pure quad meshes, meshes allowing for triangles, quadrilaterals, and pentagons and polar configurations simplify remeshing of scanned data and enrich the
+design space for control meshes of smooth surfaces: while
+quads naturally model the flow of (parallel) feature lines and
+are therefore the main facet type in many models, triangular facets allow merging lines while pentagonal facets allow
+starting new lines without creating T-corners (as illustrated
+in Figure 1) or forcing refinement of intermediate models to
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+Figure 2: A quad/tri/pent model converted to a smooth surface consisting of bi-cubic patches (yellow), polar patches
+(orange), and Pm -patches m = 3 (green), m = 4 (red), m = 5
+(gray). Cf. Fig. 13.
+gorithm and describes its GPU implementation to automatically convert such a general polyhedral mesh into a piecewise polynomial surface
+
+1366
+
+A. Myles & T. Ni & J. Peters / Fast Parallel Construction of Smooth Surfaces from Meshes with Tri/Quad/Pent Facets
+
+• that is C1 everywhere and C2 in regular regions that are
+converted to bi-cubic patches; and,
+• consists of one patch for each triangle, quad, or pentagon
+in the mesh regardless of vertex valence; there is no need
+for preprocessing to isolate mesh points of different valence or to convert all facets into one facet type;
+• is computed using only local mesh context so that the surfaces can be constructed and rendered in parallel on the
+GPU at high frame rates.
+# coeffs
+triangle
+pentagon
+
+[LS08]
+25 × 3 = 75
+25 × 5 = 125
+
+[NYM∗ 08]
+24 × 3 = 72
+24 × 5 = 120
+
+our method
+13 or 19
+31
+
+Table 1: Number of control points per n-gon. Converting
+triangles and pentagons directly avoids a control-point amplifying subdivision step needed to apply [LS08, NYM∗ 08].
+The advantage of not having to refine quad-dominant meshes
+[LKH08] to pure quad meshes is evident in Table 1; and simple T-corners in quad-dominant meshes can be replaced by
+5-sided facets. We limit the facets to triangles, quads and
+pentagons due to current GPU constraints (see Section 8).
+Section 3 introduces the patch representations, Section 4
+the (continuity) constraints that imply the construction rules
+and Section 5 gives these rules explicitly, inside boxes, so
+that they are easy to implement. Section 6 explains an implementation on the GPU. The electronic Appendix explicitly verifies the correctness of the formulas and displays a
+gallery of configurations testing the surface quality.
+
+2. Related Literature
+Catmull-Clark subdivision [CC78] is an accepted standard
+for mesh smoothing. Techniques evaluating or approximating its limit surface such as [Sta98, BS02, Bun05, SJP05,
+Pet00] require separation of extraordinary vertices (those
+with valence = 4) to construct their data structures or reduce the number of cases, quadrupling the number of facets
+in the mesh. The constructions in [LS08, NYM∗ 08] do not
+require such separation and have been implemented on the
+GPU at high frame rates: [LS08] yields bi-cubic C0 surfaces
+with surrogate tangent patches for consistent lighting (see
+also [VPBM01]; and [BS07] for once CPU-refined Loop
+meshes); [NYM∗ 08] generates C1 surfaces that approximate
+Catmull-Clark surfaces well. For quad meshes, our construction reduces to [NYM∗ 08].
+[SL03, PS04, SW05] accept both triangles and quads and
+thereby avoid additional CPU subdivision into quad-only
+meshes; but we are unaware of efficient GPU implementations of these algorithms. The advantage of supporting polar configurations for high-valent vertices has been demonstrated in [MKP07]. We reinterpret this construction to fit
+GPU constraints.
+
+3. Patch construction types
+
+03
+
+13
+
+23
+
+33
+
+02
+
+12
+
+22
+
+32
+
+01
+
+11
+
+21
+
+31
+
+00
+
+10
+
+20
+
+30
+
+01 11 21 31
+00 10 20 30
+
+g
+ordinary
+(a)
+
+h
+polar
+(b)
+
+bi+1
+
+bi−1
+
+bi
+extraordinary
+(c)
+
+Figure 3: Mesh-to-patch conversion. The input mesh (top)
+is converted to patches (bottom) as follows. (a) An ordinary
+facet is converted to a bi-cubic patch with 16 control points
+gi j . (b) Every triangle in polar configuration becomes a singular bi-cubic patch represented by 13 control points ◦. (c)
+An extraordinary facet with m sides is converted to a Pm patch defined by 6m + 1 control points shown as ◦. The Pm patch is equivalent to m C 1 -connected degree-4 triangular
+patches bi , i = 0 . . .m−1, having cubic outer boundaries.
+We have three classes of facets in our input mesh:
+1. Ordinary: quads with all vertices having valence 4.
+2. Polar: triangles in polar configurations.
+3. Extraordinary: triangles, pentagons, and those quads that
+are not ordinary facets due to vertex valence.
+Ordinary & Polar:
+We convert ordinary quads and polar triangles to tensorproduct degree bi-3 patches in Bernstein-Bézier form (BBform),
+3
+
+g(u, v) :=
+
+3
+
+∑ ∑ gi j
+
+i=0 j=0
+
+3
+3
+(1 − u)3−i ui
+(1 − v)3− j v j ,
+i
+j
+
+defined by only 4 × 4 BB-coefficients gi j ∈ R3 . The coefficients are indexed as in Figure 3(a). Since the edge 03—33
+of the polar patch is collapsed to one vertex, the polar patch
+h is defined by 13 BB-coefficients hi j ∈ R3 (Figure 3(b)).
+Extraordinary:
+An extraordinary facet with m sides is converted into a Pm patch. A Pm -patch is a piecewise degree 4 C1 spline patch
+with m boundaries of degree 3. A Pm -patch is defined by
+6m + 1 control points indicated as ◦ in Figures 3(c),4(a).
+That is, the Pm -patch corresponding to a triangular, quadrilateral or pentagonal facet is defined by a total of 19, 25 or
+31 points, respectively.
+For evaluation, we can write the ith sector of a Pm -patch in
+triangular BB-form of total-degree 4 (Figure 3(b) and (c)),
+b(u, v) :=
+
+∑
+i+ j+k=4
+
+bi jk
+
+4! i j
+u v (1 − u − v)k ,
+i! j!k!
+
+(1)
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Myles & T. Ni & J. Peters / Fast Parallel Construction of Smooth Surfaces from Meshes with Tri/Quad/Pent Facets
+
+004
+
+bi−1 112
+121
+
+211
+210
+
+b
+
+bi
+
+bi+1
+
+004
+103
+
+211
+
+112
+
+120
+
+300
+
+112
+
+121
+120
+
+211
+
+301
+030
+
+112
+
+202
+
+210
+
+400
+
+310
+
+(a)
+
+b
+
+bi
+
+bi−1
+103
+
+013
+022
+
+121
+
+220
+
+040
+
+(b)
+
+Figure 4: Sector of a Pm -patch. The triangular sectors are
+listed in counter-clockwise order with a modulo-m superscript. (a) 14 control points from three consecutive sectors of
+a Pm -patch define (b) a single patch in triangular BB-form
+via relations (2) and (3).
+
+3
+where the 4+2
+2 BB-coefficients bi jk ∈ R indexed as in Figure 4(b) are computed from the 14 coefficients labeled in
+4(a) by simple averaging, namely
+
+1. degree-raising the cubic boundary
+[bi400 , bi310 , bi220 , bi130 , bi040 ] =
+[bi300 ,
+
+bi300 + 3bi210
+
+bi210 + bi120
+
+2π
+, µ := 1 − cm ,
+m
+
+bi3−l,0,l+1
+
+:=k1 bi4−l,0,l
+
+2µ
+
+bi−1
+120 =t1
+bi−1
+130
+
+bi301
+2µ
+
+v0 =bi400
+
+bi+1
+103
+
+bi103
+bi112
+b
+
+bi310
+t0 =bi210
+
+v1 =bi040
+
+t−1
+
+Figure 5: Internal Pm -patch constraints. The isotropic C 1
+constraint at the patch center bi004 (red arrows, see Equation
+(4)) is propagated to the vertex v0 = bi400 . The tangent coefficients t0 and t1 correspond to consecutive external boundaries of the Pm -patch; t−1 belongs to the neighbor patch
+across the horizontal edge v0 , v1 .
+
+(2)
+3bi120 + bi030
+
+,
+,
+, bi030 ]
+4
+2
+4
+2. and computing the shared BB-coefficients on the sector
+boundaries bi3−l,0,1+l = bi−1
+0,3−l,1+l for l = 0, 1, 2, 3 corresponding to indices 301, 202, 103 and 004 in Figure 4(b),
+from the C 1 constraints (cf. Section 4.1 below):
+cm := cos
+
+bi004
+cm
+
+031
+130
+
+1367
+
+k2 :=
+
+1
+, k := 1 − 2k2 ,
+2µ 1
+
++ k2 bi3−l,1,l
+
++ bi−1
+1,3−l,l
+
+. (3)
+
+relation is equivalent to
+b004 = k1 bi103 + k2 bi013 + bi−1
+103 ,
+
+(5)
+
+i.e. relation (3) for l = 3. To obtain an internally C 1 Pm -patch,
+it is necessary and sufficient to enforce this relation along the
+internal sector boundaries:
+2(1 − cm )(bi3−l,0,l+1 − bi4−l,0,l ) =
+(bi3−l,1,l
+
+(6)
+
+i
+− bi4−l,0,l ) + (bi−1
+1,3−l,l − b4−l,0,l )
+
+The relation holds due to the assignment (3) for l = 0, 1, 2, 3.
+
+4. Smoothness constraints
+In this section, we motivate the smoothness constraints that
+define Pm -patches. The challenge in choosing the smoothness constraints is threefold: (i) to guarantee solvability for
+the coefficients of the patches and their layout, (ii) to arrive
+at simple formulas for the construction and (iii) to obtain
+rules that obey the topology and reflect the geometry of the
+input mesh. Section 4.1 examines the intra-Pm -patch boundaries emanating from the center of the patch to each of its
+corners, and Section 4.2 addresses the boundary between adjacent patches.
+
+4.2. Smoothness across patches
+At v0 , the internal C1 constraints merge with the G1 constraints across facet edges. We focus on the Pm -patch edge
+from v0 to v1 . Let ∂k be the partial derivative operator
+with respect to the kth parameter (Figure 6, left). Then
+∂1 bi (0, 0) = 3(t0 − v0 ) = 4(bi310 − v0 ) at v0 in the direc0
+tion of v1 ; and similarly, 3(t1 − v0 ) = 4(bi−1
+130 − v ). For an
+0
+0
+unbiased choice of t j and n the valence at v ,
+2cn0 (t0 − v0 ) = (t1 − v0 ) + (t−1 − v0 ).
+
+(7)
+
+0
+
+must hold. By relation (6) at v , i.e. for l = 0,
+
+4.1. Internal Pm -patch smoothness
+Figure 5 illustrates the transition between two sectors of the
+Pm -patch. At the central point of the Pm -patch, the unbiased
+choice of tangents implies
+i
+i+1
+i
+2cm (bi103 − bi004 ) = (bi−1
+103 − b004 ) + (b103 − b004 ).
+
+(4)
+
+Here unbiased means that the construction does not depend
+on which corner we choose for the starting index. By eli+1
+ementary transformation, and noting that bi013 = b103
+, this
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+4
+(bi − v0 ) = (t0 − v0 ) + (t1 − v0 ).
+3k2 301
+
+(8)
+
+Eliminating (t1 − v0 ) between (8) and (7) yields
+t−1 − v0 = (1 + 2cn )(t0 − v0 ) −
+
+8µ i
+(b − v0 ).
+3 301
+
+(9)
+
+If, in particular v0 and v1 are the endpoints of the cubic
+boundary bi (u, 0) = g(0, u) between a bi-cubic patch g and
+
+1368
+
+A. Myles & T. Ni & J. Peters / Fast Parallel Construction of Smooth Surfaces from Meshes with Tri/Quad/Pent Facets
+
+∂2
+
+∂2
+
+b(u,v)
+∂1
+
+bi(u,v)
+∂1
+
+∂2
+a(w,u)
+
+∂2
+g(w,u)
+∂1
+
+∂1
+(a)
+
+Figure 6: Derivatives along adjacent patches. (left) The
+Pm -patch-ordinary and (right) Pm -patch-Pm -patch boundaries. ∂k differentiates with respect to the kth parameter.
+
+(b)
+
+Figure 7: Algorithm Overview. (a) Tri/quad/pent input mesh
+with vertices pi . (b) Per-vertex computation generating coefficients vi , tij and f j . (c) Per-facet computation generating
+internal coefficients bi211 , bi121 , bi112 and bi004 (purple).
+
+a Pm -patch bi then n0 = 4 hence cn0 = 0; and at (0, 0) corresponding to v0 ,
+∂1 g(0, 0) = 3(t−1 − v0 ),
+
+∂2 bi (0, 0) = 4(bi301 − v0 ).
+i
+
+∂1 g(0, 0) = ∂1 b (0, 0) − 2µ∂2 b (0, 0)
+
+(10)
+
+1
+
+This defines the first constraint of the G conditions (11).
+The analogous constraint at v1 needs to be recast so that
+the direction of the derivative is consistent with the constraint at v0 , resulting in the linearly blended left hand side
+(1 − 2cm u) ∂1 bi (u, 0) of the G1 conditions
+(1 − 2cm u) ∂1 bi (u, 0) = 2µ∂2 bi (u, 0) + ∂1 g(0, u).
+
+(11)
+
+When a Pmb -patch sector b meets a Pma -patch sector a
+(Figure 6, right), we need to replace t−1 − v0 by the substitution analogous to (8). The result are the scalar µ, ν weights
+in the G1 conditions
+ℓ(u)∂1 b(u, 0) = µ∂2 b(u, 0) + ν∂1a(0, u),
+
+(12)
+
+where
+µ := 1 − cmb , ν := 1 − cma , ξi := 1 + cni ,
+ℓ(u) := (1 − u)ℓ0 + uℓ1 , ℓ0 := ξ0 , ℓ1 := 2µ − ξ1 .
+5. Construction
+The patches are constructed in two stages (that will correspond to shaders in the GPU implementation) and that are
+summarized in Figure 7. The algorithm can be implemented
+using only the boxed formulas in this section.
+
+p3 j+1 =p3 j+3
+
+p3 j+3
+
+p3 j+2
+p3 j+1
+
+α j+1
+
+Then (9) simplifies to
+i
+
+(c)
+
+p3n−3
+
+p3 j
+αj
+
+p∗
+αn−1
+
+p3n−2
+
+α0
+
+p3 j =p3 j+2
+
+p∗
+p3 j+3
+
+α1
+
+p3n−1
+p3
+
+p0
+p1
+
+p3 j+1 =p3 j+2
+p3 j
+
+p∗
+
+p2
+
+(a)
+
+(b)
+
+Figure 8: Per-vertex input. (a) When every facet at the mesh
+point p∗ is 5-sided, we need 3n indices. (b) Triangles and
+quads are redundantly indexed.
+
+simple generic formulas and does not result in noticeable
+overhead for the GPU implementation (see Section 6.1). For
+each edge emanating from the p∗ , there is one scalar to support creases.
+At each vertex p∗ of the input mesh, we compute (see Figure 9) a corresponding point v (by default the Catmull-Clark
+limit point) and face vertices f j positioned according to the
+well-known B-spline-to-BB-form conversion formulas:
+p3 j∗ := p3 j+1 + p3 j+2 /2
+n−1
+∑ j=0 np∗ + 4p3 j + p3 j∗
+n(n + 5)
+1
+f j := 4p∗ + 2(p3 j + p3 j+3 ) + p3 j∗
+9
+
+v :=
+
+5.1. Per-vertex computation
+The first stage computes local information around a vertex
+p∗ . For consistent labeling irrespective of the number n of
+surrounding facets or their number m of sides, we use indices
+p j as labeled in Figure 8(a). That is, we have 3n indices and
+label redundantly in the case of a triangle or quad as shown
+in Figure 8(b). Labeling the one-ring uniformly results in
+
+(13)
+
+To adjust the sharpness of feature lines, similar to blend
+ratios [Pet95] and semi-smooth creases [DKT98], we can
+generalize (13) by giving each facet corner two scalars
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Myles & T. Ni & J. Peters / Fast Parallel Construction of Smooth Surfaces from Meshes with Tri/Quad/Pent Facets
+p3 j+3
+
+and these vectors simplify to τ 1 := 14 (f3 + f0 − f1 − f2 ) =
+e0 − v and τ 2 := e1 − v0 as in standard B-spline-to-BB conversion.
+
+p3 j+2
+p3 j+1
+
+f j+1
+t j+2
+
+t j+1
+p∗
+
+v
+
+αj
+f jα
+
+p3 j
+j+1
+
+tj
+
+5.2. Per-patch computation
+
+f j−1
+
+t j−1
+
+Figure 9: Per-vertex computation. For every vertex in the
+mesh, the control points v and f j are defined by (13). The codependent co-planar t j s are not computed but represented
+by vectors τ 1 and τ 2 . Indices run counter-clockwise and are
+interpreted modulo n.
+
+Let ni denote the input mesh valence associated with vertex
+vi . To keep the notation simple, we assume without loss of
+generality that the edge under consideration has endpoints
+v0 and v1 and that the Pm -patch sector with this edge has
+index 0 as in Figure 11. Superscripts have precedence over
+subscripts, so that, for instance, f11 refers to the successor
+neighbor facet when counting counterclockwise around v1
+as illustrated in Figure 11(c).
+
+α j , α j+1 ∈ [0, 1] (see Figure 9) and define
+
+v∗
+
+(14)
+f j (α j , α j+1 ) := (1 − α j )(1 − α j+1 )p∗
+p∗ + p3 j
+p∗ + p3 j+3
++ α j (1 − α j+1 )
++ (1 − α j )α j+1
+2
+2
+p∗ + p3 j + p3 j+3 + p3 j∗
++ α j α j+1
+.
+4
+Setting α j = α j+1 = 2/3, we recover formula (13) for f j
+which, in turn, for m = 4 reduces to the well-known formula for bi-cubic B-spline-to-BB conversion. Setting α j =
+α j+1 = 0, we sharpen the transition across the facet’s edges
+sharing v. If all scalar weights of a model are zero, the control polyhedron is reproduced (see Figures 10 and 12).
+
+α = 1/10
+
+1369
+
+α = 2/5
+
+α = 4/5
+
+Figure 10: Sharpness adjustment. The dodecahedron with
+various blend ratios. α = 0 results in a C 0 crease.
+
+t∗0
+t01
+
+f00
+
+f10
+
+v0 t00 t11
+g
+
+t10
+
+t01
+
+v1 v0
+
+t∗1
+
+f00
+
+f10 t10
+
+t00
+
+b1
+
+b−1
+
+t11 v1
+
+b0
+
+h
+v0
+
+(a)
+
+(b)
+
+004
+
+f00
+
+112
+211b 121
+
+300 210 t0
+0
+f0−1
+
+t11 121
+
+e j := (f j + f j−1 )/2,
+τ 1 :=
+
+1
+nλn
+
+n−1
+
+∑ c j,n e j ,
+
+j=0
+
+τ 2 :=
+
+1
+nλn
+
+n−1
+
+∑ s j,n e j ,
+
+(15)
+
+j=0
+
+For n = 4, it is easy to check that e0 + e2 = 2v = e1 + e3
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+v1
+f11
+
+030
+
+(c)
+
+Figure 11: Patch assembly. (a) For an ordinary facet, four
+vertex corners are combined to assemble the bi-cubic patch
+g. (b) Polar triangles are converted similarly, except h12 and
+h22 , marked ◦, are assigned to satisfy C1 constraints at v∗ .
+(c) The triangle sectors of a Pm -patch use two vertex corners
+to determine the cubic boundary, bi211 and bi121 .
+First, for each corner i = 0 . . .m−1, we compute the tangent control points ti0 and ti1 using (15) in the local context
+of the corner (established by the index j = j k , k = 0 . . .m−1)
+t j := v +ττ1 c j,n +ττ2 s j,n .
+
+We abbreviate the scalars
+2π j
+2π j
+, s j,n := sin
+, cn := c1,n , sn := s1,n ,
+c j,n := cos
+n
+n
+1
+λn :=
+cn + 5 + (cn + 9)(cn + 1) ,
+16
+and define two vectors τ1 and τ2 that span the tangent plane
+at the limit point by averaging:
+
+f10
+
+(16)
+
+Then the cubic boundary curve between v0 and v1 of any
+bi-cubic or Pm -patch is defined by
+b0300 := v0 , b0210 := t00 , b0120 := t10 , b0030 := v1 .
+
+(17)
+
+If the facet is ordinary, the control points vi , ti0 , ti1 and fi0
+for i = 0, . . ., 3 completely determine the bi-cubic patch g
+as shown in Figure 11(a). We note that (see the remark following (15)) equations (13) and (16) reduce to the standard
+bi-cubic B-spline-to-BB conversion formulas in the ordinary
+case. The polar case proceeds identically, except that, with
+n∗ the valence at v∗ , the coefficients shown as black ◦ in
+Figure 11(b) are chosen based on B-spline-to-Bézier curve
+
+A. Myles & T. Ni & J. Peters / Fast Parallel Construction of Smooth Surfaces from Meshes with Tri/Quad/Pent Facets
+
+1370
+
+conversion formulas to ensure a C1 fit with adjacent polar
+patches:
+1
+2h02 + h32 + (cn∗ − 1)v∗
+2 + cn∗
+1
+2h32 + h02 + (cn∗ − 1)v∗ .
+h22 :=
+2 + cn∗
+
+For m = 5
+b0112 := (1 − cm ) b004 +
+−4c2,m b0202 + b1202
+
+h12 :=
+
+1 3
+b
+5 202
+
+(22)
+
+−4(c2,m )2 b2202 + b4202
+
+(18)
+6. Implementation
+The construction of the 6m + 1 coefficients of the Pm -patch
+is mapped to one GPU pass. A second pass is used to render.
+
+Creases are supported by replacing h12 and h22 by
+3
+3
+hˆ12 := α j h12 + 1 − α j h02
+2
+
+(19)
+
+2
+
+6.1. Construction on the GPU
+
+with scalars α j and hˆ22 , computed similarly.
+If the facet is extraordinary (Figure 11(c)), we determine
+b0211 , b0121 , b0004 (or simply, b004 since it is common to all the
+sectors) by the following uniform set of formulas for m =
+3, 4, 5 that follow from the constraints of Section 4.2.
+µ := 1 − cm ,
+
+ξ := 1 + cni ,
+
+0
+
+ξ1 0 1
+2µ − ξ0 1
+(t0 − t1 ) +
+(t1 − v1 )
+4µ
+8µ
+3
++
+(f1 − f1 )
+8µ(sn0 + sn1 ) 0 1
+
+b0121 :=b0130 +
+
+w(3) := 2,
+b004 :=
+
+w(4) := 1,
+
+(20)
+
+w(5) := −3,
+
+m−1
+1
+∑ w(m) vi + 3(ti0 + ti1 ) + 9fi
+m(15 + w(m) ) i=0
+
+For m = 4, the central BB-coefficient b004 of the Pm -patch
+is chosen to be the midpoint of the bi-cubic patch defined by
+Figure 11(a). For m = 4, b004 is parameterized by w(m) .
+The final coefficients bi112 are in principle free to choose.
+We obtained best results by approximating C2 constraints
+at b004 . For m = 3, this enforces the C2 constraints exactly.
+Here b2103 (for m = 3) and bi202 (for m = 5) are defined by
+formula (3). The Appendix verifies that the boxed formulas
+enforce the continuity constraints.
+
+1
+b0112 :=b004 + (b004 − b2103 )
+2
+For m = 4
+:=b004 + 3(b0211 + b0121 − b1121 − b−1
+211 )/16
+1
+−1
+2
+2
++ (b211 + b121 − b211 − b121 )/16
+
+Since every vertex has a different valence, and hence, a different number of points in its one-ring p0...3n−1 , the startindex avoids wasteful padding to the largest valence. The
+start-index is also used to look up the scalars α0 , α1 . The
+memory overhead of redundant one-ring indices in the case
+of quad or triangle facets is comparable to that of packing
+and has less control overhead; and subsequent redundant
+vertex loads are always from the cache.
+The vertex shader outputs, for each one-ring,
+• the points v and f j for j = 0 . . .n−1 using (13);
+• the vectors τ 1 and τ 2 using (15); and
+• the valence n of v.
+We need only a single vertex shader for all the cases, but
+create two: one simplified to 4-valent vertices to be used only
+for ordinary patches. The scalars for a crease edge emanating
+from a polar vertex are passed to the geometry shader as the
+w-coordinate of the f j vertices.
+The geometry shader takes as input
+• the output of the vertex shader
+• an integer texture of indices jk , k = 0 . . .m−1, for each
+face to pick its f j and compute the m corner tangents (16).
+
+For m = 3
+
+b0112
+
+The vertex shader takes as input
+• a texture or vertex buffer M listing all mesh points,
+• a texture I listing for each mesh point the indices into M
+of its one-ring (see Figure 8),
+• a texture listing consecutively for each one-ring all the
+scalars α j as labeled in Figure 8, and
+• an input stream containing for each mesh point its startindex into I and its valence.
+
+i
+
+ξ 1 0
+2µ − ξ1 0
+(t1 − t0 ) +
+(t0 − v0 )
+4µ
+8µ
+3
++
+(f0 − f0 )
+8µ(sn0 + sn1 ) 0 −1
+
+b0211 :=b0310 +
+
+The per-vertex computation of Section 5.1 maps to the GPU
+vertex shader and the per-patch computation of Section 5.2
+to the geometry shader.
+
+(21)
+
+We use a separate geometry shader for each patch type. If
+the facet is ordinary, the geometry shader simply streams out
+vi , ti0 , ti1 and fi0 for i = 0, . . ., 3 in order. Polar triangles output
+three fewer control points. If the facet is extraordinary, we
+specialize the geometry shaders to each m for efficiency. The
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Myles & T. Ni & J. Peters / Fast Parallel Construction of Smooth Surfaces from Meshes with Tri/Quad/Pent Facets
+
+shader computes the 6m + 1 control points of the Pm -patch
+using (20), (21) (22) and streams them out. We note that the
+amplification in the geometry shader is minimal.
+
+Verts
+200
+405
+578
+1308
+
+Faces
+120
+417
+590
+1292
+
+Model
+10 Dodecahedra
+Hand
+Monkey
+Frog
+
+N=5
+780
+480
+480
+659
+
+Frames per second
+9
+17
+33
+780
+675
+265
+480
+390
+231
+486
+452
+163
+510
+230
+79
+
+6.2. Evaluation and rendering on the GPU
+The patches are rendered in a second pass by sending in
+a single pre-tessellated (u, v) domain using DirectX 10 instancing and evaluating the geometry and normal in the vertex shader. This leaves the geometry and pixel shaders available for further processing and lighting computations.
+To render without pixel drop-out between ordinary bicubic patches and Pm -patches, we evaluate the external Pm patch boundary as a cubic and keep the ordering of computations consistent. This guarantees a watertight construction
+of control points along shared boundaries. The corresponding if-statement at the end of the evaluation shader does not
+result in noticeable degradation in performance.
+For bi-cubic patches and P4 -patches we use a uniform tessellation of the domain [0, 1]2 , while for P3 -patches and polar
+patches, we use the standard triangular domain consisting of
+the half of [0, 1]2 with u + v ≤ 1. For P5 -patches, we use the
+triangular domain with 5x instancing for each of its five sectors. In each Pm -patch case, the (u, v) domain is transformed
+to a local sector’s domain before evaluation. We apply equations (2) and (3) only now to obtain separate patches in the
+form (1). Evaluation and normal computation of degree 4
+triangular patches is comparable in cost to tensor-product
+bi-cubic patches: in the triangular case we have 15 control
+points and in the tensor-product case 16.
+The rendering pass can be sped up and enhanced by the
+use of the X-Box 360 hardware tessellation unit [Lee06],
+which supports both triangles and quads and offers fast continuous adaptive tessellation for free.
+7. Results
+We implemented the algorithm on a 2.4Ghz quad-core CPU
+with 3GB RAM and 32-bit Windows Vista and a NVidia
+8800 GT GPU using DirectX 10. Table 2 shows the performance of our implementation, without creases (14), on
+a variety of meshes (shown in Figure 13).
+Patch construction on the 10 dodecahedra takes the least
+amount of time since it has the fewest facets. However, more
+points are evaluated for an Pm -patch as m increases. The frog
+was chosen due to its large number of extraordinary facets.
+The construction pass is fast enough to yield rendering at
+659fps. Only when > 1000 points are evaluated per patch
+does the frame rate drop below 100.
+In our implementation, we created a DirectX 10 ‘technique’ for each patch case, but loaded and used only those
+that were required to render the current model. The apparent overhead associated with the load and use of an additional technique accounts for the poorer performance in the
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+ord.
+0
+304
+340
+528
+
+Number of each patch type
+polar
+3
+4
+0
+0
+0
+33
+0
+74
+16
+22
+210
+0
+0
+764
+
+Model
+10 Dodecahedra
+Hand
+Monkey
+Frog
+
+1371
+5
+120
+7
+2
+0
+
+65
+72
+63
+47
+22
+
+Table 2: Construction and rendering performance on various models with each triangle, quad, and pentagon Pm patch evaluated on a grid of size 12 N×(N+1), N×N, and
+5
+2 N×(N+1), respectively.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+Figure 12: Axe with sharp creases. (a) Mesh. (b),(c) Surface without crease support, and (d),(e) with crease scalar
+set to α = 1/10 along the edge of the blade. The axe has
+bicubic patches (yellow), Pm -patches with m = 3 (green),
+m = 4 (red), and m = 5 (gray).
+
+patch construction stage of the head and the monkey models, as compared to the frog model, which has 2-3 times as
+many facets but only quad patches. It is not clear whether in
+the short term one should consider merging the shaders for
+triangle, quad, or pentagon construction or wait for future
+hardware to mitigate this overhead.
+Shape can be controlled locally using crease scalars α.
+Uniform adjustment everywhere allows turning a dodecahedron into its control polyhedron when α = 0, or making
+it sphere-like when α = 4/5 (Figure 10). Applied locally,
+creases allow creating sharp features, as in Figure 12, on an
+otherwise smooth object.
+As illustrated in [NYM∗ 08], the P4 -patch construction approximates the Catmull-Clark limit surface well (which is
+one of the reasons we took the P4 -patch as a starting point
+for developing the surface conversion).
+The accompanying video illustrates scripted animation
+on the frog, hand and monkey models evaluated with N = 9.
+The electronic supplement analyzes the surface shape for
+a gallery of test configurations. Except for the saddles, the
+highlight lines do not reveal patch transitions. No internal
+seams are visible in polar and Pm -patches.
+
+A. Myles & T. Ni & J. Peters / Fast Parallel Construction of Smooth Surfaces from Meshes with Tri/Quad/Pent Facets
+
+1372
+
+8. Discussion of extensions, limitations and uses
+
+References
+
+Our approach would benefit from a larger buffer for intermediate vertex shader output to prevent vertex-shader recomputations; and from the ability to switch out the geometry shader without clearing this buffer. (We did not attempt
+to find an optimal mesh facet order to reduce vertex shader
+re-computation.) We restrict the number of facet sides to less
+than six since six is the maximum number of vertex shader
+inputs to the geometry shader and since we did not find local
+formulas that always result in good shape for m-sided facets
+when m > 5. The vertex shader’s current 16 output vector
+streams in DirectX 10 limits the maximum valence to n ≤ 13
+(without packing the face vertices). While the valence at vertices is formally unrestricted, the inclusion of all three facet
+types allows the designer or remeshing algorithm to keep
+valences low, which is desirable, or isolate high-valence vertices in polar configurations. When sharper features skew
+the parametrization, distortions of the textures are avoided
+by applying the same sharpening rules to the texture coordinates.
+
+[BS02] B OLZ J., S CHRÖDER P.: Rapid evaluation of CatmullClark subdivision surfaces. In Proc. Web3D 2002, ACM Press,
+pp. 11–17.
+
+The conversion fits well into a GPU morphing pipeline:
+only the texture or buffer containing the list of input mesh
+points needs to be updated before the surface construction
+pass. In particular, vertex buffer swapping constructs and
+renders scripted animations as fast as static ones.
+Acknowledgments: This work was supported by NSF
+Grant CCF-0430891. Young In Yeo helped implement the
+technique. The work additionally benefited from CGAL’s
+half-edge data structure and used Bay Raitt’s monster frog
+and Blender’s monkey (blender.org).
+
+[BS07] B OUBEKEUR T., S CHLICK C.: Qas: Real-time quadratic
+approximation of subdivision surfaces. In Pac. Gr. 2007 IEEE,
+pp. 453–456.
+[Bun05] B UNNELL M.: GPU Gems 2: Programming Techniques
+for High-Performance Graphics and General-Purpose Computation. Addison-Wesley, 2005
+[CC78] C ATMULL E., C LARK J.: Recursively generated B-spline
+surfaces on arbitrary topological meshes. Computer Aided Design 10 (1978), 350–355.
+[DKT98] D E ROSE T., K ASS M., T RUONG T.: Subdivision surfaces in character animation. In SIGGRAPH 1998, ACM Press,
+pp. 85–94.
+[Far90] FARIN G.: Curves and Surfaces for Computer Aided Geometric Design: A Practical Guide. Academic Press, 1990.
+[HB00] H AHMANN S., B ONNEAU G.-P.: Triangular G1 interpolation by 4-splitting domain triangles. Computer Aided Geometric Design 17, 8 (2000), 731–757.
+[Lee06] L EE M.:
+Xbox 360, 2006.
+
+Next generation graphics programming on
+
+[LKH08] L AI Y.-K., K OBBELT L., H U S.-M.: An incremental
+approach to feature aligned quad dominant remeshing. In 2008
+ACM Symp. on Solid and Physical Modeling, ACM, to appear.
+[LS08] L OOP C., S CHAEFER S.: Approximating Catmull-Clark
+subdivision surfaces with bicubic patches. ACM Trans. Graph.
+27, 1 (2008), 1–11.
+ˇ
+K., P ETERS J.: Extending
+[MKP07] M YLES A., K AR CIAUSKAS
+Catmull-Clark subdivision and PCCM with polar structures. In
+Pac.Gr. 2007, IEEE, pp. 313–320.
+
+[NYM∗ 08] N I T., Y EO Y. I., M YLES A., G OEL V., P ETERS J.:
+Smooth surfaces from 4-sided facets. In Proc. IEEE SMI 2008
+[Pet95] P ETERS J.: C1 -surface splines. SIAM Journal on Numerical Analysis 32, 2 (1995), 645–666.
+[Pet00] P ETERS J.: Patching Catmull-Clark meshes. In Siggraph
+2000, ACM Press, 255–258.
+[PS04] P ETERS J., S HIUE L.: Combining 4- and 3-direction subdivision. ACM Trans. Graph. 23, 4 (2004), 980–1003
+[SJP05] S HIUE L.-J., J ONES I., P ETERS J.: A realtime GPU
+subdivision kernel. ACM Trans. Graph. 24, 3 (2005), 1010–1015.
+[SL03] S TAM J., L OOP C. T.: Quad/triangle subdivision. Computer Graphics Forum 22, 1 (2003), 79–86.
+
+(a)
+
+(b)
+
+(c)
+
+Figure 13: Hand, Monkey and Frog. (a) Input mesh, (b)
+surface patches colored by type (ordinary in yellow, polar in
+orange, extraordinary triangle in green, extraordinary quad
+in red, and pentagons in gray), (c) final surface.
+
+[Sta98] S TAM J.: Exact evaluation of Catmull-Clark subdivision
+surfaces at arbitrary parameter values. In SIGGRAPH (1998),
+pp. 395–404.
+[SW05] S CHAEFER S., WARREN J. D.: On C2 triangle/quad subdivision. ACM Trans. Graph. 24, 1 (2005), 28–36.
+[VPBM01] V LACHOS A., P ETERS J., B OYD C., M ITCHELL
+J. L.: Curved PN triangles. In I3D (2001), ACM Press, pp. 159–
+166.
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+

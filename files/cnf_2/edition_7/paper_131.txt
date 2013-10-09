@@ -1,0 +1,1266 @@
+Eurographics Symposium on Rendering 2009
+Hendrik P. A. Lensch and Peter-Pike Sloan
+(Guest Editors)
+
+Volume 28 (2009), Number 4
+
+FastV: From-point Visibility Culling on Complex Models
+Anish Chandak†1 , Lakulish Antani‡1 , Micah Taylor§1 , and Dinesh Manocha¶1
+1 University
+
+of North Carolina at Chapel Hill
+http://gamma.cs.unc.edu/SOUND/FastV/
+
+Abstract
+We present an efficient technique to compute the potentially visible set (PVS) of triangles in a complex 3D scene
+from a viewpoint. The algorithm computes a conservative PVS at object space accuracy. Our approach traces a
+high number of small, volumetric frusta and computes blockers for each frustum using simple intersection tests.
+In practice, the algorithm can compute the PVS of CAD and scanned models composed of millions of triangles
+at interactive rates on a multi-core PC. We also use the visibility algorithm to accurately compute the reflection
+paths from a point sound source. The resulting sound propagation algorithm is 10− 20X faster than prior accurate
+geometric acoustic methods.
+Categories and Subject Descriptors (according to ACM CCS): Computer Graphics [I.3.7]: Three-Dimensional
+Graphics and Realism—Visible line/surface algorithms Computer Graphics [I.3.8]: Applications—
+
+1. Introduction
+Visibility computation is a widely-studied problem in computer graphics and related areas. Given a scene, the goal is
+to determine the set of primitives visible from a single point
+(i.e. from-point visibility), or from any point within a given
+region (i.e. from-region visibility). At a broad level, these algorithms can be classified into object space and image space
+algorithms. The object space algorithms operate at objectprecision and use the raw primitives for visibility computations. The image space algorithms resolve visibility based
+on a discretized representation of the objects and the accuracy typically corresponds to the resolution of the final image. These image space algorithms are able to exploit the
+capabilities of rasterization hardware and can render large,
+complex scenes composed of tens of millions of triangles at
+interactive rates using current GPUs.
+In this paper, we primarily focus on from-point, object space
+conservative visibility, and our goal is to compute a superset of visible geometric primitives. Such algorithms are use-
+
+†
+‡
+§
+¶
+
+achandak@cs.unc.edu
+lakulish@cs.unc.edu
+taylormt@cs.unc.edu
+dm@cs.unc.edu
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+ful for walkthroughs, shadow generation, global illumination and occlusion computations. Another application for
+object space visibility algorithms is accurate computation
+of reflection paths for acoustic simulation or sound rendering. Given a point sound source, 3D models of the environment with material data, and the receiver’s position, geometric acoustic (GA) methods perform multiple orders of reflections from the obstacles in the scene to compute the impulse response (IR). Sample-based propagation algorithms,
+such as stochastic ray-tracing for GA can result in statistical errors or inaccurate IRs [Len93]. As a result, we need
+to use object space visibility techniques, such as beam tracing [FCE∗ 98, LSLS09], to accurately compute the propagation paths. However, current object space visibility algorithms only work well on simple scenes with tens of thousands of triangles or with large convex occluders. There is a
+general belief that it is hard to design fast and practical object
+space visibility algorithms for complex 3D models [Gha01].
+
+Main Results: We present a novel algorithm (FastV)
+for conservative, from-point visibility computation. Our approach is general and computes a potentially visible set
+(PVS) of scene triangles from a given view point. The main
+idea is to trace a high number of 4-sided volumetric frusta
+and efficiently compute simple connected blockers for each
+frustum. We use the blockers to compute a far plane and cull
+away the non-visible primitives, as described in Section 3.
+
+1238
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+
+receiver. We have applied our algorithm to complex models with tens of thousands of triangles. In practice, we observe performance improvement of up to 20X using a singlecore implementation over prior accurate propagation methods that are based on beam tracing.
+
+2. Previous Work
+
+Figure 1: Fast Acoustic Simulation: We use FastV for computing accurate reflection paths in this Cathedral model with
+80K triangles. Our propagation algorithm performs three
+orders of reflections from the source and computes the IR at
+the receiver in less than 5 seconds on a 16-core PC. To the
+best of our knowledge, ours is the first efficient and accurate
+propagation algorithm to handle models of this complexity.
+Our guiding principle is to opt for simplicity in the choice
+of different components, including frustum tracing, frustumintersection tests, blocker and depth computations. The main
+contribution of the paper is in developing new algorithms for
+some of these components and combining them in an effective manner. Overall, FastV is the first practical method for
+visibility culling in complex 3D models due to the following
+reasons:
+1. Generality: Our approach is applicable to all triangulated models and does not assume any large objects or
+occluders. The algorithm proceeds automatically and is not
+susceptible to degeneracies or robustness issues.
+2. Efficiency: We present fast and conservative algorithms based on Plücker coordinates to perform intersection tests and blocker computations. We use hierarchies
+along with SIMD and multi-core capabilities to accelerate the computations. In practice, our algorithm can trace
+101 − 200K frusta per second on a single 2.93 GHz Xeon
+Core on complex models with millions of triangles.
+3. Conservative: Our algorithm computes a conservative superset of the visible triangles at object-precision. As
+the frustum size decreases, the algorithm computes a tighter
+PVS. We have applied the algorithm to complex CAD and
+scanned models with millions of triangles and simple dynamic scenes. In practice, we can compute conservative
+PVS, which is within a factor of 5 − 25% of the exact visible
+set, in a fraction of a second on a 16-core PC (see Section 4).
+Accurate Sound Propagation: We use our PVS computation algorithm to accurately compute the reflection paths
+from a point sound source to a receiver, as described in Section 5. We use a two phase algorithm that first computes
+image-sources for scene primitives in the PVS computed for
+primary (or secondary) sources. This is followed by finding
+valid reflection paths to compute actual contributions at the
+
+The problem of visibility has been extensively studied in
+computer graphics, computational geometry, acoustic simulation and related areas for more than four decades. We refer
+the readers to excellent recent surveys [Dur99, COCSD03].
+Due to space limitations, we only give a brief overview of
+some object space and sampling-based methods.
+Object space visibility computations: There is extensive
+work on object-precision algorithms, including methods for
+hidden surface removal [Gha01] and exact visibility computation from a point using beam tracing [HH84, FCE∗ 98,
+ORM07] or Plücker coordinates [Nir03]. Many exact algorithms have also been proposed for region-based visibility [Dur99, DD02, Nir03, BW05]. There is considerable
+literature on conservative visibility computations from a
+point [BHS98, CT97, HMC∗ 97, LG95] or from a region
+[KCCO00, LSCO03, Tel92]. Some of these algorithms have
+been designed for special types of models, e.g. architectural
+models represented as cells and portals, 2.5D urban models,
+scenes with large convex occluders, etc. It is also possible
+to perform conservative rasterization [AMA05] on current
+GPUs to compute an object-precision PVS from a point.
+Image space or sample-based visibility computations:
+These methods either make use of rasterization hardware or
+ray-shooting techniques to compute a set of visible primitives [COCSD03]. Most of these methods tend to be either approximate or aggressive [NB04, WWZ∗ 06]. Current
+GPUs provide support for performing occlusion queries for
+from-point visibility and are used for real-time display of
+complex 3D models on commodity GPUs [ZMHH97,KS00,
+MBW08, GSYM03].
+
+3. FastV: Visibility Computation
+In this section, we present our conservative visibility computation algorithm. The inputs to our algorithm are: a view
+point (v ∈ ℜ3 ), a set of scene primitives (Π), and a viewing
+frustum (Φ), with an apex at v. Our goal is to compute a
+subset of primitives π ⊆ Π such that every primitive p ∈ Π,
+which is hit by some ray r ∈ Φ is included in the computed
+subset π. The subset π is called the potentially visible set
+(PVS). The smallest such PVS is the set of exactly visible
+primitives (πexact ). The subset π computed by our algorithm
+is conservative, i.e., π ⊇ πexact . For the rest of the paper,
+we assume that the primitives are triangles, though our algorithm can be modified to handle other primitives. We also
+assume that the connectivity information between the scene
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+
+1239
+
+using uniform or adaptive subdivision and computes a PVS
+for each frustum. Eventually, we take the union of these different PVSs to compute a PVS for Φ.
+
+Figure 2: Overview: We divide the view-frustum with an
+apex at v, into many small frusta. Each frustum is traced
+through the scene and its far plane is updated when it is
+blocked by a connected blocker. For example, frustum F5
+is blocked by primitives of object V2 but frustum F1 has no
+blockers.
+triangles is precomputed. We exploit this connectivity for efficient computation; however our approach is also applicable
+to polygon soup models. In order to perform fast intersection
+tests, we store the scene primitives in a bounding volume hierarchy (BVH) of axis-aligned bounding boxes (AABBs).
+This hierarchy is updated for dynamic scenes.
+3.1. Overview
+We trace pyramidal or volumetric beams from the viewpoint.
+Prior beam tracing algorithms perform expensive exact intersection and clipping computations of the beam against the
+triangles and tend to compute πexact . Our goal is to avoid
+these expensive clipping computations, and rather perform
+simple intersection tests to compute the PVS. Moreover, it
+is hard to combine two or more non-overlapping occluders
+(i.e. occluder fusion) using object space techniques. This is
+shown in Figure 2, where object H1 is occluded by the combination of V1 and V2 . As a result, prior conservative object
+space techniques are primarily limited to scenes with large
+occluders.
+We overcome these limitations by tracing a high number of
+relatively small frusta [LCM07] and computing the PVS for
+each frustum independently. In order to compute the PVS
+for each frustum, we compute a blocker that is composed of
+connected triangles (see Figure 3). The blockers are computed on the fly and need not correspond to a convex set or a
+solid object; rather they are objects that are homeomorphic
+to a disk. We use simple and fast algorithms to perform intersection tests and blocker computation.
+Frustum Tracing: We use a simple 4-sided frustum, which
+is represented as a convex combination of four corner rays
+intersecting at the apex. Each frustum has a near plane, four
+side planes, and a far plane. The near plane and the four side
+planes of a frustum are fixed and the far plane is parallel
+to the near plane. The depth of the far plane from the view
+point is updated as the algorithm computes a new blocker for
+a frustum. Our algorithm sub-divides Φ into smaller frusta
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Algorithm: The algorithm computes the PVS for each frustum independently. We initialize the far plane associated
+with a frustum to be at infinity and update its value if
+any connected blocker is found. The algorithm traverses the
+BVH to efficiently compute the triangles that potentially intersect with the frustum. We perform fast Plücker intersection tests between the frustum and a triangle to determine
+if the frustum is completely inside, completely outside, or
+partially intersecting the triangle. If the frustum is partially
+intersecting, we reuse the Plücker test from the frustumtriangle intersection step to quickly find the edges that intersect the frustum (see Section 3.3). We perform frustumtriangle intersection with the neighboring triangles that are
+incident to these edges. We repeat this step of finding edges
+that intersect with the frustum and performing intersection
+tests with the triangles incident to the edge till the frustum
+is completely blocked by some set of triangles. If a blocker
+is found (see Section 3.2), we update the far plane depth of
+the frustum. Triangles beyond the far plane of the frustum
+are discarded from the PVS. If there is no blocker associated
+with the frustum, then all the triangles overlapping with the
+frustum belong to the PVS. Additionally, we compute the
+PVS for each frustum in parallel as described in Section 3.5.
+3.2. Frustum Blocker Computation
+We define a blocker for a frustum as a set of connected triangles such that every ray inside the frustum hits some triangle
+in the frustum blocker (see Figure 3(a)). When we intersect
+a frustum with a triangle, the frustum could partially intersect the triangle. In such a case, we walk to the neighboring
+triangles based on that intersection and try to find a blocker
+for the frustum (see Figure 3). We compute all the edges of
+the triangle that intersect with the frustum. For every intersecting edge, we walk to the neighboring triangle incident to
+the edge and perform frustum-triangle intersection test with
+the neighbor triangle.
+The intersection and walking steps are repeated until one of
+the following conditions is satisfied:
+a All triangles incident to every intersecting edge found
+during the frustum blocker step have been processed.
+This implies that we have found a blocker.
+b A free-edge, i.e. an edge with only one incident triangle,
+or a silhouette edge, i.e. an edge with incident triangles
+facing in opposite directions as seen from the viewpoint,
+intersects with the frustum. In that case, we conclude that
+the current set of intersecting triangles does not constitute
+a blocker.
+Note that our termination condition (b) for blocker computation is conservative. It is possible that there may ex-
+
+1240
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Figure 3: Frustum Blocker Computation: (a) Example of
+a blocker with connected triangles. (b)-(c) Intersection and
+Walking: Identify intersecting edges (e1, e2, e3, and e4) and
+walk to the adjacent triangles (denoted by arrows from edge
+to the triangle). (d) Abort frustum blocker computation if a
+free-edge or a silhouette-edge is found.
+ist a frustum blocker with a silhouette edge, but we need
+to perform additional computations to identify such blockers [NRJS03, Lai06]. In this case, we opt for simplicity, and
+rather search for some other blocker defined by a possibly
+different set of triangles. Or we subdivide the frustum until the current object becomes a blocker for a smaller subfrustum.
+If we terminate the traversal test due to condition (a), we
+have successfully found a frustum blocker. All triangles in
+the frustum blocker are marked visible and the far plane
+depth associated with the frustum is updated. Note that the
+depth of the far plane of the frustum is chosen such that all
+triangles in the frustum blocker lie in front of the far plane. If
+we terminate due to condition (b), then the algorithm cannot
+guarantee the existence of a frustum blocker. All triangles
+processed during this step are still marked visible but the far
+plane depth is not updated.
+3.3. Frustum Intersection Tests
+A key component of the algorithm is performing the intersection tests of the scene primitives with a frustum. The algorithm traverses the BVH and performs intersection tests
+between a frustum and the AABBs associated with the BVH.
+We use the technique proposed by Reshetov et al. [RSH05]
+to perform fast intersection tests between a frustum and an
+AABB. For every leaf node of the hierarchy we perform
+the intersection test with the frustum and triangle(s) associated with that leaf node. To perform the intersection test
+efficiently, we represent the corner rays of a frustum and
+the oriented edges of the triangle using Plücker coordinates
+[Sho98]. The orientation of a ray as seen along the edges of a
+triangle governs the intersection status of the ray with the triangle (see Figure 4(a)). Similarly, the orientation of four corner rays of the frustum as seen along the edges of a triangle
+governs the intersection status of the frustum with the triangle. We can determine with object-precision accuracy if the
+frustum is completely inside the triangle, completely outside
+the triangle, or partially intersects the triangle [CLT∗ 08].
+In practice, the Plücker test is conservative and it can
+wrongly classify a frustum to be partially intersecting a triangle even if the frustum is completely outside the triangle
+
+(a)
+
+(b)
+
+(c)
+
+Figure 4: Conservative Plücker Tests: (a) All four corner
+rays of the frustum F1 have the same orientation as seen
+along every directed edge of the triangle ABC. Thus, F1 is
+completely-inside ABC. (b) Intersection between a frustum
+and a triangle can be conservative. F2 will be classified as
+partially intersecting. (c) Different cases of frustum-edge intersections: F1 does not intersect the edge AB, F2 intersects
+AB. F3 is falsely classified as intersecting with AB.
+(see Figure 4(b)). This can affect the correctness of our algorithm as we may wrongly classify an object as a blocker due
+to conservative intersection tests. We ensure that at least one
+of the corner rays is inside the blocker to avoid such cases.
+Frustum-Edge Intersection: When a frustum partially intersects with a triangle, we can quickly determine which
+edges of the triangle intersect the frustum. We reuse the
+Plücker test between the frustum and the triangle to find the
+edges of the triangle that intersect the frustum. As shown in
+Figure 4(c), a frustum intersects with an edge if all four corner rays of the frustum do not have the same orientation as
+seen along the edge. This test may falsely classify an edge as
+intersecting even if the frustum does not intersect the edge,
+as shown in Figure 4(c) and thereby make our algorithm conservative. This test is also used in Section 3.2 to compute a
+set of triangles that may block the frustum completely.
+Far Plane Depth Update: The far plane associated with a
+frustum is updated whenever a blocker is found. The blocker
+may correspond to a single triangle or multiple triangles. If a
+frustum lies completely inside a triangle, the triangle blocks
+the frustum. We, therefore, mark the triangle as visible and
+update the depth of the far plane of the frustum as shown in
+Figure 5(a). The frustum intersects the triangle at points H1
+and H2 , and d1 and d2 are the projected distances of |V H1 |
+and |V H2 | along the near plane normal. We set the far plane
+depth of the frustum as the maximum of the projected distances. In other cases, the blocker may be composed of multiple triangles. We update the far plane depth of the frustum
+as shown in Figure 5(b). We compute the far plane depth for
+every triangle in the frustum blocker, assuming the frustum
+is completely inside the triangle. In Figure 5(b), d and d ′
+are the far plane depths for triangles T1 and T1′ , respectively,
+of the frustum blocker. The far plane depth of the frustum
+is set to the maximum of far plane depths computed for the
+triangles in the frustum blocker, which is d ′ in this case.
+3.4. Frustum Subdivision
+Our algorithm implicitly assumes that the size of connected
+blockers is larger that the cross-section of the frusta. The
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+1241
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+
+(a)
+
+(b)
+
+Figure 5: Updating Far Plane Depth: (a) Frustum lies completely inside triangle T1 . The depth of the far plane is set to
+the maximum of d1 and d2 . (b) Triangles T1 and T1′ constitute the blocker. We compute the far plane depths of each
+triangle and use the maximum of the depth values.
+simplest algorithm subdivides a frustum in a uniform manner. This approach is simpler to implement and also simpler
+to parallelize on current multi-core and many-core architectures, in terms of load balancing. However, many complex
+models (e.g. CAD models) have a non-uniform distribution
+of primitives in 3D. In that case, it may be more useful
+to perform adaptive subdivision of the frusta. In that case,
+we use the AD-FRUSTUM representation [CLT∗ 08], which
+uses a quadtree data structure. We use the following criteria
+to perform subdivision. If the PVS associated with a frustum is large, we recursively compute the PVS associated
+with each sub-frustum. Whenever the algorithm only computes a partial blocker of connected triangles using the intersection tests, we estimate its cross-section area and use that
+area to compute the sub-frusta. There are other known techniques to estimate the distribution of primitives [WWZ∗ 06]
+and they can be used to guide the subdivision. As compared
+to uniform subdivision, adaptive techniques reduce the total number of frusta traced for PVS computation [CLT∗ 08].
+Moreover, we use spatial coherence to reduce the number of
+intersection tests between the parent and child frusta.
+3.5. Many-core Implementation
+Our algorithm is highly parallelizable as the PVS for each
+frustum can be computed independently. However, the union
+of the PVSs has to be performed in a thread safe manner.
+This is done by maintaining an array of bits, one bit per triangle, and marking a bit visible when the corresponding triangle is found visible. The time to query if a triangle is visible
+is O(1) but enumerating the visible triangles is O(N), where
+N is the number of triangles in the scene. To improve upon
+this we maintain a per thread hash map to compute PVS per
+thread. The PVS computed per thread is combined in the end
+to compute the final PVS. The average time to query if a triangle is visible is O(1) and the time to enumerate the visible
+triangles is O(K), where K is the number of visible triangles.
+4. Results and Analysis
+In this section, we present our results on from-point conservative visibility (Section 4.1). We also compare our apc 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Model
+Name
+Armadillo
+Blade
+Thai
+Soda Hall
+Powerplant
+Flamenco
+
+Tris
+345K
+1.8M
+10M
+1.5M
+12M
+40K
+
+PVS
+Ratio
+1.16
+1.05
+1.06
+1.22
+1.25
+1.11
+
+PVS
+Size
+98K
+190K
+210K
+2.1K
+15K
+7K
+
+Time
+(ms)
+30
+90
+66
+15
+130
+16
+
+Table 1: Performance Results: From-point conservative visibility computation of models with varying complexity (CAD
+models, scanned models and dynamic scenes). All the timings were computed on a 16-core 64-bit Intel X7350@2.93
+GHz. The PVS ratio provides a measures of how conservative is the computed PVS with respect to exact visibility.
+
+Figure 6: Benchmarks: Left to right: (a) Armadillo (345K
+triangles). (b) Blade (1.8M triangles). (c) Thai Statue (10M
+triangles). (d) Soda Hall (1.5M triangles). (e) Powerplant
+(12M triangles). (f) Flamenco (40K dynamic scene)
+proach with prior visibility computation algorithms. Our results were generated on a workstation with 16-core, 64-bit
+Intel X7350@2.93 GHz processors. We generate timings by
+using different number of cores (1 − 16) for visibility computations and sound propagation. We also use SSE instructions to accelerate frustum intersection tests and OpenMP to
+parallelize the algorithm on multiple cores.
+
+4.1. Visibility Results
+We demonstrate our results on computing from-point object
+space conservative PVS on a variety of models ranging from
+simple models (like soda hall, armadillo, blade) to complex
+models (like powerplant and thai statue) and also dynamic
+scenes (flamenco animation). These models are shown in
+Figure 6. Our results are summarized in Table 1. We are not
+aware of any prior method that can compute the exact visible set on these complex models. Therefore, we compute
+an approximation to πexact by shooting frusta at 4K × 4K
+resolution. The PVS-ratio refers to: (size of PVS) / (size of
+πexact ), and is a measure of how conservative is the computed PVS. In all benchmarks, we are able to compute a
+conservative approximation to the PVS at interactive rates on
+multi-core PC. The frame sequences used for generating average results are shown in accompanying video. Further, we
+show that our approach converges well to πexact as we shoot
+higher number of frusta (see Figure 7). Detailed results on
+convergence for each model are provided in Figure 9. Also,
+our approach maps well on multi-core architectures. We observe linear scaling in performance as the number of cores
+increase (see Figure 10).
+
+1242
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+Convergence of FastV
+
+Frame #
+
+PVS Size (Normalized)
+
+3.5
+
+Armadillo
+Blade
+Thai
+Soda Hall
+Power Plant
+
+3
+
+2.5
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+
+2
+
+1.5
+
+1
+128x128
+
+256x256
+
+512x512
+
+1024x1024
+
+2048x2048
+
+Number of Uniform Frusta
+
+Figure 7: PVS ratio vs. #Frusta: As the number of frusta
+increase, the PVS computed by our approach converges to
+πexact . This graph shows the rate of convergence for different benchmarks. The CAD models have a higher ratio as
+compared to scanned models.
+Armadillo Model
+
+4
+
+14
+
+x 10
+
+12
+
+FastV 4Kx4K
+Beam Tracing
+
+Speed Up
+
+PVS Size
+
+8
+
+6
+
+4
+
+4
+
+8.84
+2.55
+1.28
+7.19
+4.17
+2.85
+9.01
+9.78
+10.17
+9.01
+
+Performance Scaling vs. #Cores
+
+12
+
+3
+
+× 100
+
+16
+14
+
+2
+
+PV S4K×4K −PV SBT
+PV SBT
+
+Table 2: Difference in the PVS computed by FastV
+(PV S4K×4K ) and a beam tracer (PV SBT ) [ORM07] as a percentage of PV SBT .
+
+10
+
+2
+1
+
+PVS Size
+PV S4K×4K
+PV SBT
+97079
+89192
+72758
+70948
+34877
+34434
+78958
+73660
+73558
+70612
+89067
+86596
+71253
+65361
+110062
+100248
+121428
+110210
+97950
+89846
+
+5
+
+6
+
+Key Frame Number
+
+7
+
+8
+
+9
+
+10
+
+Figure 8: Comparison of the PVS computed by FastV
+(PV S4K×4K ) and a beam tracer (PV SBT ) [ORM07] for the
+armadillo model sequence (see video).
+4.2. Comparison with Beam Tracing
+We compare PVS computed by FastV using 4K × 4K uniform frusta (PV S4K×4K ) with a PVS computed by an efficient beam tracer (PV SBT ) [ORM07]. We choose 10 key
+frames from the armadillo sequence (see video) for comparison. Figure 8 and Table 2 summarize our results. The PVS
+computed by FastV (PV S4K×4K ) converges to within 10%
+of the exact PVS computed by the beam tracer (PV SBT ).
+4.3. Analysis
+We analyze our algorithm and compare it with prior techniques. The accuracy of our algorithm is governed by the
+accuracy of the intersection tests, which exploit the IEEE
+floating-point hardware. Our approach is robust and general,
+and not prone to any degeneracies.
+Conservative approach: We compute a conservative PVS
+for every frustum. This follows from our basic approach to
+compute the blockers and far planes for each frustum. In
+practice, our approach can be overly conservative in some
+cases. The underlying blocker computation algorithm is conservative. Moreover, we don’t consider the case when the
+union of two or more objects can serve as a blocker. This is
+
+10
+
+Armadillo
+Thai
+Soda Hall
+Power Plant
+
+8
+6
+4
+2
+1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+Number of Cores
+
+Figure 10: Performance scaling vs. #Cores: The performance of our system scales linearly with the #cores. We have
+tested our system on up to 16 cores.
+shown in Figure 2 with two disjoint occluders, V1 and V2 .
+Instead of using more sophisticated algorithms for blocker
+computation, we found it cheaper to subdivide the frustum
+into sub-frusta and compute blockers for them. As a result,
+we can make our approach less conservative by using more
+frusta and the PVS (π) converges to πexact (see Figure 7).
+Model connectivity and triangle soup models: Our algorithm exploits the connectivity information in the model to
+compute the blockers, which are formed using connected triangles. If the connectivity information is not available, then
+the algorithm would subdivide the frustum such that each
+blocker would consist of only one triangle.
+4.4. Comparisons
+Our approach performs volumetric tracing, which is similar
+to beam tracing. However, we don’t perform exact clipping
+operations to compute an exact representation of the visible surface. Rather we only estimate the triangles belonging to the PVS by identifying the blockers for each frustum. Beam tracing algorithms can also be accelerated by usc 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+1243
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+Convergence Plot (Armadillo)
+
+1.6
+1.5
+1.4
+1.3
+1.2
+1.1
+1
+
+2
+
+1.8
+1.7
+1.6
+1.5
+1.4
+
+128x128
+256x256
+512x512
+1Kx1K
+2Kx2K
+4Kx4K
+
+PVS Size (Normalized)
+
+PVS Size (Normalized)
+
+1.7
+
+Convergence Plot (Thai)
+
+Convergence Plot (Blade)
+128x128
+256x256
+512x512
+1Kx1K
+2Kx2K
+4Kx4K
+
+PVS Size (Normalized)
+
+1.8
+
+1.3
+1.2
+
+128x128
+256x256
+512x512
+1Kx1K
+2Kx2K
+4Kx4K
+
+1.8
+
+1.6
+
+1.4
+
+1.2
+
+1.1
+50
+
+100
+
+150
+
+200
+
+1
+
+250
+
+Frame Number
+
+20
+
+40
+
+60
+
+80
+
+100
+
+120
+
+140
+
+160
+
+1
+
+180
+
+50
+
+100
+
+(a)
+
+150
+
+(b)
+
+PVS Size (Normalized)
+
+Convergence Plot (Powerplant)
+
+128x128
+256x256
+512x512
+1Kx1K
+2Kx2K
+4Kx4K
+
+4
+3.5
+3
+2.5
+2
+1.5
+1
+
+5
+
+128x128
+256x256
+512x512
+1Kx1K
+2Kx2K
+4Kx4K
+
+4.5
+
+PVS Size (Normalized)
+
+5
+
+250
+
+(c)
+
+Convergence Plot (Soda Hall)
+4.5
+
+200
+
+Frame Number
+
+Frame Number
+
+4
+3.5
+3
+2.5
+2
+1.5
+
+50
+
+100
+
+150
+
+200
+
+250
+
+Frame Number
+
+(d)
+
+1
+
+20
+
+40
+
+60
+
+80
+
+100
+
+120
+
+140
+
+160
+
+180
+
+Frame Number
+
+(e)
+
+Figure 9: Convergence of FastV on various benchmarks for a video sequence (see video): (a) Armadillo, (b) Blade, (c) Thai,
+(d) Soda Hall, and (e) Powerplant. Solid horizontal lines denote average PVS over the entire video sequence for a given frusta
+resolution. For each benchmark, PVS computed by our approach converges to πexact as the frusta resolution increase.
+ing spatial data structures [FCE∗ 98, LSLS09], but they have
+mostly been applied to scenes with large occluders (e.g. architectural models). Recently, Overbeck et al. [ORM07] presented a fast beam tracing algorithm that is based on spatial
+hierarchies. We performed a preliminary comparison with an
+implementation of this beam tracing algorithm with FastV.
+We chose multiple key frames from the armadillo model
+sequence (see video) and compared the PVS computed by
+FastV algorithm (with 4K ×4K uniform frusta) with the PVS
+computed by the beam tracer. We observed that FastV’s PVS
+converges to within 1 − 10% of the exact from-point beam
+tracing PVS (see Table 2). Furthermore, FastV appears to
+be more robust than the beam tracing solution as the beams
+may leak between the triangles due to numerical issues (see
+video). It is not clear whether current beam tracing algorithms can robustly handle complex models like the powerplant. In terms of performance, FastV is about 5 − 8 times
+faster on a single core on the armadillo model, as compared
+to [ORM07]. Moreover, FastV is relatively easier to parallelize on multi-core architectures.
+
+GPUs [AMA05]. However, it has the overhead of rendering
+additional triangles and CPU-GPU communication latency.
+It is hard to make a direct comparison with image space approaches because of their accuracy. In practice, image space
+approaches can exploit the rasterization hardware or fast raytracing techniques [RSH05] and would be faster than FastV.
+Moreover, image space approaches also perform occluder
+fusion and in some cases may compute a smaller set of visible primitives than FastV. However, the main issue with
+the image space approaches is deriving any tight bounds
+on the accuracy of the result. This is highlighted in Figure 11, where we used ray tracing to approximate the visible primitives. In complex models like the powerplant, we
+need a sampling resolution of at least 32K × 32K to compute a good approximation of the visible primitives. At lower
+resolutions, the visible set computed by the ray tracing algorithm doesn’t seem to converge well. Smarter sampling
+techniques [WWZ∗ 06] can be used for better convergence.
+
+5. Geometric Sound Propagation
+Most of the prior object space conservative visibility culling
+algorithms are designed for scenes with large occluders
+[BHS98,CT97,HMC∗ 97,LG95]. These algorithms can work
+well on special types of models, e.g. architectural models
+represented using cells and portals or urban scenes. In contrast, our approach is mainly designed for general 3D models
+and doesn’t make any assumption about large occluders. It is
+possible to perform conservative rasterization using current
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+In this section, we describe our geometric sound propagation algorithm based on FastV. Given a point sound source,
+the CAD model with material properties (i.e. the acoustic
+space), and the receiver position, the goal is to compute the
+impulse response (IR) of the acoustic space. Later the IRs
+are convolved with an audio signal to reproduce the sound.
+Sampling Based Approaches: Due to their simplicity, sam-
+
+1244
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+5
+
+2
+
+x 10
+
+Ray Tracing Convergence
+
+Ray Tracing Convergence
+15000
+
+Blade
+Thai
+
+Soda Hall
+Powerplant
+
+1.8
+
+PVS Size
+
+PVS Size
+
+1.9
+
+1.7
+1.6
+
+10000
+
+5000
+
+1.5
+1.4
+2Kx2K
+
+4Kx4K
+
+8Kx8K
+
+16Kx16K
+
+Log(Sampling)
+
+(a)
+
+32Kx32K
+
+0
+2Kx2K
+
+4Kx4K
+
+8Kx8K
+
+16Kx16K
+
+32Kx32K
+
+Log(Sampling)
+
+(b)
+
+Figure 11: PVS Size vs. Ray Sampling: The PVS computed
+by ray tracing with increasing sampling on various benchmarks: (a) Blade and Thai (b) Soda Hall and Powerplant.
+pling based approaches [KSS68, KJM04] are very popular
+in geometric acoustics. The geometric acoustics for a point
+source and a point listener is a symmetric problem and unlike computer graphics there is no notion of backward sampling in geometric acoustics. Thus, the acoustic space has to
+be sampled densely to produce a robust solution [FTC∗ 02].
+Since the sampling based approaches discretely sample the
+acoustic space, they introduce statistical errors [Len93] and
+may miss critical early reflection paths [Beg94]. Perhaps
+with advanced sampling techniques [WWZ∗ 06] better results can be achieved. Despite their shortcomings, sampling
+based approaches are popular for computing late reflections
+and diffuse reflections in geometric acoustics as missing a
+few late reflection paths or diffuse paths is perceptually imperceptible [Kut00].
+In order to compute accurate propagation paths we use our
+PVS computation algorithm described above for fast imagesource computation that only takes into account specular
+reflections [AB79, FCE∗ 98, LSLS09]. In practice, this approach is only accurate for high frequency sources. Each
+image source radiates in the free space and considers secondary sources generated by mirroring the location of the
+input source over each boundary element in the environment.
+For each secondary source, the specular reflection path can
+be computed by performing repeated intersections of a line
+segment from the source position to the position of the receiver. In order to accurately compute all propagation paths,
+the algorithm creates image-sources (secondary sources) for
+every polygon in the scene. This step is repeated for all
+the secondary sources up to some user specified (say k) orders of reflection. Clearly, the number of image sources are
+O(N k+1 ), where N is the number of triangles in the scene.
+This can become expensive for complex models.
+We use our PVS computation algorithm to accelerate the
+computation for complex scenes. We use a two stage algorithm. In the first stage, we use our conservative visibility culling algorithm and compute all the secondary image
+sources up to the specified orders of reflection. Since we
+overestimate the set of visibility triangles, we use the second
+stage to perform a validation step. For the first stage, we use
+a variant of Laine et al.’s [LSLS09] algorithm and only compute the secondary image-sources for the triangles that are
+
+visible from the source. Specifically, we shoot primary frusta
+from the sound source. For every primary frustum we compute its PVS. We then reflect the primary frustum against all
+visible triangles to create secondary frusta, which is similar to creating image-sources for visible triangles. This step
+is repeated for secondary frusta up to k orders of reflection.
+In the second stage, we construct paths from the listener to
+the sound source for all the frusta which reach the listener.
+As our approach is conservative, we have to ensure that this
+path is a valid path. To validate the path, we intersect each
+segment of the path with the scene geometry and if an intersection is found the path is discarded.
+5.1. Results
+We present our results on accurate geometric sound propagation in this section. Table 3 summarizes our results. We
+perform geometric sound propagation on models of varying complexity from 438 triangles to 212K triangles. We
+use three benchmarks presented in accelerated beam tracing (ABT) algorithm [LSLS09]. We also used two additional complex benchmarks with 80K and 212K triangles.
+We are not aware of any implementation of accurate geometric propagation that can handle models of such complexity.
+Model
+
+Tris
+
+Simple Room
+Regular Room
+Complex Room
+Sibenik
+Trade Show
+
+438
+1190
+5635
+78.2K
+212K
+
+Time
+(sec)
+.16
+.93
+6.5
+72.0
+217.6
+
+Speed Up
+(ABT)
+10.1X
+22.2X
+11.8X
+–
+–
+
+Table 3: Accurate sound propagation: The performance of
+sound propagation algorithms for three orders of reflection
+on a single core. We observe 10 − 20X speedup on the simple
+models over accelerated beam tracing (ABT) [LSLS09].
+
+5.2. Comparison with Prior Approaches
+Most accurate geometric acoustic methods can be described
+as variants of the image-source method. Figure 12 compares different accurate geometric sound propagation methods. The main difference between these methods is in terms
+of which image-sources they choose to compute [FCE∗ 98,
+LSLS09]. A naïve image source method computes image
+sources against all triangles in the scene [AB79]. Beam tracing methods compute the image-sources for exactly visible
+triangles from a source. Methods based on beam tracing,
+like accelerated beam tracing [LSLS09], computes imagesources for every triangle inside the beam volume. Our approach, shown in Figure 12(d), finds the conservative PVS
+from a source and computes image-sources for the triangles in the conservative PVS. Thus, for a given model our
+approach considers more image-sources compared to beam
+tracing. It is an efficient compromise between the expensive
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+
+1245
+
+models. The algorithm is general and works well on complex 3D models. To the best of our knowledge, this is the first
+from-point object space visibility algorithm that can handle
+complex 3D models with millions of triangles at almost interactive rates.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+Figure 12: Geometric sound propagation approaches:
+Given a sound source, S, and triangles (a, b, c, d, and e)
+the image source method (see 12a) creates image-sources of
+S against all primitives in the scene. Beam tracing method
+(see 12b) computes image-sources for only exactly visible
+triangles, b and c in this case. Accelerated beam tracing approach computes image-sources for all triangles inside the
+beam volume (see 12c), i.e., b, c, d, and e in this case. Our
+implementation (see 12d) computes image-sources for triangles b, c, and d in the PVS as computed according to the
+technique described in previous sections.
+step to compute exactly visible triangles in beam tracing vs.
+computing extra image-sources in accelerated beam tracing.
+We observe 10 − 20X speedups over prior accurate geometric sound propagation algorithms. Chandak et al. [CLT∗ 08]
+also used adaptive frustum tracing for geometric sound propagation. However, they perform discrete clipping and therefore, it is hard to derive good bounds on its accuracy.
+6. Limitations and Conclusions
+
+Future Work: There are many avenues for future work. We
+will like to implement the algorithm on a many-core GPU
+or upcoming Larrabee processor to further exploit the high
+parallel performance of commodity processors. This could
+provide capability to design more accurate rendering algorithms based on object-precision visibility computations on
+complex models (e.g. shadow generation). We will also like
+to evaluate the trade-offs of using more sophisticated blocker
+computation algorithms [NRJS03, Lai06]. In terms of sound
+propagation, our approach can be extended to compute edge
+diffraction based on uniform theory of diffraction (UTD).
+Other Applications: Our approach can be adapted to implement an efficient conservative rasterization engine [AMA05]
+on GPUs. With the release of DirectX R 11, blocker computation similar to our approach can be implemented efficiently on GPUs by randomly accessing scene primitives.
+Further, the conservative rasterization approach can be used
+to perform object space occlusion queries [Ngu07] and
+thereby design more accurate algorithms for shadow volumes [LWGM04] and collision detection [GRLM03] computations in large environment.
+Acknowledgments
+We would like to thank Ryan Overbeck from Columbia University for sharing the beam tracing code. We would also like
+to thank Peter Wonka, Shaun Nirenstein, and Brian Salomon
+for useful discussion on our work. The three room acoustics
+models and anechoic audio clips are courtesy of The Virtual
+Acoustics group at Helsinki University of Technology. This
+work was supported in part by ARO Contracts W911NF04-1-0088, NSF award 0636208 , DARPA/RDECOM Contracts N61339-04-C-0043 and WR91CRB-08-C-0137, Intel,
+and Microsoft.
+References
+
+Our approach has some limitations. Since we don’t perform
+occluder fusion, the PVS computed by our algorithm can be
+overly conservative sometimes. If the scene has no big occluders, we may need to trace a large number of frusta. Our
+intersection tests are fast, but the conservative nature of the
+blocker computation can result in a large PVS. The model
+and its hierarchy are stored in main memory, and therefore
+our approach is limited to in-core models. Our algorithm is
+easy to parallelize and works quite well, but is still slower
+than image space approaches that perform coherent ray tracing or use GPU rasterization capabilities.
+
+[BHS98] B ITTNER J., H AVRAN V., S LAVIK P.: Hierarchical visibility culling with occlusion trees. Computer Graphics International, 1998. Proceedings (Jun 1998), 207–219. 2, 7
+
+Conclusions: We present a fast and simple visibility culling
+algorithm and demonstrate its performance on complex
+
+[BW05] B ITTNER J., W ONKA P.: Fast exact from-region visibility in urban scenes. Eurographics Symposium on Rendering
+(2005), 223–230. 2
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+[AB79] A LLEN J. B., B ERKLEY D. A.: Image method for efficiently simulating small-room acoustics. The Journal of the
+Acoustical Society of America 65, 4 (April 1979), 943–950. 8
+[AMA05] A KENINE -M ÖLLER T., A ILA T.: Conservative and
+tiled rasterization using a modified triangle set-up. journal of
+graphics tools 10, 3 (2005), 1–8. 2, 7, 9
+[Beg94] B EGAULT D. R.: 3D Sound for Virtual Reality and Multimedia. Academic Press Professional, 1994. 8
+
+1246
+
+A. Chandak, L. Antani, M. Taylor, & D. Manocha / FastV
+
+[CLT∗ 08] C HANDAK A., L AUTERBACH C., TAYLOR M., R EN
+Z., M ANOCHA D.: Ad-frustum: Adaptive frustum tracing for interactive sound propagation. In Proc. IEEE Visualization (2008).
+4, 5, 9
+
+[LCM07] L AUTERBACH C., C HANDAK A., M ANOCHA D.: Interactive sound rendering in complex and dynamic scenes using
+frustum tracing. Visualization and Computer Graphics, IEEE
+Transactions on 13, 6 (Nov.-Dec. 2007), 1672–1679. 3
+
+[COCSD03] C OHEN -O R D., C HRYSANTHOU Y., S ILVA C., D U RAND F.: A survey of visibility for walkthrough applications.
+Visualization and Computer Graphics, IEEE Transactions on 9,
+3 (July-Sept. 2003), 412–431. 2
+
+[Len93] L ENHERT H.: Systematic errors of the ray-tracing algoirthm. Applied Acoustics 38 (1993), 207–221. 1, 8
+
+[CT97] C OORG S., T ELLER S.: Real-time occlusion culling for
+models with large occluders. In SI3D ’97: Proceedings of the
+1997 symposium on Interactive 3D graphics (New York, NY,
+USA, April 1997), ACM, pp. 83–ff. 2, 7
+[DD02] D UGUET F., D RETTAKIS G.: Robust epsilon visibility.
+Proc. of ACM SIGGRAPH (2002), 567–575. 2
+[Dur99] D URAND F.: 3D Visibility, Analysis and Applications.
+PhD thesis, U. Joseph Fourier, 1999. 2
+[FCE∗ 98] F UNKHOUSER T., C ARLBOM I., E LKO G., P INGALI
+G., S ONDHI M., W EST J.: A beam tracing approach to acoustic
+modeling for interactive virtual environments. In Proc. of ACM
+SIGGRAPH (1998), pp. 21–32. 1, 2, 7, 8
+
+[LG95] L UEBKE D., G EORGES C.: Portals and mirrors: Simple,
+fast evaluation of potentially visible sets. In ACM Interactive 3D
+Graphics Conference (Monterey, CA, 1995), pp. 105–108. 2, 7
+[LSCO03] L EYVAND T., S ORKINE O., , C OHEN -O R D.: Ray
+space factorization for from-region visibility. Proc. of ACM SIGGRAPH (2003), 595–604. 2
+[LSLS09] L AINE S., S ILTANEN S., L OKKI T., S AVIOJA L.: Accelerated beam tracing algorithm. Applied Acoustic 70, 1 (2009),
+172–181. 1, 7, 8
+[LWGM04] L LOYD B., W ENDT J., G OVINDARAJU N.,
+M ANOCHA D.: Cc shadow volumes. In Proceedings of the
+Eurographics Symposium on Rendering 2004 (2004). 9
+[MBW08] M ATTAUSCH O., B ITTNER J., W IMMER M.: Chc++:
+Coherent hierarchical culling revisted. Proc. of Eurographics
+(2008), 221–230. 2
+
+[FTC∗ 02] F UNKHOUSER T., T SINGOS N., C ARLBOM I., E LKO
+G., S ONDHI M., W EST J.: Modeling sound reflection and
+diffraction in architectural environments with beam tracing. In
+Forum Acusticum (September 2002). 8
+
+[NB04] N IRENSTEIN S., B LAKE E.: Hardware accelerated visibility preprocessing using adaptive sampling. In Eurographics
+Workshop on Rendering (2004). 2
+
+[Gha01] G HALI S.: A survey of practical object space visibility
+algorithms. In SIGGRAPH Tutorial Notes (2001). 1, 2
+
+[Ngu07] N GUYEN H.: Gpu gems 3. Addison-Wesley Professional, 2007. 9
+
+[GRLM03] G OVINDARAJU N., R EDON S., L IN M., M ANOCHA
+D.: CULLIDE: Interactive collision detection between complex
+models in large environments using graphics hardware. Proc.
+of ACM SIGGRAPH/Eurographics Workshop on Graphics Hardware (2003), 25–32. 9
+
+[Nir03] N IRENSTEIN S.: Fast and Accurate Visibility Preprocessing. PhD thesis, University of Cape Town, South Africa, 2003.
+2
+
+[GSYM03] G OVINDARAJU N., S UD A., YOON S., M ANOCHA
+D.: Interactive visibility culling in complex environments with
+occlusion-switches. Proc. of ACM Symposium on Interactive 3D
+Graphics (2003), 103–112. 2
+[HH84] H ECKBERT P. S., H ANRAHAN P.: Beam tracing polygonal objects. In Proc. of ACM SIGGRAPH (1984), pp. 119–127.
+2
+[HMC∗ 97]
+
+H UDSON T., M ANOCHA D., C OHEN J., L IN M.,
+H OFF K., Z HANG H.: Accelerated occlusion culling using
+shadow frusta. In Proc. of ACM Symposium on Computational
+Geometry (1997), pp. 1–10. 2, 7
+
+[KCCO00] K OLTUN V., C HRYSANTHOU Y., C OHEN -O R D.:
+Virtual occluders: An efficient intermediate pvs representation.
+In Eurpographics Workshop on Rendering (2000), pp. 59–70. 2
+[KJM04] K APRALOS B., J ENKIN M., M ILIOS E.: Acoustic
+Modeling Utilizing an Acoustic Version of Phonon Mapping. In
+Proc. of IEEE Workshop on HAVE (2004). 8
+[KS00] K LOSOWSKI J., S ILVA C.: The prioritized-layered projection algorithm for visible set estimation. IEEE Trans. on Visualization and Computer Graphics 6, 2 (2000), 108–123. 2
+
+[NRJS03] NAVAZO I., ROSSIGNAC J., J OU J., S HARIF R.:
+Shieldtester: Cell-to-cell visibility test for surface occluderis. In
+Proc. of Eurographics (2003), pp. 291–302. 4, 9
+[ORM07] OVERBECK R., R AMAMOORTHI R., M ARK W. R.: A
+Real-time Beam Tracer with Application to Exact Soft Shadows.
+In Eurographics Symposium on Rendering (Jun 2007), pp. 85–98.
+2, 6, 7
+[RSH05] R ESHETOV A., S OUPIKOV A., H URLEY J.: Multi-level
+ray tracing algorithm. ACM Trans. Graph. 24, 3 (2005), 1176–
+1185. 4, 7
+[Sho98] S HOEMAKE K.: Pluecker coordinate tutorial. Ray Tracing News 11, 1 (1998). 4
+[Tel92] T ELLER S. J.: Visibility Computations in Densely Occluded Polyheral Environments. PhD thesis, CS Division, UC
+Berkeley, 1992. 2
+[WWZ∗ 06] W ONKA P., W IMMER M., Z HOU K., M AIERHOFER
+S., H ESINA G., R ESHETOV A.: Guided visibility sampling.
+Proc. of ACM SIGGRAPH (2006), 494–502. 2, 5, 7, 8
+[ZMHH97] Z HANG H., M ANOCHA D., H UDSON T., H OFF K.:
+Visibility culling using hierarchical occlusion maps. Proc. of
+ACM SIGGRAPH (1997). 2
+
+[KSS68] K ROKSTAD A., S TROM S., S ORSDAL S.: Calculating
+the acoustical room response by the use of a ray tracing technique. Journal of Sound and Vibration 8, 1 (July 1968), 118–125.
+8
+[Kut00] K UTTRUFF H.: Room Acoustics, 4th ed. Taylor & Francis, 2000. 8
+[Lai06] L AINE S.: An Incremental Shaft Subdivision Algorithm
+for Computing Shadows and Visibility. Master’s thesis, Helsinki
+University of Technology, March 2006. 4, 9
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

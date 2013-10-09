@@ -1,0 +1,2100 @@
+DOI: 10.1111/j.1467-8659.2007.01101.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 27 (2008), number 1 pp. 130–151
+
+Distributed Texture Memory in a Multi-GPU Environment
+Adam Moerschell and John D. Owens
+University of California, Davis
+
+Abstract
+In this work, we demonstrate a system that allows texture memory on multiple graphics processing unit (GPUs)
+to be virtualized in a manner that is both scalable and transparent to the programmer. Our system is built using
+a directory-based shared-memory abstraction to allow texture memory to be distributed while staying consistent.
+We use texture pages as our basic memory block and discuss the data structures, threading model, and consistency
+mechanisms necessary to implement a paging system in a multi-GPU environment. The system is demand-driven,
+and pages will only be loaded into the texture memory of a GPU that makes a request. The main contribution of
+this work is the identification of the mechanisms required to implement our abstraction, as well as the discussion
+of its limitations in order to make it more efficient.
+Keywords: GPU, parallel computing, distributed-shared memory, DSM, GPGPU, GPU computing, graphics
+architecture
+ACM CCS: I.3.3 [Computer Graphics]: Hardware Architecture; C.1.4 [Parallel Architectures]: Distributed
+Architectures
+
+NVIDIA’s Scalable Link Interface (SLI), but these solutions
+are both limited in scalability and have feature sets targeted
+mostly at games. These systems make multiple GPUs appear
+as one logical entity to the programmer, and do not allow for
+independent execution on each GPU. Cluster-based software
+such as Chromium [HHN∗ 02] is well-suited for many applications that require scalable graphics, yet the programming
+model of Chromium disallows many forms of data communication that we believe would be useful and necessary in
+future scalable graphics systems. Custom multi-GPU configurations can also be implemented by hand. The problem
+is that hand implementations are time consuming; they require the programmer to design threading systems to operate
+multiple GPUs and to develop the inter-GPU communication
+systems required to transfer data. The new Windows Display
+Driver Model (WDDM), as part of the Windows Vista operating system, introduces memory virtualization support to
+GPUs and is very promising for multi-GPU memory systems.
+
+1. Introduction
+Recently the graphics processing unit (GPU) has become
+a powerful computational tool used for both graphics and
+complex computational tasks. With the potential for computational power that exceeds the best CPUs, the GPU now targets both increasingly demanding graphics workloads as well
+as non-graphical, general-purpose computation. This move
+has allowed the GPU to assist in many diverse applications,
+including physical simulation, mathematical processing, film
+rendering, large-scale visualization, and interactive graphics.
+These complex applications would benefit from scalable
+graphics systems that allow users to add additional hardware
+to a system and increase its performance. Recently, CPUs
+have been moving to multi-CPU and multi-core systems
+in order to improve performance. While CPU scalability is
+commonly exploited by using multi-processor systems or by
+building CPU clusters, most graphics systems today only support a single GPU. One major reason is the scarcity of wellestablished programming models and software support for
+multi-GPU systems. Major GPU vendors now support limited multi-GPU configurations such as AMD’s Crossfire and
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and
+Blackwell Publishing Ltd. Published by Blackwell Publishing,
+9600 Garsington Road, Oxford OX4 2DQ, UK and 350 Main
+Street, Malden, MA 02148, USA.
+
+The goal of this work is to explore a memory model
+for multi-GPU systems that both permits generalized communication between GPUs and is easy to use for programmers. We propose to virtualize the memory across
+
+130
+
+Submitted January 2007
+Revised August 2007
+Accepted May 2007
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+GPUs into a single shared address space, with memory distributed across the GPUs, and to manage that memory with a
+distributed shared-memory (DSM) system hidden from the
+programmer. Besides being transparent to the programmer,
+this model is scalable to multiple GPUs within a single node,
+and can be distributed across a clustered environment as well.
+The DSM system ensures the consistency of memory by using texture pages as the basic memory block. Since a DSM
+system is demand driven, only texture data used by the GPU
+is loaded into its texture memory. This makes memory usage
+more efficient. While current GPUs have neither the hardware support nor the exposed software support to implement
+this memory model both completely and efficiently, the system we describe shows promise as a powerful abstraction
+for multi-GPU graphics, and we hope that our work will influence the design of future graphics hardware and software
+toward supporting a high-performance DSM abstraction.
+
+2. Background
+
+This abstraction will be beneficial to many applications
+wishing to leverage the parallel processing capacity of multiple GPUs. One obvious usage model is to use screen space
+subdivision. If each GPU is in charge of rendering a certain
+subsection of the final framebuffer, only textures that appear
+in the screen space of a given GPU will be loaded into that
+GPU’s texture memory. This method could be used for a single display driven by multiple GPUs, or when many displays
+are linked together and each node renders a different frustum
+of the final image. A second usage of this system would be for
+general purpose GPU applications (GPGPU). Many GPGPU
+applications do not focus on producing a visual image, but
+rather operate on data sets and take advantage of the parallel
+processing capabilities of GPUs. In this type of application,
+each GPU can operate on its own subset of the data and have
+the data it needs paged to it on demand.
+
+2.1.1. Message passing
+
+In both screen space and data space subdivision, the same
+operations are happening across all GPUs. Distributed applications do not need to function this way. Each compute node
+could operate independently and run different graphics code.
+One example of this would be a distributed ray tracer that
+runs on the GPU. In a clustered environment, GPUs would
+be given batches of rays, and when a GPU finishes a batch,
+it will request more rays to process. All of the rays will be
+tracing a common data set or scene, but each ray will have
+different data dependencies depending on the path it takes. As
+the rays travel, the data they need can be loaded on demand
+to the GPU tracing that ray.
+The work we describe here extends our design and implementation from our 2006 paper [MO06]. We begin describing
+our memory system with related work in Section 2, then describe our system design and implementation in Section 3.
+We describe the multi-GPU applications running under our
+system and use them to draw conclusions about our system
+in Section 4. We identify both performance bottlenecks and
+potential hardware and software additions and changes in
+Section 5 and conclude in Section 6.
+
+131
+
+Our work has been influenced by two families of previous
+machines, general-purpose multi-node computer systems and
+more specialized graphics systems that operate on multiple
+compute nodes. Most general-purpose systems do not directly
+map to a GPU environment because they were initially designed for use with CPU computing. Current GPU models
+are limited and do not allow full utilization of the memory
+resources of the GPU.
+
+2.1. General purpose systems
+The two most popular mechanisms for sharing system memory in multi-node and multi-processor systems are message
+passing and shared-memory.
+
+In a message passing system, inter-node communication is facilitated by sending messages between nodes. Usually this is
+through an application programming interface (API), such as
+the Message Passing Interface (MPI) [BDV94, SL03], that allows point to point, broadcast, and barrier mechanisms. This
+means that each node is operating independently and has its
+own, individual memory space. The only way that applications can access data generated by other nodes is if the programmer implements request and reply mechanisms specific
+to an application. Applications that use message passing normally have a predefined communication structure that must
+be implemented by the programmer. Exposing message passing as an inter-GPU communication tool is a bad fit for our
+system because it does not fulfil our goal of a unified memory
+space that is invisible to the programmer.
+
+2.1.2. Shared-memory
+Our design goal of making the migration from single-node to
+multi-node systems as easy as possible motivates a sharedmemory architecture, in which all nodes share a common
+address space and can transparently access data stored on
+other nodes. For the programmer, this memory abstraction
+is the same as for a single GPU: any GPU can access any
+memory in the system. The underlying memory system, however, faces the challenge of distributing the memory across
+multiple nodes and managing communication between nodes
+while maintaining consistency [GLL∗ 98].
+In a simple implementation, a shared-memory architecture
+uses a snooping protocol [PP84]. Snooping protocols get their
+name because caches ‘snoop’ every memory transaction by
+every processor. This allows the caches to be coherent and
+consistent because they are able to maintain a global view of
+the status of each memory block. In order to support snooping,
+broadcast mechanisms are necessary. Broadcasting creates
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+132
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+a lot of unnecessary traffic and has limited scalability. We
+choose to not implement a snooping shared-memory system
+due to its limited scalability.
+Another method to maintain consistency is to use a
+directory-based shared-memory architecture. The directory
+is a data structure, residing in system memory, that stores a
+copy of each block of memory and a set of state bits along with
+it. Within the directory, the state information tracks which
+CPU caches hold which blocks and if a cache holds a dirty
+copy of the block. This gives the directory a global view of all
+the memory blocks in the system. If a cache has a read miss,
+it issues a read request to the directory managing the missed
+block. The directory then locates the block (from main memory or a dirty cache) and sends it back to the requesting cache.
+In the case of a write hit or a write miss, the cache must request
+exclusive access from the directory. The directory will then
+invalidate all other copies of that block in other caches, mark
+the block as dirty, and allow the cache to proceed with the
+write. When the directory is distributed over multiple nodes,
+this architecture is called DSM and is scalable [LLG∗ 90];
+our design is most influenced by that of Simoni [Sim90]. Simoni goes to lengths to describe the details of implementing a
+directory-based shared-memory system, including many subtle deadlock cases that a naive implementation may neglect
+to address.
+2.2. Graphics systems
+Eldridge et al. [EIH00] list five metrics to measure the performance of a graphics system: input rate, triangle rate, pixel
+rate, texture memory, and display bandwidth. In a scalable
+system, doubling the number of graphics pipelines should
+double each of these metrics. Current approaches succeed in
+scaling some of these metrics, but fail at others.
+2.2.1. Hardware approaches
+Hardware support for multi-GPU systems has been developed by leading hardware vendors like NVIDIA and AMD
+[NVI05, Per05], as well as by academics [MBOD06]. Much
+research has also been done in virtualizing memory systems
+for both raster based and ray traced graphics systems [Hal99,
+SLS03, DPH∗ 03].
+Current vendor support for multi-GPU configurations includes AMD’s Crossfire [Per05] and NVIDIA’s SLI [NVI05].
+These configurations can scale pixel rate, but do not scale texture memory. Both SLI and Crossfire replicate texture memory in the common case that textures are resident on the GPU.†
+As a result, data rendered to texture must be broadcast to all
+GPUs in the system, unless the generated textures are not per† If the aggregate texture size exceeds the amount of GPU memory, textures are demandloaded from the CPU and thus may not
+be wholly redundant across GPUs. This demand-loading is not
+currently exposed to the programmer.
+
+sistent between frames. Both systems are highly optimized
+for game applications and have found limited use in more
+general-purpose applications. This is because GPGPU applications rely heavily on render-to-texture operations where
+generated textures are used in future frames, and thus must
+be broadcast to all GPUs.
+In addition, Crossfire and SLI systems use special-purpose
+connectors to share data (resulting in a dedicated highbandwidth path with correspondingly high performance)
+rather than the more general-purpose system busses we
+choose. Currently, SLI is limited to four GPUs within a single
+machine. NVIDIA has deployed special purpose multi-GPU
+boxes called Quadro Plex visual computing systems (VCSs)
+[WH06]. Each Quadro Plex (VCS) can hold up to four GPUs,
+but it is built on top of SLI technology, and suffers the same
+limitations. Crossfire is limited to three GPUs, but the technology has been designed in a way that it could be scaled
+to more than three GPUs. The main limitation is the form
+factor of a PC and number of card slots on the motherboard
+[Dem06].
+Both of these technologies make multiple GPUs look like
+a single entity to the programmer. Though this eases the
+programming model, if a programmer wishes to use multiple GPUs independently in a single application, with each
+running a different command stream, there is not a common method or straightforward implementation to achieve
+this. AMD has begun to address this issue with asymmetric
+physics processing for Crossfire [ATI06]. The fact that this
+system allows programmers to use multiple GPUs independently in one application could allow us to manage multiple
+GPUs in a way that Crossfire does not. If we chose to build
+our setup on top of this system, we would be limited to applications that used physics and graphics, and could not look
+at the more general problem of distributing texture memory.
+Both AMD and NVIDIA have created new data parallel languages to allow programmers to use GPUs as highly
+parallel processors without having to understand graphics
+programming. AMD’s Close to the Metal (CTM) [PSG06]
+takes a low-level approach that is similar to assembly language, while NVIDIA’s compute unified device architecture
+(CUDA) [NVI07] takes a higher level approcach similar to C.
+Both systems allow multiple GPUs to be accessed independently within a single application, and they are only limited
+in scalability to how many GPUs a PC can hold. These abstractions are very powerful and would allow us to create a
+distributed memory system for GPUs, but neither language
+was available when we created our system, so our implementation uses the OpenGL API.
+3DLabs implemented a hardware virtual texture system
+that leverages texture pages [Hal99]. Their system was demand driven, and would only cache pages on the GPU as
+needed. As presented, this system could be extended to support a distributed texture memory system by implementing
+consistency mechanisms and an interface to the programmer.
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+Though 3Dlabs has moved away from producing discrete
+GPUs, their work on virtual textures was an important first
+step in virtualizing memory on GPUs.
+Another hardware approach, proposed by Manzke et al.,
+uses custom GPUs, FPGAs, and Scalable Coherent Interface
+(SCI) connections to create a distributed shared-memory system [MBOD06]. SCI allows the custom GPUs to have cachecoherence, but the protocol does not extend to the application
+PCs. Though this is a novel approach, the fact that it uses custom hardware and a protocol that is not found in commodity
+PCs, it may take some time for it to become a widely adopted
+and viable multi-GPU solution.
+2.2.2. Software approaches
+Chromium [HHN∗ 02] allows streams of graphics API commands from precompiled applications to be intercepted, filtered, and forwarded to nodes in a cluster. Though Chromium
+has good performance scalability, it only allows limited forms
+of communication, supporting ‘only architectures that do not
+require communication between stages in the pipeline that
+are not normally exposed to an application’ [HHN∗ 02]. Our
+system, in contrast, presents an abstraction for sharing texture
+memory that is not normally exposed to applications. We believe our system and Chromium are complementary. Our current implementation could be implemented using Chromium,
+but a proper low level implementation would not benefit from
+Chromium due to the lack of lower level support.
+Igehy et al.’s parallel API allows for the synchronization of
+multiple streams of graphics commands to the same drawable
+image [ISH98]. Instead of using application level barriers and
+semaphores, they propose a method for creating barriers and
+semaphores that operate at the graphics context level. Our system is not limited to rendering to a single drawable image,
+but when operating in a multi-GPU environment, synchronization between GPUs is important. The focus of this work
+is more on mechanisms for transferring data and maintaining consistency and less on mechanisms for synchronization,
+so, for simplicity, we use application level synchronization.
+Igehy et al.’s primitives would be desirable in a final implementation focused on performance.
+Voorhies et al. [VKL88] present graphics as a virtual resource. In current systems, graphics hardware is seen as a
+virtual resource to the system, but the graphics programmer
+can not see texture memory as a distributed virtual space.
+Though textures are an abstraction of texture memory, this
+abstraction is not a global virtual space of all graphics memory in the system. We believe our work is consistent with the
+goals of Voorhies et al. in that a virtualized memory system
+will allow portable, efficient implementations of both applications atop the abstraction and the underlying mechanisms
+beneath it.
+With the introduction of the WDDM version 2, texture
+memory is virtualized, and all texture memory references are
+
+133
+
+accesses to virtual addresses. In WDDM version 2.1, faults
+to texture memory can cause context switches that preempt
+execution at the granularity of the pixel shader. The miss
+penalties for page faults are mitigated by context switching
+to other active graphics contexts. Page faults may be serviced at the same time as another graphics context is executing [PMK06]. WDDM supports multiple GPUs in either
+a mirrored or instanced mode. Mirrored mode is similar to
+Crossfire and SLI in that the address spaces on the linked
+GPUs are allocated identically, while instanced mode allows
+unique memory contents and allocations. WDDM does not
+currently support a shared address space across multiple instanced GPUs such that they are able to access each other’s
+physical memory [Bly06]. This support should come eventually because WDDM has created many of the necessary tools
+to support distributed memory in GPUs.
+One virtual texture representation is SGI’s clipmaps
+[TMJ98]. A clipmap is essentially an extension to mipmapping that allows very large textures to partially reside on the
+GPU. The main observation is that with finite display resolution a user can only visualize a limited amount of texture
+data at one time. When most of the texture is visible, a lower
+quality mip level can be used. When the user is zoomed in,
+only a portion of the texture will be visible, and therefore
+only a subsection of the highest quality mip level will need
+to be in texture memory. Clipmaps could be implemented
+in our system, but due to mipmapping limitations discussed
+in Section 5 other changes must be made before it can be
+implemented.
+ClawHMMER is an example of a clustered GPGPU application [HHH05]. The nature of the algorithm allows for a
+static distribution of texture data that is never shared or migrated to other nodes in the cluster. Due to this independence,
+the application scales well on its own, and would not benefit
+from a global texture memory system. Though ClawHMMER does not need a global texture memory system, Section
+4.1 shows that there are other GPGPU applications which
+will take advantage of a global texture memory system when
+migrating to a multi-GPU environment.
+Clustered GPGPU computing is an increasingly popular
+research area, and ZippyGPU [FQK06] has implemented a
+distributed memory architecture for clustered GPU usage.
+It creates a virtual address space and ZippyGPU manages
+the memory underneath. ZippyGPU attempts to maximize
+locality by distributing texture data appropriately for the user.
+It is a library built upon known graphics APIs and the MPI.
+It is unclear what memory consistency model they use or if
+texture writes are allowed.
+3. Implementation
+The goal of our system is to allow programs to run across
+multiple GPUs with a common, consistent, distributed memory address space. The core of our implementation is a
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+134
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+directory-based distributed shared-memory system that handles the details of memory management transparently from
+the programmer. The system allows GPUs to run identical
+or independent command streams, each with access to the
+global memory space. In the terminology of traditional DSM
+systems, the CPU’s system memory is main memory and
+the GPU’s texture memory is treated as a cache. In a multinode system, the directory is split and distributed over multiple nodes. Such a system is scalable across a large network of CPUs and GPUs because there is no central resource
+[LLG∗ 90]. Though there is no central resource, data must be
+distributed properly to avoid bottleneck nodes with highly
+volatile memory blocks.
+At a high level, our system is implemented as a parallel
+program across multiple CPU nodes, each of which supports
+one or more GPUs. The CPUs and GPUs must cooperate to
+implement distributed shared-memory across them. We have
+identified two fundamental mechanisms which are necessary
+to support shared-memory: sharing and invalidation. Sharing
+allows one node to retrieve a copy of memory that is resident
+on a different node; invalidation allows a node to notify other
+nodes that it requires exclusive access to a portion of memory.
+Together, these two mechanisms allow consistent migration
+of data between GPUs.
+Currently, the system is implemented as a single-CPU,
+multi-GPU system. In this case there is only one directory
+and multiple physical texture memories. While designing the
+system, a move to a multi-node environment has been kept
+in mind, and will be discussed in further detail in Section 5.
+Due to the fact that drivers for commodity graphics cards are
+large, complex pieces of software and that are largely closed
+source, it is difficult for us to implement our system at a level
+that is as close to the hardware as it should be. Obtaining
+and modifying the source of a current graphics driver would
+be just as weighty of a task as implementing our own driver.
+Instead, we choose to implement our system using a current
+graphics API and to deal with the constraints imposed by the
+graphics pipeline. This has obvious performance penalties,
+but we feel that despite these, our system shows the mechanisms necessary to create a globally addressable, distributed
+texture memory that is transparent to the programmer. We
+discuss the limitations to this system, and future software
+and hardware support necessary to better support our system
+in Section 5.
+3.1. Memory consistency model
+Graphics applications rely heavily on texture read and renderto-texture (write) operations. In order to understand how
+memory operations work in a global texture memory, a definable consistency model is necessary. A memory consistency
+model specifies how memory transactions will complete in
+a multi-processor or concurrent programming environment.
+This eases the programmability of the system, and allows
+the programmer to have clear expectations of how memory
+
+operations will occur. Our system observes the three requirements Culler et al. list to guarantee sequential consistency
+[CGS97]. Every GPU issues texture memory operations in
+program order, writes complete in the order they are issued,
+and reads complete only after previous writes to the same
+address have completed.
+Though our memory model is designed to be transparent to
+the user, there are still hazards that the programmer must be
+aware of. This is the case in any multi-processing system that
+has multiple processors accessing a common data-set. Race
+conditions will arise when multiple GPUs try to access the
+same texel. In the case where two GPUs simultaneously write
+to the same texel, the memory system will ensure that both
+writes occur, but the order will be undefined. A similar problem occurs when a read and a write to the same texel happen
+simultaneously. In order to avoid situations such as these, the
+programmer must have knowledge of the data access patterns
+in his application and he must use synchronization primitives
+to avoid race conditions.
+Application level synchronization can be very coarse
+grained because it will require both GPUs to come to a halt
+pending further instructions from the CPU. Rather than using
+application primitives to control execution, it is conceivable
+that the parallel API proposed by Igehy et al. [ISH98] could
+be used for synchronization at the graphics context level.
+By synchronizing at the graphics context level, the GPU is
+handling the execution of the application and not the CPU.
+This would allow the synchronization mechanisms to flow
+through the GPU in a hardware friendly manner that takes
+advantage of the graphics pipeline. Special hardware support
+would be needed to support this API, so we use application
+level primitives.
+
+3.2. Data structures
+The shared memory abstraction creates a global texture address space for all textures to all GPUs, allowing different
+textures to be stored on different GPUs, and effectively making the size of texture memory the sum of all texture memories
+in the system. The global address space is made transparent
+to the programmer so he will only need to work with texture
+IDs and coordinates local to a given texture without having
+to worry about implementing an inter-GPU communication
+mechanism. These IDs and coordinates describe a texel address globally accessible to any GPU. However, to render a
+scene, our system must guarantee that a GPU will have all
+necessary texture data resident in memory. Thus our system
+requires the ability to transfer texture data between GPUs,
+and our first decision is the unit of transfer.
+
+3.2.1. Basic memory block
+Texture data can be made local to a GPU at many granularities. In our DSM architecture, the granularity we choose
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+135
+
+determines when texture resources must be guaranteed to reside in a given GPU’s texture memory. This will also affect
+what our directory must keep track of.
+Graphics Context When a specific graphics context is made
+current and begins execution on a GPU, all textures associated
+with the context are made local to the GPU. If many context
+switches occur or if the texture data used in an application
+does not fit into texture memory, this is not a viable solution.
+
+Figure 1: GPU page table entry.
+
+Driver Call Stack All textures that will be bound by commands in the current driver call stack are guaranteed to be
+local to the GPU. At this point it is not known which parts
+of the texture will be visible, if any, and the texture data may
+not need to be downloaded to the GPU.
+Polygon/Shader When a texture is bound to a polygon or
+is an input to a fragment shader, it is loaded to the GPU. In
+the case that the polygon is not fully visible on the screen,
+it may not be necessary for the full texture to be resident on
+the GPU. Depending on eviction policies, there may be a lot
+of unnecessary swapping, especially when texture memory
+is close to full.
+Texture Data on Demand When a texture is accessed in
+a fragment processor, if the requested data is not local to
+texture memory, it is loaded on demand from system memory.
+This can help by not loading unused data to the GPU. The
+best implementation of this strategy would involve graphics
+hardware that has faulting capabilities.
+We have implemented a system that allows data to be
+loaded to GPU texture memory on demand. In order to efficiently manage texture data, we choose the page as the fundamental unit of memory in our system. A page is a contiguous, rectangular block of a single texture; we can configure
+the size of a page, but it is typically larger than a single texel
+but smaller than an entire texture. All transfers in our system
+are transfers of pages. We chose pages because texels are too
+small: the number of requests becomes unreasonably large
+and degrades performance. Entire textures are too large: we
+often transfer data that we will not use. The size of the page
+is important to the performance of the system, and we discuss performance implications of page size in Section 4.2.
+Though pages could be any shape, we only examine square
+pages.
+
+3.2.2. GPU structures
+All textures in our system are stored as pages, using a page
+table primitive to access them on the GPU. This primitive has
+the same interface as a standard texture call (accessed using
+a texture ID and s and t coordinates), but data from multiple
+textures is actually stored as individual pages and indexed
+by the page table. A texel lookup, then, requires first looking
+up the page address in the page table, then using that index
+to calculate and look up the texel. Changing or updating a
+
+Figure 2: Page table texture look up.
+texture page requires both updating the contents of the page
+as well as the entry in the page table that points to the page.
+A basic page table is simply a texture storing pointers
+to page data. Page data is packed into a separate physical
+memory texture. A page table pointer is just an (s, t) coordinate within the physical memory where the lower left corner
+of a page resides. Due to the limitations of graphics hardware, physical memories have limited capacities (maximum
+of 4096 × 4096 texels in our implementation’s hardware
+and 8192 × 8192 in DirectX 10 hardware) and are not easily resizable. Therefore, as physical memories become full,
+additional physical memories must be created. In order to
+index the proper physical memory, the page table entry must
+be expanded to store the ID of the physical memory the page
+resides in. Since our system is demand driven, and pages are
+loaded only when needed, we use a negative physical memory ID to indicate that the page is not resident in any physical
+memory on the GPU. Each page table entry needs to store
+three values, therefore it can be represented as one texel in a
+RGB formatted texture. Figure 1 shows an example of a page
+table entry. The contents of a single loaded texture might be
+distributed among multiple GPUs. Our page table structure
+allows pages to be shared between GPUs by storing the contents of the page in physical memories on multiple GPUs.
+Figure 2 shows a page table lookup. First, the page table entry is located. Next, the ID field is checked and if the
+page is valid, the x and y coordinates will be used to index
+the correct physical memory texture containing the page.
+Our original implementation of the page table used a Glift
+page table object [LKS∗ 06], but we found this primitive to
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+136
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+be too limited for our system. A Glift page table object can
+only have a single physical memory texture associated with
+the page table. This physical memory is also limited by the
+same size constraints as our physical memories. Since we
+want each GPU to be able to address more than 4096 ×
+4096 texels, our system requires a page table to be able to
+point to more than one physical memory. We could make
+due with only one physical memory texture, but we would be
+forced to manage multiple page tables. It would be possible
+to implement a page table with multiple physical memories in
+Glift, but it would only take advantage of Glift’s page table
+address translator and the page table entry structure would
+have to be modified. Also, this implementation would require
+us to manage physical memories by hand since they would
+not be easily wrapped into one Glift object. We felt that, even
+though it was possible to use Glift to implement our page
+table, it was cleaner to implement our own page table rather
+than only use part of the functionality of Glift.
+
+3.2.3. CPU structures
+We keep track of the status of each page using a simple directory organization. The directory resides in system memory
+on the CPU, and within it each page has an entry containing a
+presence/valid bit for each GPU in the system, a single dirty
+bit, and a pointer to the CPU memory associated with the
+page. The directory can be distributed over multiple CPUs,
+each managing a separate section of the global memory space.
+The contents of the directory give a global view of the status
+of every page in the whole system.
+Figure 3 depicts the entire system and shows where the directory fits in. Using our read and write procedures, described
+below, within our memory consistency model, the CPU is able
+to use the directory to manage GPU texture memory.
+When a texture is loaded into the system, it must be broken
+into pages (seen in Figure 4). Pages are assigned in row major
+order starting at the lower left hand of the texture. Since
+every texture is broken into pages the same way, it is easy
+to use texture coordinates to determine which page a texel
+resides in. Pages on the right and top edges of the texture
+may have unused data because because pages are statically
+sized. Once a texture is broken into pages, each page is given
+an entry in the directory. Initially the data is only located at the
+data pointer, and dirty bit and valid bits are false because the
+system is demand driven and no pages have been requested
+by any GPUs.
+
+3.3. Address spaces
+The global memory system is transparent to the programmer,
+because texture data is accessed by binding a texture ID and
+providing texture coordinates. There is one subtle difference
+from a single GPU system: texture IDs are globally visible
+and can be bound in any GPU command stream. In order to
+
+Figure 3: The global view of memory in the system.
+
+create this system, there are multiple address spaces describing the location of texture data.
+
+r
+r
+
+r
+r
+
+r
+
+Local Texture Space - Addresses texture data using s
+and t coordinates. This is the only address space that the
+programmer can see.
+Local-to-Texture Page Address - The local page address
+starts at zero (as in Figure 4b), and is used as an intermediate value used to obtain the global page address. This
+address is constructed using local texture space coordinates and the width of the texture.
+Global Page Address - Every page has a globally unique
+page address. Each address has an entry in the directory.
+Physical Page Address - This is the location of the page
+in a physical memory texture. Since a page can reside on
+multiple GPUs simultaneously, a given page could map
+to multiple physical addresses.
+Texel Address - This is the location of a texel in the
+physical memory. It is calculated by adding the texel’s
+offset to the physical address of the page it resides in.
+
+In order to retrieve the final address of a texel, we must first
+determine which page in the texture it resides in (local-totexture page address). This requires the texture coordinates,
+page size, and width of the original texture to be passed to the
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+137
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+Directory Entry
+
+0x0C 0x0D 0x0E 0x0F
+// Global Address
+page_num = 0x07 + texture_offset;
+
+0x08 0x09 0x0A 0x0B
+
+// Dirty bit
+dirty = false;
+
+0x04 0x05 0x06 0x07
+
+// Valid bits for each GPU
+valid[num_gpus] = false;
+
+0x00 0x01 0x02 0x03
+
+a)
+
+//Pointer to data in CPU memory
+*data;
+
+b)
+
+c)
+
+Figure 4: Texture load procedure. (a) Original texture (b) Texture broken into pages (c) Directory entry for a given page.
+fragment program. The equation below shows how the page
+address is calculated.
+Local To Texture Page Address =
+
+S
+PageSize
+
+Finally, we take the retrieved physical address and add the
+texel offset to it. The generated texel address is used to do a
+texture look up in the physical memory texture.
+Texel Address = Physical Address + Texel Offset
+(6)
+
+T
++
+PageSize
+
+·
+
+Texture Width
+PageSize
+
+(1)
+Final Texel Value =
+Physical Memory Texture[Texel Address]
+
+While determining which page the texel resides in, we
+must also determine the offset of that texel in the page. Since
+pages are two-dimensional, we must record both the x and y
+coordinates.
+Texel Offsetx = S mod Page Size
+
+(2)
+
+Texel Offset y = T mod PageSize
+
+(7)
+
+The complete texel lookup procedure will require both the
+physical memory and page table textures to be bound to the
+fragment program, as well as the texture offset, page size, and
+texture width constants. This texel lookup procedure complicates texture filters such as mipmaps. We discuss this limitation in more detail in Section 5.2.2
+
+(3)
+3.4. Read procedure
+
+In order to do a page table look up, we need the global
+address of the page. Since each texture occupies a certain
+range of the global address space, each texture has a page
+offset in global memory. Each texture ID maps to a page
+offset that must be passed into the fragment program. This
+offset, plus the local-to-texture page address, is the global
+address of the page. This address then allows the GPU to
+look up the page table entry for the page.
+Global Page Address = Local ToTexture Page Address
++Texture Page Offset
+
+(4)
+
+Now, assuming that the given page is local to the GPU, we
+are able to obtain the physical address of the page by querying
+the page table. The physical address is the x, y coordinate of
+the lower left hand corner of the page in physical memory.
+Physical Address = Page Table[Global Page Address]
+(5)
+
+Armed with the page-table abstraction for texture data, we
+now show how a texture read is supported in our system. The
+challenge in supporting a read is that any texture read may
+result in many page requests, some of which may be resident
+on the local GPU, but some of which may only be resident in
+the directory or on a remote GPU. Because we do not know
+a priori which texture data is needed for a given texture call,
+and because the GPU exposes no capability to page in texture
+data in the middle of a pass, we divide a texture read call into
+two passes, requesting the necessary non-resident data from
+the directory between the passes.
+Consider a fragment program that contains a texture read.
+We divide this fragment program into two separate partial
+fragment programs and run them as two passes on the GPU.
+On the first pass, we compute all calculations up to the texture
+access. Instead of requesting the texture data at this point,
+we instead calculate the address of the global page the data
+resides in and retrieve the physical memory ID from the page
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+138
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+Original Fragment Program
+float4 main(float2 texcoord: TEXCOORD0,
+uniform samplerRECT texture)
+{
+...
+float4 data = texRECT(texcoord,texture);
+....
+}
+
+Fragment Program 1 (Pass 1)
+• Determine if data at texcoord is
+resident to texture memory
+• If not resident, render global page
+number to request buffer
+CPU Request Handler
+• Read back request buffer
+• Process requests and transfer
+data to GPU texture memory
+• Update page table
+Fragment Program 2 (Pass 2)
+•Dependent texture read
+page table -> physical memory
+
+Figure 5: Fragment program factorization.
+table to determine if the texel is resident. Any texel request
+that is not resident must then retrieve its texture page from
+the directory or a remote GPU, so we must create a request
+for the non-resident page. The result of this pass is a buffer of
+required texture pages; these requests are all non-exclusive,
+because these pages are read-only. We read that buffer back
+to the CPU.
+
+3.5. Write procedure
+
+When the CPU receives the list of global addresses, it looks
+up the location of those pages from the directory and sends
+a request to the remote GPUs for each page that is dirty on a
+remote GPU. The remote GPU then renders the desired pages
+into a texture and supplies the resulting texture to the local
+node. Then the local CPU copies this data into the directory,
+renders the pages into the local GPU’s texture memory, and
+updates the GPU’s page table.
+
+The write procedure is similar to the read procedure; we
+retrieve all requested texture pages from the directory and
+remote GPUs. Unlike the read procedure, however, we plan
+to write to some of these pages. Thus we mark any write
+requests as exclusive. In servicing an exclusive request, the
+most up-to-date copy of a page is loaded on to the requesting
+GPU and any copies on remote GPUs are invalidated. The
+most up-to-date copy must be loaded to the GPU, because the
+write may not modify all texels in the page. Page invalidation
+is accomplished by setting the dirty bits and clearing the
+presence bits in the directory, while updating the page table
+entries on the remote GPUs to indicate their data is no longer
+valid. On the local GPU, we also create a write mask texture
+that indicates which texels will be updated by the write.
+
+At this point all necessary texture data is resident on the
+local GPU, and we can begin the second pass. The partial
+fragment program in this pass begins where the last one left
+off, by requesting texel data, which is now wholly resident
+on the GPU. Internally, texture references become indirect
+lookups of texture data via the page table. The factorization
+of a fragment program into these two passes is outlined in
+Figure 5.
+When rendering an image, it is highly likely that pixels
+that are near to each other in image space will map to texels
+from the same page. This means that the intermediate buffer
+that is read back to the CPU will be highly redundant with
+many requests for the same texture page. CPU readback is
+one of the slowest operations for a graphics application, and
+it is important to limit how much data is read back from the
+GPU. Currently, we implement a compaction algorithm that
+removes pixels that do not make a page request. Though this
+reduces the amount of data read back, the proper primitive is
+uniquify. A uniquify operation would reduce the temporary
+buffer to a set of unique pixel values to be read back. We
+have determined that current GPU uniquify implementations
+do not always increase the performance of readbacks, so we
+do not use uniquify when measuring results in Section 4.2.
+
+Writes to texture memory, as in a render-to-texture call, are
+more complex but use a similar factorization. Writes require
+three passes, and one of the primary difficulties is that a
+write operation might write to some texels in a page but not
+change other texels.
+
+At the end of the first pass, all relevant texture pages to be
+read are local to our GPU. On the second pass, we write the
+computed write data into a buffer the size of the computation
+domain, generate the write mask, and request exclusive access to the pages that have been touched. On the third pass,
+we write back into the texture pages addressed by the page
+table, using the value of the write mask at each texel to select
+between the old value and the new value.
+
+3.6. Programmer’s view
+The ultimate goal of our system is to make scalable multiGPU support transparent to the programmer. We could expose the necessary support in two ways. First, graphics calls
+could be intercepted and modified to allow the program to
+run on multiple GPUs. This could be implemented in a lowlevel driver or graphics library without any change to existing
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+139
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+Fragment Program Factorization The major change to
+GPU code necessary for read and write operations is to factor the fragment program, splitting at texture accesses. This
+process is outlined in Figure 5. Each level of indirect texture
+lookup incurs an additional pass, though all texture accesses
+at any level of indirection can be satisfied on the same pass
+up to the output limit of the GPU. Currently, we perform this
+transformation manually, but it could easily be automated.
+Intermediate data in a partitioned program could be stored
+in local textures; systems that solve the multipass partition
+problem (MPP) [CNS∗ 02] all perform a similar operation.
+Partitioning Applications may choose a work division that
+uses image space or data space partitioning. Splitting the
+output image between multiple GPUs requires changing the
+viewport and perspective calls to support rendering only part
+of the final image. There are well-known methods to accomplish this without creating visual artifacts or distortions
+[BM00]. It is up to the programmer to design the work partitioning across GPUs. In data space partitioning there is no
+need for the programmer to partition the data by hand. This
+is because the system splits textures into pages automatically
+and distributes them on demand. If there was a performance
+benefit, it would be straightforward to expose preallocation
+to the programmer.
+Independent GPU Operation In the case where the programmer wants to use each GPU independently with separate command streams, each GPU must be exposed to the
+programmer. This is achieved in our system by allowing
+each GPU to have a different display callback bound to it.
+Synchronization is left up to the programmer via application
+synchronization primitives. This functionality is more similar
+to the second method of exposing multi-GPU functionality.
+Though this exposes some of the multi-GPU environment to
+the programmer, the memory system is still transparent. We
+feel that the exposure of this functionality makes our system
+more versatile.
+This architecture is orthogonal to a cluster- and streambased system such as Chromium, which primarily manages
+the ‘top-to-bottom’ application-to-display flow. Instead, we
+
+command
+
+reply
+
+CPU
+Thread
+
+Event
+Handler
+
+GPU
+Threads
+
+command
+
+OpenGL
+Thread
+
+command
+
+Our system is most similar to the first alternative. We currently take a stream of OpenGL calls from an unmodified application and transform it into a multi-GPU program. The programmer must currently make three specific manual changes
+to the input stream of OpenGL calls. We believe that these
+changes are straightforward to automate.
+
+Windowing
+System Event Loop
+
+reply
+
+applications. A second implementation would be to create a
+new set of multi-GPU API calls to replace current pixel and
+texture operations. This would essentially provide a DSMsupported multi-GPU programming environment. Programs
+would have to be written using this new API to take advantage
+of multiple GPUs. Though these methods provide different
+interfaces to the programmer, they both depend on the same
+low-level mechanisms.
+
+Memory
+Manager
+
+Figure 6: Multi-GPU threading system, showing the communication paths between each of the threads.
+provide ‘side-to-side’ communication, allowing one global
+address space for textures across all GPUs.
+3.7. Threading system
+One of the most challenging aspects of implementing our
+system was a design that avoids deadlock (Figure 6). A simple
+example will illustrate the problem: consider two GPUs, each
+of which is performing a texture read for which some of the
+texture is on the other GPU. If implemented incorrectly, the
+first GPU could be stalled waiting for data from the second
+GPU at the same time the second GPU is waiting for data
+from the first.
+Our solution has three threads per GPU and one thread per
+CPU. For each GPU, we have a thread that captures events
+(the ‘event loop’), a thread that handles these events (the
+‘event handler’), and a thread that manages the graphics system (the ‘OpenGL thread’). Each CPU contains a piece of the
+distributed memory directory, which is controlled by a ‘memory manager’. Each thread operates on commands placed in
+its command queue, and will wait for replies to commands it
+issues to other threads. These queues allow commands from
+multiple sources to be issued to the thread. Replies to commands will contain data, or, to ensure proper synchronization,
+an acknowledgment that a procedure has finished. To ensure
+that these replies are not stalled behind other commands to
+the thread (a situation causing deadlock), a reply queue is
+added to threads that issue commands that require replies.
+A threading system is necessary because we wish to support nodes with multiple GPUs installed. To take advantage
+of such a system, there must be multiple graphics contexts
+operating simultaneously. When creating a graphics context
+it must be made current (bound) to a specific execution thread
+in order to operate. If we did not use multiple threads, there
+would be significant overhead in making the context of each
+GPU current to the execution thread. Also, in the single
+threaded case, we do not take advantage of the operating system’s scheduler and thread switching to multiplex the threads.
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+140
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+We now describe the role of each of the threads in the
+overall system.
+Windowing System Event Loop We begin with the event
+loop, which receives all events generated by the windowing
+system. These events range from refreshing and resizing the
+window to user input such as mouse clicks and keystrokes.
+We require one event loop per GPU, and events detected
+by this thread are placed in the event handler’s command
+queue.
+Event Handler The event handler processes commands from
+its command queue, which come from either the event loop
+or from the event handler itself. All user defined callbacks
+(display, mouse, keyboard, etc.) are registered with the event
+handler. It is also the source of all rendering commands sent
+to the graphics hardware, initiating each GPU pass by packaging the proper callback, fragment program, and ancillary
+GL calls into a command to send to the OpenGL thread.
+Each command constitutes one ‘pass’, and the event handler
+is in charge of managing the ordering of passes. These passes
+are parts of read or write procedures (see Section 3.4–3.5),
+or executing pure OpenGL commands. The event handler
+also must submit requests for remote data to the memory
+manager.
+OpenGL Thread The OpenGL thread communicates with
+the graphics hardware and only has a single input queue
+of commands. It also is the only thread with access to the
+OpenGL context. The OpenGL thread receives commands
+from both the memory manager and the event handler. These
+commands were designed in such a way that they never cause
+the OpenGL thread to block: each command can always be
+executed to completion once it arrives in the OpenGL thread’s
+command queue. It receives local read, write, and graphics
+commands from the event handler and remote read and invalidate memory operations from the memory manager.
+Memory Manager The memory manager provides the interface between the GPU and the rest of the system. It implements one node of the distributed shared-memory directory
+and communicates with remote nodes to send and receive
+data. It receives requests from the event handler and sends
+remote read and invalidate commands to the OpenGL thread
+as well as replies to the event handler.
+
+3.8. Deadlock avoidance
+As described by Simoni, the cache controller cannot stall and
+wait to process a memory request from another cache until
+after it has received a reply to a memory request of its own
+[Sim90]. In the context of our system, GPU texture memory is
+our cache, and the graphics context is our interface to access
+that cache. This means that the graphics context cannot block
+waiting for a reply, so that is why we design the OpenGL
+thread to accept commands that never block and can always
+execute to completion.
+
+In a multithreaded system, a cycle of thread dependencies
+may result in deadlock. Our system must stay deadlock-free
+and at the same time ensure memory consistency. In our system, the event handler can block waiting for replies from either the OpenGL thread or the memory manager; the memory
+manager will only block waiting for replies from the OpenGL
+thread; and the OpenGL thread never blocks. The lack of a
+possible cycle in these dependencies ensures that deadlock
+will not occur.
+One subtle case where consistency and deadlock issues
+arise is when multiple GPUs wish to update the same page.
+Consider a case where the memory manager receives two
+exclusive requests: one from GPU0 and one from GPU1.
+Assuming the request from GPU0 arrives first, a valid copy
+of the page is loaded onto GPU0 and GPU1’s copy will be
+invalidated. At this point the memory manager tells the event
+handler in charge of GPU0 that it is okay to proceed. Next,
+the second exclusive request is processed and the memory
+manager attempts to send the most up-to-date copy of the
+page to GPU1. A problem could arise if the first event handler
+and GPU0 have not fully completed the first write procedure
+before this data request arrives at the head GPU0’s OpenGL
+thread command queue. In this case, the previously valid,
+but not yet written to, page is returned. In order to avoid this
+situation, when replying to any memory request (exclusive
+or non-exclusive), the memory manager sets a memory lock
+on the requesting event handler. If any requests to invalidate
+or read memory on this GPU are generated by subsequent
+commands to the memory manager, they stall until the lock is
+released. Once the event handler has finished the read or write
+procedure, it releases the memory lock. There is no worry of
+deadlock in this case because the event handler always runs to
+completion to release the lock and never generates a request
+to the memory manager while its memory is locked. When
+this subtle case does arise, performance is degraded due to
+the extra stalls incurred by the locks.
+4. Evaluation studies
+Our evaluation system has dual 2.0 GHz AMD Opteron processors with 4 GB of RAM and dual NVIDIA GeForce 7800
+GTXs over PCI-Express busses running driver version 1.09623 and Cg version 1.5 (23 May 2006). Our operating system is Red Hat Linux Fedora Core 4.
+Though this system is a small one, it successfully exposes the interesting and relevant issues for graphics hardware, and we have designed our system with scalable
+systems in mind. Larger multi-node systems would primarily
+exercise CPU scalability, which is already well-understood
+[LLG∗ 90,Sim90]. The mechanisms we study here are applicable to any size of a multi-node system.
+We are interested in evaluating our system for both memory usage and performance. Applications can have significant variation in their memory usage patterns, and the system
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+Table 1: Number of texels read and pass requirements for each render-to-texture pass of the boiling
+simulation
+
+Pass
+Border
+Diffusion
+Buoyancy
+Latent heat
+
+1
+
+Texels read
+
+Passes required
+
+1
+5
+3
+9
+
+1
+2
+1
+3
+
+2
+
+3
+
+4
+
+Figure 7: Texture read patterns for boiling simulation.
+
+configuration can have a large impact on how the memory is
+distributed. The system configuration and memory distribution also affect performance. Since our goal is supporting
+any GPU-based application; to test it, we study two representative applications in detail. The first is a GPGPU boiling
+simulation; the second is a trace from a first-person shooter
+video game.
+4.1. Applications
+4.1.1. GPGPU—Boiling simulation
+Our multi-GPU implementation of Harris et al.’s boiling simulation [HCSL02] applies a set of simple equations to a 2D
+input array containing heat data. At a resolution of 512 × 512,
+with each GPU rendering 512 × 256, the simulation runs at
+2.54 frames per second with our 2-GPU system. A screen
+shot of a typical frame can be seen in Figure 4a. To produce a
+single frame, the application requires four render-to-texture
+passes followed by one read pass. Each render-to-texture pass
+reads a maximum of nine texels to generate a final value.
+Our hardware only allows four outputs from a fragment program. Therefore, in order to check what texel data is needed
+for the render-to-texture, multiple passes are required (this
+is first pass of the write procedure, see Section 3.5 and 3.6).
+Table 1 outlines the four write procedures and their texel read
+and pass requirements.
+The boiling application has memory access patterns describable as Glift single and neighbor iterators [LKS∗ 06].
+Figure 7 depicts each of these texture read patterns. The texels in grey are read and used to calculate the value of the pixel
+rendered to texture. The first pass, border, simply writes a border to the top and bottom of the input texture. This is simply a
+single iterator and is access pattern 1. Next, the diffusion pass
+
+141
+
+calculates a diffusion coefficient using the value of the input
+texture at the current location and its four neighbors using
+access pattern 3. Next, the buoyancy pass is only interested
+in computing vertical movement and reads the output of the
+diffusion pass using access pattern 2. Finally, the latent heat
+pass reads both the input texture and the buoyancy texture. It
+uses access pattern 4 on the input texture and 3 on the buoyancy texture. The final step is a read pass that displays the
+output texture from the latent heat pass on the screen. This
+texture will also become the input texture for the next frame.
+Dividing this application across multiple GPUs requires
+partitioning the computational space and allowing each GPU
+to operate on a subsection of the heat data. Each GPU will
+operate on one half of each generated texture (input, diffusion, buoyancy and latent heat). Since each generated pixel
+needs to access the texture values of its neighbours, on every
+frame, each GPU will need remote data that is outside of its
+computational domain. Any data along the partition will need
+to be shared between GPUs. Since we have chosen the page
+as our fundamental unit of memory, GPUs sharing a partition boundary must have shared copies of the pages along the
+boundary.
+The data partitioning in this application is done on demand.
+At launch, both GPUs have no data stored in texture memory.
+As the application progresses, texture requests are made and
+the requested pages are sent to the GPUs.
+We believe this application is representative of GPGPU
+applications. It has heavy reliance on render-to-texture operations and uses iterator access patterns. The fact that the work
+division we choose will require a lot of inter-GPU communication means that our system will be stressed by running this
+application.
+
+4.1.2. Standard graphics—Game trace
+For a standard graphics application, we choose a 500-frame
+trace of the ‘GLQuake’ demo from id Software, captured with
+GLIntercept. This trace uses 135 RGBA8 textures, ranging
+in size from 8 × 8 texels to 512 × 256 texels. At 1024 × 768
+resolution, with each GPU rendering 512 × 768, it runs at
+20 frames per second on our 2-GPU system.
+To divide this application across multiple GPUs, we partition the output image. One half of the scene will be rendered
+on each GPU. The projection and viewport commands are
+modified to display the proper image [BM00]. Textures must
+be shared on demand as each frame in the trace will have
+different texture requirements.
+Though GLQuake is an old game, we feel that it is representative of standard interactive graphics applications. It
+does not use advanced rendering techniques that newer games
+have, but the texture access patterns should be similar. Our
+interest in this application is to investigate frame to frame
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+142
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+The memory footprint required by an application can have
+a large impact on the efficiency of the memory system. From
+a memory system perspective, the only parameters we can
+manipulate to change the memory footprint are the size of
+texture memory and the size of the pages stored in texture
+memory. Since texture memory is normally static on a given
+GPU, and only limits the memory footprint in terms of capacity, we ignore this factor.
+Choosing the proper page size is important to minimize
+the amount of unneeded data while maximizing data transfer
+efficiency. In a multi-GPU system, each page will either be
+unused, stored on one GPU or stored on multiple GPUs. If the
+memory system uses a directory that limits how many shared
+copies of a page are allowed or if the application writes to
+texture memory, shared pages become a contended resource.
+Ideally, all GPUs would have their own working data set and
+a minimum amount of shared data. Figure 8 shows the memory footprint of the boiling simulation for different page sizes.
+Small page sizes result in very little shared data, but, as seen
+in Figure 9, also result in a larger amount of page requests
+and hence a lot of communications overhead to service the
+requests. When moving to larger sized pages, the communications overhead goes down, but the amount of data transferred
+increases, as seen in Figure 10. Also, all the data residing in
+the page may not be needed.
+The total data in the system increases with larger pages
+because some of the textures used in the boiling application are long and skinny. Textures with aspect ratios different
+than the page aspect ratios will have some amount of wasted
+space, and as the page size becomes larger this wasted space
+becomes larger. The only solution to this would be to pack
+textures into pages, but this will have addressing problems.
+The final texel address would not simply be the page’s physical address plus the texel offset (see Section 3.3), but rather a
+complicated equation that would require more parameters to
+be sent to the shader program and more calculations to occur
+to translate the local texture space address.
+
+shared
+GPU 0
+
+20
+
+GPU 1
+total
+
+10
+
+0
+1.
+0
+2.
+0
+4.
+0
+8.
+0
+16
+.0
+32
+.0
+64
+.
+12 0
+8.
+25 0
+6.
+51 0
+2.
+0
+
+Due to the fact that our memory system is implemented at
+the software API level and not at the driver or hardware level,
+we do not see significant performance improvements in the
+applications we implemented, and in fact see performance
+degradation compared to the single-GPU case. Our main performance limitation is slow data data transfers: to and from
+single GPUs and between multiple GPUs. This does not mean
+we can not draw some interesting conclusions. Our applications run at a reasonable speed that allows for some performance measurements, and we can also observe memory
+usage patterns. We now analyze three results in more detail:
+memory usage, page size and performance.
+
+Page Width (texels)
+Figure 8: As pages become larger, the amount of texture
+data that is unique to only one GPU (GPU 0 or GPU 1) decreases, while the amount of memory on both GPUs (shared)
+increases. ‘total’ indicates the total amount of texture data
+loaded (the amount of data stored in the CPU directory).
+Data from the boiling simulation at 1024 × 1024.
+
+Requests per Frame
+
+4.2. Analysis of results
+
+Memory Usage (MB)
+
+coherency and memory traffic patterns created by this genre
+of application.
+
+1000
+
+500
+
+0
+1
+
+10
+
+100
+
+1000
+
+Page Width (texels)
+Figure 9: Read requests per frame as a function of page size
+for the boiling simulation at 512 × 512 using two GPUs.
+Read requests include standard read requests, and exclusive
+requests for non-resident pages.
+
+Figure 8 shows us that page size has a large impact on the
+memory footprint our application will have. The measurements show that large page sizes are definitely a bad choice,
+but it is unclear as to how small we should make our pages.
+With smaller pages incurring large communications overhead
+and larger pages having large data transfer costs, there must
+be an optimal page size. The problem is that every application
+has its own memory usage pattern, and, therefore, a page size
+tuned for a specific application may not be the correct size for
+all applications. The results presented here apply directly to
+our software implementation. Since we are not using a GPU
+simulator, the optimal page sizes and performance reported
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+143
+
+Texels Transferred (Millions)
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+Table 2: Measured frames per second for the 512 ×
+512 boiling simulation with 64 × 64-pixel pages.
+
+4
+
+Our System
+
+2
+
+Single-GPU
+3.48
+
+0
+1
+
+10
+
+100
+
+1000
+
+Page Width (texels)
+Figure 10: Total data transferred per frame to both GPUs
+per frame as a function of page size for the boiling simulation
+at 512 × 512 using two GPUs. Data is transferred during a
+standard read request or during an exclusive request for a
+non-resident page. The steps occur when the page size evenly
+divides the vertical resolution. This decreases the amount of
+data transferred because the page will not span the partition
+and only one GPU will request write access to the page.
+
+Frames per Second
+
+3
+
+Original
+
+Dual-GPU
+
+Single-GPU
+
+2.54
+
+362.74
+
+Table 3: Boiling simulation at 512 × 512 with
+64 × 64-pixel pages in dual-GPU configuration,
+showing the aggregate percentage of time spent
+in each pass of the write procedure for the four
+render-to-texture passes. Stages with (R) require
+one or more stream-compacted screen readbacks.
+
+Stage
+Page read request pass (R)
+Read request uniquify
+Non-exclusive page request handling
+Page write request pass (R)
+Write request uniquify
+Exclusive page request handling
+Page writes
+Display (R)
+
+%
+41.82
+0.01
+19.62
+17.92
+9.10
+10.75
+0.74
+28.91
+
+occur, causing a decrease in performance. For the boiling application, the optimal point of operation is pages with widths
+somewhere between 32 and 64. In this range, the effects of
+thrashing cause minimal performance degradation.
+
+2
+
+1
+1
+
+10
+
+100
+
+1000
+
+Page Width (texels)
+Figure 11: Frames per second for the boiling simulation at
+512 × 512 using two GPUs as a function of page size. We
+see that the maximum performance corresponds to a page
+width of an intermediate size; small pages incur per-page
+overheads, while large pages incur more transfer costs.
+
+here may not reflect the performance of a true hardware implementation.
+Figure 11 shows our system’s performance when using
+different page sizes on the boiling simulation. As predicted,
+smaller pages incur performance hits due to increased communications overhead. The overhead of transferring redundant data causes large page sizes to incur performance hits
+as well. The spikes around 128 and 256 pixels occur when
+pages line up such that page boundaries correspond to the
+partition boundary. If a page spans the partition, both GPUs
+will be writing to texels in the same page, and thrashing will
+
+Even though we expect our performance to be poor due
+to our software implementation, it is still important to analyze why our performance is so poor. Table 2 compares
+the original application to two different configurations of our
+system. In all cases our implementation is two orders of magnitude slower than the original implementation. We even see
+a degradation in performance by using two GPUs. The disparity between the single and dual GPU configurations can
+be attributed to the fact that, in the single GPU case, each
+page fault will only occur once. Once each page fault has
+happened, all required data is local to the GPU and no more
+transfers will occur.
+Though our single-GPU implementation outperforms the
+dual-GPU implementation, the difference is not that large
+(<30%). There must be more than just the transfer of data
+between the GPUs that is causing our performance problems.
+The boiling application consists of four write passes and one
+read pass. Table 3 breaks down these passes into their major
+components and shows what percent of frame time is spent in
+each stage. The major contributors to frame time are the page
+read and write request passes. These passes determine which
+texels will be read and written to, and require a readback of a
+temporary buffer to the CPU. Though the display pass simply
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+Number of Page Requests
+
+Number of Page Requests
+
+144
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+5. Discussion
+
+GPU 1
+
+200
+
+The system we present here meets our functionality goals,
+but does not yet deliver efficient performance for several reasons, including vendor hardware support and software limitations in our system. These performance problems and system
+limitations lead us to discuss future hardware and software
+support that would be necessary for a performance oriented
+implementation. We also discuss the implications of some
+upcoming hardware and software to our work. Also, through
+future work, we believe we can increase the robustness of the
+system, and the scale of its implementation.
+
+100
+
+0
+GPU 0
+
+200
+
+5.1. Performance
+There are several inefficiencies and bottlenecks in our system
+that cause us to have poor performance.
+
+100
+
+5.1.1. CPU/GPU communication
+
+0
+0
+
+100
+
+200
+
+300
+
+400
+
+500
+
+Frame Number
+Figure 12: Number of texture page requests for 32 × 32
+pages over 500 frames of the GLQuake trace at 1024 × 768,
+measured on both GPUs. This data was generated by clearing
+the contents of GPU memory each frame.
+
+displays our results to the screen, the readback in the Read
+Procedure causes this pass to have significant costs as well.
+Reading data back to the CPU is a very expensive process,
+and it shows that this also hinders the performance of our
+application. The handling of exclusive and non-exclusive requests are a large factor in frame time, but due to the problems
+with readback they are not as significant of a factor.
+Though currently not the most significant factor in frame
+time, the handling of exclusive and non-exclusive requests
+can be a large bottleneck in our system. As memory traffic
+increases, the memory manager will quickly become a large
+bottleneck. For maximal efficiency, a high frame-to-frame
+coherence of textures minimizes memory traffic and increases
+performance. Fortunately, real applications typically exhibit
+such a coherence, as we show in Figure 13. Similarly, the
+boiling simulation has high frame coherence because any
+pages that are not on a partition border will never be needed on
+another GPU. We also note that the GLQuake trace has a large
+variation in the amount of texture pages needed each frame
+(Figure 12). Together, these results imply that the contents
+of individual texture memories in a multi-GPU system are
+likely to be substantially different, and that we will be able
+to scalably leverage the aggregate texture memory in such a
+system.
+
+One of the main bottlenecks in our system is processing read
+requests from fragment programs with more than one texture access. DirectX 9 hardware only supports up to four
+render targets, so each program must be separated into multiple passes, incurring the overhead of rerendering the scene
+for each pass, and incurring a full screen readback per pass
+per render target. More render targets would help to reduce
+the cost of rerendering the scene. The need for multiple render targets could be completely alleviated if faulting within
+shaders was allowed (this is discussed in Section 5.2).
+A second major bottleneck in the system is the readback
+of read and write requests. When reading back requests from
+the boiling application, every pixel writes to texture and thus
+makes an exclusive request. Currently we try to mitigate this
+cost by stream compacting the results. The proper primitive
+here is not stream compaction, because there are no pixels
+not requesting data, but instead uniquify, because of the substantial redundancy in the request stream. Today, however,
+implementing either compact or uniquify on the CPU or the
+GPU are expensive operations; better support on the GPU
+would significantly improve our performance.
+5.1.2. Toward full GPU utilization
+One of the major sources of inefficiency in our system is that
+the GPU is often idle. For instance, when the GPU requires
+remote texture data, it sends its requests to the memory manager on its host CPU and idles until that response is fulfilled.
+If data is remote, that request is inevitable, but the idle time
+is not.
+One possible solution is to overlap GPU computation and
+remote requests. Currently those two phases are serialized,
+because the GPU waits for the remote request. We can accomplish this by dividing work into multiple batches per frame
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+145
+
+Figure 13: Frames 151 and 156 from the GLQuake trace, split left/right across 2 GPUs. Before Frame 151, all texture pages
+(size 8 × 8) were randomly assigned to one of the two GPUs; white textures are requested pages. For this experiment, we have
+artificially limited all pages to reside on a GPU for only a single frame unless the page is used for consecutive frames. After five
+frames, most pages have successfully migrated to their local GPU, minimizing the number of required remote reads.
+and overlapping the first phase of batch n with remote texture
+requests for batch n + 1; other partitions, such as a screenspace subdivision with aggressive frustum culling, may be
+possible. Essentially, this approach threads the input application’s command stream to the graphics hardware in the same
+way that multiple threads can effectively cover high memory
+latencies in CPU systems.
+Microsoft has also addressed the problem of GPU utilization when dealing with page faults. WDDM version 2.1 supports preemptive multitasking at the pixel level. This will
+allow the GPU to context switch to other threads if a shader
+faults during a memory request. By switching to other threads
+the GPU can keep busy by executing shader instructions for
+other, non-faulting pixels.
+Another possible solution that is applicable to read-only
+remote texture memory in applications that can tolerate a
+temporary lack of image quality is to store all textures as
+mipmaps (subject to the discussion on mipmaps below) and to
+replicate the coarsest levels of the mipmaps across all GPUs.
+When the local GPU receives a request for a remote texture
+page, it immediately satisfies it from the coarse mipmap and
+at the same time requests it from the remote GPU for use in
+future frames.
+We do not currently optimize for the case when all textures are local. When this occurs, we can dynamically eliminate the need for intermediate CPU communication because
+no requests will be generated. This optimization could be
+implemented using occlusion queries. When rendering to a
+buffer to generate requests, all fragments not requesting a
+page can be killed and an occlusion query can be used to see
+if any fragments make it to the buffer.
+
+These limitations can be overcome with a combination of
+hardware and software support.
+
+5.2.1. One fragment per pixel
+One limitation of our system is that texel requests can only be
+generated by one fragment that contributes to a given pixel.
+An example that shows an operation that we cannot currently
+handle is blending; consider a rendering pass that blends two
+fragments, each requiring a remote texel read, at a single pixel
+location. In our system, this requires two passes (Section 3.4).
+The first pass must produce a remote texture page address for
+each of those two fragments, but those two addresses must be
+stored in a single pixel location as a single request. If blending
+is enabled, the two requests will be blended together, producing a single, erroneous request. If we disable blending, the
+rear fragment will be killed by the depth test. The fundamental problem is that an arbitrary number of fragments may
+contribute to any pixel, but we have no mechanism to store
+all fragments in a render target, only all pixels.
+We currently disable blending and only store the nearest
+fragment. We could implement depth peeling [Eve01] at the
+cost of one pass per layer. The proper solution would be
+hardware support of an F-buffer [HPS05], [MP01] to store
+the intermediate fragments, coupled with the ability to read
+those fragments back to the CPU. DirectX 12 is targeting
+order-independent transparency with possible hardware data
+structures, like the A-Buffer [Car84], that store multiple fragments per pixel; this sort of support also applies to the onefragment-per-pixel problem.
+
+5.2.2. Mipmapping
+5.2. Limitations in our system
+Our system has several limitations imposed both by our implementation of the system and by current graphics hardware.
+
+Modern graphics hardware filters textures through the
+mipmap [Wil83], a precomputed pyramid of prefiltered textures; each mipmapped texture read fetches and blends eight
+texels. The mipmapping hardware is not exposed to the GPU
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+146
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+programmer, however: the fragment program’s interface to
+the texturing system is limited to sending a single address
+and returning a single (filtered) texture value. We cannot enable standard mipmapping in our system because sampling
+across page boundaries in a physical memory texture would
+cause visual artifacts.
+
+be to allow textures to be bound on the fly from within a
+fragment program. This would create almost infinite space
+for physical memories and alleviate the need for a set of conditionals within the fragment program to determine which
+physical memory the page resides in.
+
+We do not currently support mipmapping in our system. It would be straightforward to manually decompose all
+mipmapped texture requests into eight separate accesses, then
+perform the filtering in the kernel; such a strategy would incur a significant performance penalty over using hardware
+mipmapping, however. A second approach would be to add
+a border to each page, and to have a mipmapped page table where each page and all lower levels of the mipmap are
+stored in the same location. The border would allow bilinear
+filtering to occur on each mip level, but it would complicate
+addressing. Also, it would complicate consistency assurance
+because the texels in the border would be located in multiple
+pages. The best long-term solution would be exposing filtering to the programmer within the fragment program. This
+way, the eight lookups could come from multiple pages and
+still take advantage of hardware acceleration.
+
+5.3. Implications for graphics hardware
+
+5.2.3. Flow control in fragment programs
+Because we partition fragment programs into multiple passes,
+we also do not properly support flow control (conditionals and
+complex loops) in fragment programs. Partitioning in the face
+of flow control is a known hard problem; most solutions to
+the multipass partitioning problem assume a directed acyclic
+graph (DAG) as the input and are not suited to partition fragment programs with flow control. An instruction scheduling
+approach to the multi-pass partitioning problem [RLV∗ 04]
+offers a starting point for a possible solution.
+
+5.2.4. Texture binding limit
+Our current implementation creates extra physical memory
+textures as more texture data needs to be stored on the GPU.
+Current shader models require all needed textures to be bound
+prior to rendering a polygon. This means that in the final
+render pass, the page table plus all physical memories must be
+bound to the fragment shader. In a system with a lot of texture
+data, the number of textures bound to a fragment program can
+hit hardware limits quickly. Current hardware only supports
+up to 16 textures to be bound to a fragment shader. In order
+to select the proper texture, a set of conditionals is required
+to pick the correct physical memory texture to read from.
+DirectX 10 supports an arrayed texture construct [Bly06].
+This construct allows up to 512 textures to be combined together in one object. A texture look up requires a texture
+coordinate and an array index. This is a significant increase
+over 16 and will decrease the amount of conditionals, but it
+still is a hard limit. A better solution to this problem would
+
+Though the page tables we use are reasonably efficient, it is
+highly likely that the GPU features hardware-supported page
+tables (that map texture IDs to texture addresses, for instance,
+or support demand paging) that would deliver higher performance. Exposing these hardware page tables to the programmer, and generalizing their functionality, would lead to better
+performance in our system, permit better memory management in graphics and GPGPU applications, and allow data
+structures with superior performance.
+One step in the right direction is DirectX 10 and WDDM
+[PMK06]. WDDM 1 supports the virtualization of textures
+and render targets on per surface basis, and WDDM 2 will
+support virtualization at the granularity of pages. WDDM
+2.1 will allow faults to occur within shaders and suspend the
+execution of a context until faults are serviced. Multi-GPU
+configurations are allowed, but the memory model only supports mirroring the memory in the GPUs or an instanced setup
+where individual GPUs can allocate memory independently
+but cannot access each other’s memory. In the instanced mode
+each GPU should be able to generate its own faults to be serviced by the CPU.
+We believe that the paging infrastructure created by
+WDDM could be leveraged to distribute texture memory over
+multiple GPUs. The system as it stands could be used in place
+of the page table model presented in Section 3. By allowing the programmer access to texture pages and the ability to
+override the page fault handlers, consistency mechanisms and
+a directory for multiple GPUs could be implemented using
+WDDM.
+On the software side, making Cg thread-safe would eliminate the need for protecting each Cg call with a lock and thus
+increase overall software performance.
+
+5.4. Future work
+Above, we discussed the benefit of hardware support for the
+F-buffer, for more render targets, and for exposing filtering in
+fragment programs. Stream compaction would benefit from
+either hardware support of the parallel scan primitive or hardware support for efficient reductions; uniquify requires an efficient sort. Another primitive that could substantially impact
+our implementation is scatter. Current AMD and NVIDIA
+hardware support generalized scatter, but our system was implemented before this primitive was available. If we migrated
+the system to use scatter it would allow us to reduce the
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+amount of temporary data required for the write procedure
+(Section 3.5). It would allow us to write directly to pages
+without an extra render pass to copy data from a temporary
+buffer and would also alleviate the need for a write mask
+texture. As discussed in Section 4, our system does not have
+great performance, so it is unknown how much performance
+benefit it would see from scatter.
+There are several other performance and functional improvements that could be added to the system, and we describe them in the remainder of this section.
+
+5.4.1. Eviction strategies
+Currently, there are no eviction policies for pages loaded into
+GPU physical memory. In a standard cache, blocks can be
+evicted due to capacity and conflict misses. Our implementation does not have conflict misses because the physical memory textures are essentially fully associative caches. There
+are also no capacity misses because new physical memories are created on the fly as new pages need to be loaded
+to the GPU. This means that eventually we will run out of
+GPU texture memory. Though it would be nice to implement a standard cache structure, there are factors imposed
+by our implementation and the GPU pipeline that disallow
+this.
+If our physical memory acted like an n-way associative
+cache, evicting pages due to conflict misses and using a
+scheme for capacity misses, such as least recently used, problems would arise. Currently, our system only requests pages
+that are not valid in physical memory and are deemed needed.
+This means that there may be pages that are already resident in
+texture memory that will be necessary to generate the frame.
+If, when we load the requested pages, we evict pages that
+were not requested, we could be evicting pages that were
+needed by the frame. This means that we must have some
+knowledge of all data used in every frame.
+A simple solution would be to request every page required
+by the frame regardless of whether or not it is valid in GPU
+memory. This will increase the amount of data needed to be
+read back to the CPU. Once all the pages have been received
+by the memory manager, it can proceed to upload only the
+pages that are not valid. If memory limitations are hit, it
+can then evict pages that do not exist in the list of needed
+pages. There is no guarantee that the amount of texture data
+needed for a frame will fit into the given physical memories,
+so additional physical memory textures will still need to be
+able to be generated.
+The primary problem is that we are working at the granularity of frames. We can only determine data dependencies
+for a single frame, which is a batch of requests from all fragments that are generated. An ideal implementation would be
+at the hardware level. If we could work at a fragment granularity, then evicting data would not cause inconsistencies,
+
+147
+
+because if another pixel needed evicted data it could request
+it. We discuss this in Section 5.3.
+
+5.4.2. Moving to a clustered environment
+One goal of this work was to allow scalability to multiple nodes, each having one or more GPUs installed.
+Though multi-node configurations are not currently supported, the system was designed to make the move to multinode systems as easy as possible. The main changes to
+the system are splitting the directory, slightly modifying
+the threading model, and adding some extra communication
+pathways.
+In order to distribute the system over many nodes, the directory must be split. This can be done in a similar fashion
+to the directory architecture for shared memory (DASH) machine [LLG∗ 92]. In terms of our system, each node will have
+its own memory manager which is in charge of a certain subset of the global address space. The memory managed by
+each node’s directory will be accessible to any GPU on any
+node in the system. This has the side effect that certain data
+distributions will incur bad performance. If many GPUs wish
+to access memory from the same node in rapid succession,
+the directory on that node will quickly become a bottleneck.
+When moving to a multi-node environment, where data
+accesses on remote nodes can incur high latency, some aspects of the memory system may need to be exposed to the
+programmer. In particular, the memory location to which the
+data is loaded to can be a large factor in the performance of a
+system, and should be configurable by the programmer. If this
+is not a viable solution, tuning mechanisms should be available that will test memory access patterns of an application
+and determine a favorable data distribution.
+Currently, the event handlers in our threading model will
+batch all texture requests for a single frame into one command that will be submitted to a single memory manager.
+When moving to a cluster, the event handlers must be able to
+submit these requests to any memory manager in the system.
+In order to support this functionality, two major changes to
+the event handler are required. First, the event handler must
+be able to receive a batch of requests from the GPU and determine which memory manager holds the directory entry for
+each page. This will allow the event handler to make several
+batches of requests, each intended for a different memory
+manager. Secondly, the event handler must be able to issue
+multiple memory requests and service their replies in any order. Once all replies have been received, it may proceed with
+the next pass. This will allow the event handler to simultaneously request all required pages from each memory manager
+in the system.
+Similar to the event handler, each memory manager in the
+system must be able to issue a command to any OpenGL
+thread in the system. Based upon the requests it receives
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+148
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+from the event handler, the memory manager will always
+know which OpenGL thread requires data.
+Thus far we have described the necessary communication pathways needed for migration to a multi-node environment, but not how they will be implemented. Our system
+is command driven, therefore it makes sense to use a message
+passing system for an underlying implementation. Earlier we
+stated that message passing was not a favourable solution to
+our system, but this was because it would leave too much
+in hands of the programmer. In a clustered implementation,
+the message passing components of our system would be
+transparent to the user. Using this transparent message passing system, memory managers and event handlers on each
+node will be able to package commands into a message and
+forward them to the proper threads on other nodes.
+
+5.4.3. Towards efficient memory usage
+In the current implementation of our system, GPU texture
+memory is treated as a cache to main memory. This obviously
+creates redundant data storage, as CPU memory has a copy of
+every page. A more efficient allocation scheme would allow
+GPU texture memory to be an extension of main memory,
+rather than a set of cached copies of pages.
+Technically, our system does not require each page to be
+mirrored in CPU memory. Currently, our system operates
+similar to a non-uniform memory architecture (NUMA), but
+it could be modified to operate like a cache-only memory
+architecture (COMA). A COMA is a multiprocessor memory
+system composed of only caches. When applying a COMA
+to our system, the only time when pages would need to be
+resident in CPU memory would be if GPU memory is full.
+Otherwise they would be cached on at least one GPU. By
+keeping a copy of the pages in main memory, it reduces the
+access time when a GPU requests a page. If a page is not
+dirty, it currently takes two transactions across the PCI-E
+bus: (1) GPU to CPU request and (2) CPU to GPU response.
+In the case where pages only reside in GPU memory, a page
+fault could take up to four transactions because GPUs cannot
+communicate directly with each other and require the CPU
+to service the requests and responses.
+One fundamental limitation to giving GPUs explicit control over their memory is that they cannot operate fully independently of the CPU. The CPU controls the GPU by sending it a stream of commands, so, even at the low level of
+the driver, the CPU is still managing memory for the GPU.
+Though WDDM requires GPUs to support virtual memory
+and fault when data they need is not local, this only gives the
+GPU a little more control over the global view of memory
+because the fault will just turn into a request that the CPU
+services.
+Though it would seem that giving GPUs explicit control of
+their memory would be beneficial, in a multi-GPU environ-
+
+ment there still must be a memory consistency mechanism
+that is common to all GPUs. Since current GPUs are managed
+by CPU-driven command streams, it only makes sense that
+the CPU should also manage memory consistency. Therefore, we should look to minimize the mirroring of data in the
+system.
+One way to minimize the amount of redundantly mirrored
+data would be to view the CPU as another consumer of pages.
+The CPU would still manage the directory, but instead of storing a copy of each page in the directory, the CPU would have
+a separate page table and corresponding physical memory to
+store some subset of the pages loaded into the system. The
+memory consistency model would still work with the directory to ensure consistency, but it would not always have a
+guaranteed copy of a page in CPU memory. Storage of pages
+in CPU memory cannot be totally eliminated because it is
+necessary to cover the case when a texture is loaded and will
+not fit into GPU texture memory. In this case, the texture can
+be loaded into the CPU physical memory to save it for future access by GPUs. Currently, the GPU is seen as a cache
+of texture memory, and if system memory is an overflow for
+GPU memory it would be acting like another level of caching
+hierarchy. This setup would move our system from a NUMA
+to a COMA architecture. A second usage of the CPU memory
+structure would be for instances when texture data is operated on by the CPU, such as a read-pixels or a read-texture
+command. This way the pages can be located in CPU space
+for access as well. Lastly, when implementing eviction strategies for GPU texture memory, the CPU memory would be the
+destination for evicted pages.
+The proposed system would increase the time for interGPU requests to be serviced. To alleviate this, the CPU memory could hold a copy of pages that are in high contention
+between multiple GPUs to allow for quicker access. Currently, the system has no notion of a high contention page,
+and support for identifying these pages must be added to the
+system. This is easily accomplished through counters and
+timers associated with thresholds. Any page marked as in
+high contention could be kept in system memory like a CPU
+L2 cache that holds copies of data in the L1 cache. A writethrough cache system would be necessary to keep the data in
+system memory up to date.
+6. Conclusion
+The system we have created supports a DSM abstraction for
+scalable, distributed texture memory over multiple GPUs.
+While our implementation has limitations in performance and
+generality, we feel that it makes significant contributions to
+multi-GPU computing.
+Mechanisms We have identified many mechanisms necessary to create a successful distributed texture memory system.
+Most importantly, a distributed memory system must define
+its consistency model. If a memory system does not have a
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+definable consistency model, the programmer will have no
+knowledge or guarantees of how the system will operate.
+With memory consistency in mind, we investigated the necessary data structures for both the GPU and CPU to support
+our memory system. Finally, by using these data structures
+within the constraints of the graphics pipeline, we were able
+to develop read and write procedures that allowed GPUs to
+access memory in a consistent and coherent fashion.
+Limitations Though our system successfully implements a
+distributed texture memory system, it is not without limitations. By approaching the problem at the software level we
+ran into many limitations that hindered both performance and
+functionality. Any memory hierarchy will need to efficiently
+handle faulting when accessing non-resident data. The fact
+that our system is crippled by reading this fault data back to
+the CPU shows how important it is to have an efficient faulting and handling scheme. Some improvements could be seen
+with an efficient implementation of the uniquify primitive,
+but it is also conceivable that the faulting functionality could
+be implemented at a lower level to achieve higher performance as well. There are also several functional limitations,
+such as the flow control, one fragment per pixel and texture
+binding limit problems that could easily be alleviated though
+advancements in graphics hardware.
+Threading System Any system wishing to leverage multiple GPUs connected to a single CPU will be required to implement some type of threading system to maximize the computing capabilities of the GPUs. Without threading, a system
+is limited to serially switching GPU contexts or broadcasting
+commands to all GPUs simultaneously. Both of these options have performance and scalability limitations. We have
+presented a threading system to avoid such limitations, and
+have gone to lengths to ensure that it that works within our
+consistency model while avoiding deadlock.
+The core contribution of this work is our identification
+of the mechanisms for supporting this abstraction together
+with the limitations that constrain its performance. Today,
+all signs point to increased virtualization of texture memory
+in future single-CPU-single-GPU graphics systems; we hope
+the mechanisms and exposed limitations of this work help
+point the way to flexible, powerful, high-performance virtualization techniques for the parallel, multi-GPU systems of
+the future.
+
+References
+[ATI06] ATI: Asymmetric Physics Processing with
+CrossFireTM , 2006. http://www.ati.com/technology/
+crossfire/physics/.
+[BDV94] BURNS G., DAOUD R., VAIGL J.: LAM: An Open
+Cluster Environment for MPI. In Proceedings of Supercomputing Symposium (1994), pp. 379–386.
+
+149
+
+[Bly06] BLYTHE D.: The Direct3D 10 System. ACM Trans.
+Graph. 25, 3 (2006), 724–734.
+[Bly06] BLYTHE D.: Private communication. Microsoft,
+7 June 2006.
+[BM00] BLYTHE D., MCREYNOLDS T.: Advanced graphics programming techniques using OpenGL. ACM SIGGRAPH Course Notes (July 2000).
+[Car84] CARPENTER L.: The A-Buffer, an antialiased hidden surface method. In Computer Graphics (Proceedings
+of SIGGRAPH 84) (July 1984), vol. 18, pp. 103–108.
+[CGS97] CULLER D. E., GUPTA A., SINGH J. P.: Parallel
+Computer Architecture: A Hardware/Software Approach.
+Morgan Kaufmann Publishers Inc., San Francisco, CA,
+USA, 1997.
+[CNS∗ 02] CHAN E., NG R., SEN P., PROUDFOOT K.,
+HANRAHAN P.: Efficient partitioning of fragment shaders
+for multipass rendering on programmable graphics hardware. In Graphics Hardware 2002 (Sept. 2002), pp. 69–78.
+[Dem06] DEMERS E.: Private communication. ATI, 16 June
+2006.
+[DPH∗ 03] DEMARLE D. E., PARKER S., HARTNER M.,
+GRIBBLE C., HANSEN C.: Distributed interactive ray tracing for large volume visualization. In IEEE Symposium on
+Parallel and Large-Data Visualization and Graphics (Oct.
+2003), pp. 87–94.
+[EIH00] ELDRIDGE M., IGEHY H., HANRAHAN P.:
+Pomegranate: A fully scalable graphics architecture. In
+Proceedings of ACM SIGGRAPH 2000 (July 2000), Computer Graphics Proceedings, Annual Conference Series,
+pp. 443–454.
+[Eve01] EVERITT C.: Interactive Order-Independent Transparency. Tech. rep., NVIDIA Corporation, May 2001.
+http://developer.nvidia.com/object/Interactive Order
+Transparency.html.
+[FQK06] FAN Z., QIU F., KAUFMAN A.: ZippyGPU: Programming toolkit for general-purpose computation on
+GPU clusters. In Supercomputing 2006 Workshop on
+General-Purpose GPU Computing: Practice and Experience (Nov. 2006).
+[GLL∗ 98] GHARACHORLOO K., LENOSKI D., LAUDON J.,
+GIBBONS P. B., GUPTA A., HENNESSY J. L.: Memory consistency and event ordering in scalable shared-memory
+multiprocessors. In 25 Years ISCA: Retrospectives and
+Reprints (1998), pp. 376–387.
+[Hal99] HALL C.: Virtual textures–a true demand-page
+texture memory management system in silicon. In Hot3D
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+150
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+Session, Graphics Hardware Workshop (8 Aug. 1999).
+http://www.graphicshardware.org/previous/www 1999/
+presentations/v-textures.pdf.
+[HCSL02] HARRIS M. J., COOMBE G., SCHEUERMANN T.,
+LASTRA A.: Physically-based visual simulation on graphics hardware. In Graphics Hardware 2002 (Sept. 2002),
+pp. 109–118.
+[HHH05] HORN D. R., HOUSTON M., HANRAHAN P.:
+ClawHMMER: A streaming HMMer-search implementation. In SC ’05: Proceedings of the 2005 ACM/IEEE
+conference on Supercomputing (Washington, DC, USA,
+2005), IEEE Computer Society, p. 11.
+[HHN∗ 02] HUMPHREYS G., HOUSTON M., NG R., FRANK
+R., AHERN S., KIRCHNER P., KLOSOWSKI J.: Chromium:
+A stream-processing framework for interactive rendering
+on clusters. ACM Transactions on Graphics 21, 3 (July
+2002), 693–702.
+[HPS05] HOUSTON M., PREETHAM A. J., SEGAL M.: A
+Hardware F-Buffer Implementation. Tech. Rep. CSTR
+2005-05, Stanford University Department of Computer
+Science, 2005.
+
+[MP01] MARK W. R., PROUDFOOT K.: The F-Buffer: A
+rasterization-order FIFO buffer for multi-pass rendering.
+In 2001 SIGGRAPH/Eurographics Workshop on Graphics
+Hardware (2001), pp. 57–64.
+[NVI05] NVIDIA Developer Relations: NVIDIA GPU
+Programming Guide, 2.4.0 ed., 8 July 2005. http://
+download.nvidia.com/developer/GPU Programming
+Guide/GPU Programming Guide.pdf.
+[NVI07] NVIDIA Corporation: NVIDIA CUDA compute unified device architecture programming guide.
+http://developer.nvidia.com/cuda, Jan. 2007.
+[Per05] PERSSON E.: Programming for CrossFireTM , 2005.
+http://www.ati.com/developer/.
+[PMK06] PRONOVOST S., MORETON H., KELLEY T.:
+Windows Display Driver Model (WDDM) v2 and Beyond,
+22 May 2006. http://download.microsoft.com/download/
+5/b/9/5b97017b-e28a-4bae-ba48-174cf47d23cd/PRI103
+WH06.ppt.
+
+[ISH98] IGEHY H., STOLL G., HANRAHAN P.: The design
+of a parallel graphics interface. In Proceedings of SIGGRAPH 98 (July 1998), Computer Graphics Proceedings,
+Annual Conference Series, pp. 141–150.
+
+[PP84] PAPAMARCOS M. S., PATEL J. H.: A low-overhead
+coherence solution for multiprocessors with private cache
+memories. In ISCA ’84: Proceedings of the 11th annual
+international symposium on Computer architecture (New
+York, NY, USA, 1984), ACM Press, pp. 348–354.
+
+[LKS∗ 06] LEFOHN A. E., KNISS J., STRZODKA R.,
+SENGUPTA S., OWENS J. D.: Glift: Generic, efficient,
+random-access GPU data structures. ACM Transactions
+on Graphics 26, 1 (2006), 60–99.
+
+[PSG06] PEERCY M., SEGAL M., GERSTMANN D.: A
+performance-oriented data parallel virtual machine for
+GPUs. In ACM SIGGRAPH 2006 Conference Abstracts
+and Applications (Aug. 2006).
+
+[LLG∗ 90] LENOSKI D., LAUDON J., GHARACHORLOO K.,
+GUPTA A., HENNESSY J.: The directory-based cache coherence protocol for the DASH multiprocessor. In Proceedings of the 17th Annual International Symposium on
+Computer Architecture (1990), pp. 148–159.
+
+[RLV∗ 04] RIFFEL A. T., LEFOHN A. E., VIDIMCE K., LEONE
+M., OWENS J. D.: Mio: Fast multipass partitioning via
+priority-based instruction scheduling. In Graphics Hardware 2004 (Aug. 2004), pp. 35–44.
+
+∗
+
+[LLG 92] LENOSKI D., LAUDON J., GHARACHORLOO K.,
+WEBER W.-D., GUPTA A., HENNESSY J. L., HOROWITZ
+M., LAM M. S.: The Stanford DASH multiprocessor. IEEE
+Computer 25, 3 (1992), 63–79.
+[MBOD06] MANZKE M., BRENNAN R., O’CONOR
+K., DINGLIANA J.: A scalable and reconfigurable
+shared-memory graphics architecture. In ACM SIGGRAPH 2006 Conference Abstracts and Applications
+(Aug. 2006).
+[MO06] MOERSCHELL A., OWENS J. D.: Distributed texture
+memory in a multi-gpu environment. In Graphics Hardware 2006 (Sept. 2006),Olano M., Slusallek P., (Eds.), pp.
+31–38.
+
+[Sim90] SIMONI R.: Implementing a Directory-Based
+Cache Consistency Protocol. Tech. Rep. CSL-TR-90-423,
+Stanford University Computer Systems Laboratory, Mar.
+1990.
+[SL03] SQUYRES J. M., LUMSDAINE A.: A Component Architecture for LAM/MPI. In Proceedings, 10th European
+PVM/MPI Users’ Group Meeting (Venice, Italy, September/October 2003), no. 2840 in Lecture Notes in Computer
+Science, Springer-Verlag, pp. 379–387.
+[SLS03] SCHMITTLER J., LEIDINGER A., SLUSALLEK P.: A
+virtual memory architecture for real-time ray tracing hardware. Computers & Graphics 27, 5 (Oct. 2003), 693–699.
+[TMJ98] TANNER C. C., MIGDAL C. J., JONES M. T.: The
+clipmap: A virtual mipmap. In Proceedings of SIGGRAPH
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Moerschell & J.D. Owens / Distributed Texture Memory in a Multi-GPU Environment
+
+151
+
+98 (July 1998), Computer Graphics Proceedings, Annual
+Conference Series, pp. 151–158.
+
+[WH06] WILLIAMS I., HARRIS M.: NVIDIA Quadro Plex
+VCS. 4 Sept. 2006.
+
+[VKL88] VOORHIES D., KIRK D., LATHROP O.: Virtual
+graphics. In Computer Graphics (Proceedings of SIGGRAPH 88) (Aug. 1988), vol. 22, pp. 247–253.
+
+[Wil83] WILLIAMS L.: Pyramidal parametrics. In Computer Graphics (Proceedings of SIGGRAPH 83) (Detroit,
+Michigan, July 1983), vol. 17, pp. 1–11.
+
+c 2007 The Authors
+Journal compilation c 2007 The Eurographics Association and Blackwell Publishing Ltd.
+
+

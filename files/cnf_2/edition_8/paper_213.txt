@@ -1,0 +1,1617 @@
+DOI: 10.1111/j.1467-8659.2008.01183.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 27 (2008), number 8 pp. 2040–2052
+
+High Performance GPU-based Proximity Queries
+using Distance Fields
+T. Morvan1 , M. Reimers2 and E. Samset1,3
+1 Interventional
+
+Centre, Faculty of Medicine, University of Oslo, Norway
+of Mathematics for Applications, University of Oslo, Norway
+3 Interventional Centre, Rikshospitalet Medical Centre, Norway
+
+2 Centre
+
+Abstract
+Proximity queries such as closest point computation and collision detection have many applications in computer
+graphics, including computer animation, physics-based modelling, augmented and virtual reality. We present
+efficient algorithms for proximity queries between a closed rigid object and an arbitrary, possibly deformable,
+polygonal mesh. Using graphics hardware to densely sample the distance field of the rigid object over the arbitrary
+mesh, we compute minimal proximity and collision response information on the graphics processing unit (GPU)
+using blending and depth buffering, as well as parallel reduction techniques, thus minimizing the readback
+bottleneck. Although limited to image-space resolution, our algorithm provides high and steady performance when
+compared with other similar algorithms. Proximity queries between arbitrary meshes with hundreds of thousands
+of triangles and detailed distance fields of rigid objects are computed in a few milliseconds at high-sampling
+resolution, even in situations with large overlap.
+Keywords: proximity queries, collision detection, distance fields, GPU
+ACM CCS: I.3.5 [Computer Graphics]: Geometric Algorithms, I.3.7 [Computer Graphics]: Animation, virtual
+reality
+
+1. Introduction
+Proximity algorithms such as collision detection have been
+subject to intensive research during the past decades. Efficient algorithms have been developed, but many challenges
+remain, especially in the domain of fast proximity queries
+between deformable objects. We are motivated by safety
+aspects in surgical applications such as robot- and imageguided surgery where collision or proximity between robotic
+arms, surgical instruments and critical anatomical structures
+has to be detected and relevant response such as haptic feedback must be computed. Usually, these applications involve
+proximity computations between two rigid models or between one rigid and one deformable model.
+1.1. Main Contributions
+In this paper, we present algorithms for collision detection
+and proximity queries between a rigid closed object and an arc 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and
+Blackwell Publishing Ltd. Published by Blackwell Publishing,
+9600 Garsington Road, Oxford OX4 2DQ, UK and 350 Main
+Street, Malden, MA 02148, USA.
+
+bitrary polygonal object such as a deformable triangle mesh.
+We use a signed distance field as the representation for the
+rigid object and exploit the rasterization and texture-mapping
+capabilities of the graphics processing unit (GPU) to sample
+the distance field over the arbitrary polygonal mesh. Such a
+GPU-based sampling limits the precision of our algorithm
+to framebuffer resolution but allows for fast generation and
+processing of many samples. Depth buffering, blending and
+GPU parallel reduction techniques are used to produce compact proximity and collision response information in the form
+of most penetrating or closest points and global penetration
+forces and torques in the case of rigid objects. We apply the
+latter to perform dynamic simulation of rigid objects. We
+also present two optimizations: one using early rejection of
+fragments based on their depth values, the other using the
+geometry shader to reduce the number of rendering passes.
+Our algorithms offer the following benefits as compared to
+earlier approaches:
+
+2040
+
+Submitted January 2008
+Revised April 2008
+Accepted May 2008
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+Low number of rendering passes. Our algorithms perform
+at most three rendering passes for each test.
+Compact and global proximity information. We compute
+compact collision response and characterization information
+directly on the GPU: two different techniques compute either
+the closest or most penetrating point between the objects, or
+global penetration force and torque characterizing the penetrating volume.
+Readback minimization. The compact information produced by our algorithms leads to minimal readbacks, reducing one of the main bottlenecks in GPU-based algorithms,
+and allowing our algorithm to be faster than other GPU implementations, which read back the whole framebuffer.
+Small dependence on object configuration. Our approach
+is less influenced by the relative configuration of objects than
+bounding volume hierarchy methods since we always process
+all visible triangles.
+
+2. Background and Related Work
+2.1. Collision Detection and Proximity Queries
+Most collision detection techniques rely on the use of bounding volume hierarchies to quickly cull away groups of primitives from the elementary collision tests. These approaches
+work particularly well for rigid objects where tight-fitting
+bounding volumes such as oriented bounding boxes [GM96]
+can be used. When handling deformable objects, however,
+the hierarchies have to be updated at each frame, which introduces an additional cost. As a result, less optimal hierarchies are often used in deformable cases, such as axis-aligned
+bounding boxes (AABBs) [vdB97] or sphere trees [Qui94].
+Bounding volume hierarchies become less efficient in situations where many primitives are in contact, since a large
+number of nodes have to be tested for overlap. An overview
+of algorithms for collision detection and proximity queries
+∗
+can be found in recent surveys [TKH 05, LM03].
+
+2.2. Distance Fields
+A distance field is a scalar field that represents the distance
+to a geometric object from any point in space. A solid object
+can be represented as a signed distance field where the sign of
+the distance function is negative in the interior region of the
+object and positive outside. Distance fields have been used
+for proximity query algorithms due to the straightforward
+distance computations they provide. They have been used
+to detect collision and proximity between two rigid objects
+[GBF03], a deformable object and a rigid object [FSG03,
+BJ07], a rigid object and a particle system [KSW04] and
+two deformable objects [HZLM02, SGGM06]. An overview
+of techniques and applications using distance fields can be
+found in [JBS06].
+
+2041
+
+Some of the main drawbacks of distance fields are their
+long computation time and their memory requirements. However, recent algorithms using the parallel processing power
+of graphics hardware are able to compute distance fields at
+near interactive rates [SPG03, SOM04, SGGM06].
+
+2.3. GPU-based Algorithms
+Over the recent years, an increasing number of algorithms
+using graphics hardware for collision detection have been
+developed. The vast majority of these algorithms render the
+objects along a number of selected views. Some techniques
+involve ray casting and use the depth and stencil buffers to
+detect intersections between solid objects [SF91, RMS92,
+KP03]. Heidelberger et al. [HTG03, HTG04] use the stencil and depth buffers to generate ‘Layered Depth Images’
+for closed surfaces and use them to determine volumes of
+intersection and to perform vertex-in-volume tests.
+Other techniques compute a distance field along slices of
+a 3-dimensional (3D) grid, and then perform collision detection on these slices [HZLM02, SGGM06]. A recent technique builds on these two previous algorithms, and performs
+N-body distance queries by computing 2nd order Voronoi
+∗
+diagrams on the GPU [SGG 06].
+Govindaraju et al. [GLM05] use occlusion-based culling
+to compute potentially colliding sets of objects or primitives.
+They further added mesh decomposition to their algorithm to
+perform continuous collision detection between deformable
+models [GKLM07].
+Many of these algorithms involve one or several framebuffer readbacks from the GPU to main memory. Such readbacks are one of the major bottlenecks of current graphics
+hardware and several techniques try to minimize them [KP03,
+HTG04, GLM05]. Another drawback of many of these algorithms is a large number of rendering passes.
+Some GPU-based algorithms do not rely on rendering polygonal meshes for proximity queries. Greß et al.
+[GGK06] perform collision detection between deformable
+parametrized surfaces by updating and traversing bounding
+volumes hierarchies on the GPU using non-uniform stream
+∗
+reduction. Galoppo et al. [GOM 06] perform texture-based
+collision detection on objects modelled as a rigid core covered by a deformable layer.
+
+2.4. Collision Response
+One of the main applications of collision detection is physicsbased simulation of virtual objects, i.e. computing realistic
+motions based on the laws of physics. Such simulators are
+usually divided in three components: dynamic simulation,
+collision detection and collision response/contact handling.
+Physics-based simulation of rigid bodies has been extensively
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2042
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+studied and several approaches are available to solve the
+problem of collision response and contact handling:
+Constraint-based methods – avoid interpenetration by computing constrained contact forces [Bar94].
+Impulse-based methods – as in [MC95] apply impulses on
+velocities to resolve resting contacts and collisions.
+Penalty-based methods – introduce damped springs at
+points of penetration between the objects, producing a force
+proportional to the amount of penetration at this point
+[MW88, HS04, OL05].
+Constraint- and impulse-based methods produce stable
+and realistic motions and avoid interpenetrations. Their complexity is, however, highly dependent on the number of
+contacts. Moreover, parallelization of such methods is not
+straightforward. Penalty-based methods, on the other hand,
+are simple to implement and easily parallelizable. Nevertheless, they have several drawbacks: they might lead to stiff
+equations of motion, requiring small time steps for stable integration. Implicit integration [OL05] can help alleviate this
+problem. Furthermore, correct simulation of both light and
+heavy objects might require tuning of the parameters. Moreover, discontinuities in the positions and number of detected
+contact points affect the stability of the simulation. Finally
+they allow some interpenetration between objects.
+3. Main Algorithms
+3.1. Overview
+Throughout this paper we will use bold-face type to distinguish vector quantities from scalars. We will consider proximity queries and collision detection between the following:
+• The surface M of a rigid, solid object.
+• An arbitrary, possibly deformable, polygonal mesh denoted N.
+M partitions space into a bounded interior region and an
+unbounded exterior region. We define D M to be the signed
+distance field with respect to M, i.e. for all points p in space
+we have
+D M (p) = sgn(p) min ||x − p||,
+x∈M
+
+(1)
+
+where || · || is the Euclidean norm and
+sgn(p) =
+
+−1
+
+if p is in the interior region of M;
+
+1
+
+otherwise.
+
+(2)
+
+Our first task is to compute an approximation of D M on
+a regular grid over a 3D domain M , typically an expanded
+bounding box for M. We used the pseudo-angle normal and
+the acceleration technique based on a hierarchy of oriented
+
+bounding boxes as presented in [BA05]. Since this is an
+offline process, performance is not critical at this stage. In
+addition to the signed distance to M, we compute at each
+vertex in the grid the direction to the closest point on M.
+We then store these values in a 4-component floating point
+3D texture on the GPU. The direction is stored in the RGB
+colour channels, whereas D M is stored in the alpha channel.
+To perform proximity queries between M and N we evaluate D M over N. We use graphics hardware to sample N
+from three orthogonal views, generating a set of image-space
+samples or fragments N S . We then use the texturing capabilities of the GPU to evaluate D M at each point of N S
+using a fragment shader program. In this manner, we obtain
+a fairly uniform sampling over N of the distance function
+DM .
+We next gather the required proximity information from
+the computed fragments. The nature of current graphics hardware imposes limitations on how the proximity information
+at each point in N S can be processed. We therefore introduce
+two techniques to produce compact and minimal proximity
+information. The first technique uses the depth buffer and
+the classic parallel reduction technique to sort the distance
+values and extract from them the closest or most penetrating point of N S into M, and the associated local penetration
+depth or separation distance. Our second technique computes
+collision response directly on the GPU in the form of penalty
+forces. At each penetrating point of N S a local penalty force
+is computed, characterizing its penetration and the surface
+area of N around the point. These forces are then combined
+into global penalty force and torque at the centre of gravity of
+the object using the blending functionality of graphics hardware and parallel reduction. The global penalty force and
+torque correspond to the integrated local penalty forces over
+the penetrating area of N into M.
+We finally present two optimizations. The first one is intended as an optimization of the collision detection algorithm. It uses a depth-only rendering of M and the early-Z
+culling capabilities of graphics hardware to quickly reject
+points of N S which are not penetrating M. The second optimization uses the geometry shader to sample N in a single
+rendering pass.
+
+3.2. Image-space Sampling of Meshes
+We use the GPU to perform a dense and uniform sampling of N through rasterization in real time, avoiding precomputation of the samples [BJ07] or problems related to
+vertex-based sampling [FSG03] as illustrated in Figure 1(a).
+Rendering a triangular mesh produces a dense and efficient
+sampling of the part of the mesh facing the viewing direction
+in the form of fragments, which are projected onto pixels in
+a framebuffer, as illustrated in Figure 1(b). A dense and relatively uniform sampling of the whole mesh can be produced
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2043
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+viewing
+direction
+
+M
+d5
+
+viewing
+direction
+
+d4
+
+.
+(a)
+
+d4
+
+d3
+
+d2
+
+(b)
+
+d5
+
+d3
+d2 d1
+
+d1
+N
+
+view 1
+ΩΜ
+
+(a)
+
+view 1
+
+(b)
+
+view 2
+view 2
+
+(c)
+
+d5
+
+view 3
+
+d5
+
+d4
+
+(d)
+
+d2
+
+d3
+
+Figure 1: (a) The vertices of a mesh can yield an irregular
+and non-uniform set of samples. (b) The faces whose normal
+is close to the viewing direction are densely sampled using
+the GPU. (c) Rendering a mesh along several orthogonal directions provides dense sampling for every face. (d) The part
+of N lying inside M is rendered along the three orthogonal
+axes of M .
+
+by rendering it along orthogonal directions, see Figure 1(c).
+This image-space sampling is less affected by deformations
+of the mesh than object-space sampling based on vertices.
+We therefore perform three orthographic renderings of N in
+M
+along its three orthogonal axes as seen in Figure 1(d).
+For any type of triangular mesh N these three renderings will
+sample all triangles of N to image-space precision.
+Graphics hardware 3D texture mapping capabilities provide fast and efficient trilinear interpolation, thus allowing
+to compute D M and the associated direction vector at any
+point of M . Once the proximity data is known at each point
+of N S , we need to compute relevant information from these
+values. In the next two sections we present two techniques
+to efficiently produce minimal and global proximity and collision information from the computed fragments, using the
+fragment shader.
+
+3.3. Proximity Queries Using Depth Buffering
+Our first algorithm computes a point of N S with the minimum signed distance to M, i.e. the closest (when the objects
+are disjoint) or most penetrating (when the objects are intersecting) point. We process the distance information on the
+GPU, using depth buffering.
+
+d2
+
+d2
+
+(c)
+
+Figure 2: (a) While rendering N, the value of D M is computed at each fragment. (b) The fragments are sorted in depth
+according to their distance to M. (c) The minimum value is
+extracted form the framebuffer using parallel reduction.
+
+The depth buffer provides the ability to sort the incoming
+fragments projecting onto the same pixels according to their
+depth. We first set the depth test to pass when a fragment has
+a smaller depth value than the one present in the depth buffer
+and clear the depth buffer with the maximal depth value of
+1. This ensures that the first fragment rendered at each pixel
+position passes the depth test. We perform the three orthogonal renderings described previously and compute at each
+fragment a depth value corresponding to the signed distance
+at this fragment. Let d max and d min be the maximum and minimum distance field values. We first assign at each fragment
+p i , the world position of this fragment in the RGB colour
+channels. We then fetch the distance field value D M (p i ) from
+the 3D texture containing D M and compute the depth value
+zi =
+
+D M (pi ) − dmin
+,
+dmax − dmin
+
+(3)
+
+which clearly yields z i ∈ [0, 1]. The fragments produced
+in this way are ordered according to their distance values
+as illustrated in Figure 2(a) and 2(b). At the end of each
+rendering pass, each pixel contains the world position of the
+point (fragment) of N S projecting onto this pixel which has
+the smallest signed distance value. We reuse the same depth
+buffer for each of the rendering passes since this allows us
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2044
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+Using texture lookups, we get at each penetrating fragment p i of N S , the closest point q i on M from the distance
+field. Since we are only interested in collisions, we reject
+non-penetrating fragments, i.e. whose distance D M (p i ) is
+positive. We also have the velocities v p i and v q i of p i and q i
+as additional information. We then compute a local penalty
+force acting at q i to push M out of collision
+
+view 1
+
+fi P = k(pi − qi ) + b(vp i N − vq i N ),
+
+view 2
+
+Figure 3: Fragments are projected into different views according to their normals.
+
+where v p i N and v q i N are the respective components of v p i
+and v q i along the vector p i − q i (normal velocities), and k
+and b are spring and damping constants. We can additionally
+compute a dynamic friction force acting at q i
+fi D = μD ||fi P ||
+
+to reuse the depth values produced in the previous passes to
+reject fragments which have no chance to have the minimum
+signed distance. At the end of the three rendering passes,
+each pixel corresponds to a candidate for the closest or most
+penetrating point of N S with respect to M.
+Next, the parallel reduction technique [Har05] is used to
+perform minimum reduction of the frame buffer. During each
+pass, groups of four neighbouring pixels are collapsed into
+one single pixel corresponding to the one with the smallest
+depth value as in Figure 2(c). Since depth buffer precision is
+not linear, and often lower than the framebuffer precision, we
+mirror the depth buffer into the alpha channel of the framebuffer to perform the comparisons: we clear the alpha values
+to 1 before performing the renderings, and at each fragment
+produced we copy the depth value into the alpha channel.
+After log 2 (n) passes (for an initial buffer of n2 pixels), we
+obtain a single pixel containing either the closest or most
+penetrating point of N S to M and its associated signed distance, which we can finally read back to main memory using
+minimal bandwidth. It is also possible to get the corresponding closest point on M by rendering it to a second render
+target.
+
+3.4. Global Penalty Forces for Collision Response
+Our second algorithm follows an approach similar to the
+one presented in the previous section but focuses on detecting and responding to collisions between M and N. It computes penalty forces on the GPU from the penetration depths
+and velocities at penetrating points, in order to untangle
+collisions.
+We perform the three orthogonal renderings described in
+Section 3.2. However, we try to avoid rendering any fragment
+twice by only rendering the fragments for which the largest
+coordinate of their normal in eye space is along the viewing
+direction in each rendering pass, as seen in Figure 3. This
+also ensures that all fragments rendered in each pass are
+approximately facing the viewing direction.
+
+(4)
+
+vp i T − vq i T
+,
+||vp i T − vq i T ||
+
+(5)
+
+where v p i T and v q i T are the respective components of v p i
+and v q i orthogonal to p i −q i (tangential velocities), and μD
+is the dynamic friction coefficient. The total penalty force
+acting at q i is then
+fi = f i P + f i D .
+
+(6)
+
+This force can also be expressed at the centre of gravity gM
+of the rigid object M as the same force f i together with a
+penalty torque
+ti = (qi − gM ) × fi ,
+
+(7)
+
+as depicted in Figure 4(a). Note that if N is also a rigid object,
+it is possible to compute similar forces and torques acting at
+the centre of gravity of N to push it out of collision.
+Let us assume that at each fragment p i produced, the projection of the surrounding surface occupies the whole corresponding pixel. The area P i of a pixel is constant for all
+fragments of a given rendering pass but might vary across
+rendering passes due to different dimensions of M . Let us
+also denote by n i = (n ix , n iy , n iz ) the interpolated normal
+at p i expressed in viewing coordinates, i.e. with z along the
+viewing direction. In this situation the surface around p i is a
+parallelogram with area
+Si =
+
+Pi
+,
+|niz |
+
+(8)
+
+see Figure 5. We then assign to the fragment p i the areaweighted penalty force applied at q i
+f i W = Si f i =
+
+P i fi
+|niz |
+
+(9)
+
+and area-weighted penalty torque
+ti W = Si ti = (qi − gM ) × fi W .
+
+(10)
+
+The area-weighted penalty force fW
+i can be associated to a
+small element of penetrating volume between p i and q i .
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+p
+
+M
+
+i
+
+viewing
+direction
+
+ing sums the colour values. We initialize the framebuffer with
+zeros, enable additive blending and perform the three orthogonal rendering passes. Each pixel in the framebuffer will then
+contain the total area of the penetrating fragments projecting to this position in the alpha channel, as well as vectors
+representing the sum of the area-weighted penetration forces
+and torques of each fragment in the RGB channels. We use
+the same framebuffer across all three rendering passes to
+accumulate the result.
+
+qi
+fi
+
+ti
+fi
+
+2045
+
+gM
+
+N
+
+We further sum the values contained in the framebuffer using a parallel reduction technique similar to the one outlined
+in the previous section, see Figure 4(b). The results are the
+accumulated penalty force at gM
+
+(a)
+
+n
+
+FS =
+
+n
+
+fi W =
+i=0
+
+Si f i
+
+(11)
+
+Si t i
+
+(12)
+
+i=0
+
+and accumulated penalty torque at gM
+n
+
+TS =
+
+n
+
+ti W =
+i=0
+
+i=0
+
+in the RGB channels of each render target as well as the total
+penetration area
+
+(b)
+
+n
+
+Figure 4: (a) At each fragment, a penalty force and torque
+acting on the centre of gravity are computed. These are then
+summed using additive blending, yielding one penalty force
+and torque at each pixel. (b) The pixel penalty forces and
+torques are summed up to produce the accumulated penetration force and torque.
+
+S=
+
+ni
+viewing
+direction
+
+(13)
+
+in the alpha channel of the resulting pixel in our framebuffer.
+We read back FS , TS and S to main memory. We then compute
+the global penalty force at gM
+F=
+
+Pi
+
+Si
+i=0
+
+FS
+,
+S
+
+(14)
+
+and global penalty torque at gM
+
+Si
+T=
+
+N
+
+.
+Figure 5: Normal and area of a fragment.
+These area-weighted forces and torques are stored in the
+RGB channels of two render targets. We additionally store
+S i in the alpha channel.
+Given several fragments projecting onto the same pixel,
+we are confronted with the same problem as in the previous section: merging the information of these fragments.
+The blending functionality of graphics hardware allows us
+to combine the colour value of the current fragment with the
+value present in the framebuffer. In particular, additive blend-
+
+TS
+,
+S
+
+(15)
+
+which can be considered as area-weighted averages of the
+local penetration forces and torques. These global penalty
+forces and torques can then be applied to M in a dynamic
+simulation to resolve collisions.
+
+4. Optimizations
+In this section, we present two techniques for improving the
+performance of our algorithms.
+
+4.1. Early-Z Culling
+The collision detection and response algorithm described
+in Section 3.4 rejects fragments corresponding to sampled
+points which are exterior to M. Early-Z culling is a functionality present on most current GPUs which provides a way of
+discarding fragments produced by rasterization before they
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2046
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+viewing
+direction
+
+M
+
+viewing
+direction
+
+M
+
+max
+depth
+
+min
+depth
+
+(a)
+
+The depth buffer to be bound (maximum or minimum
+depth) can be determined by looking at the position of the
+bounding box of N relative to M along the viewing direction,
+since this gives us a hint as to which mesh is ‘behind’ the
+other along the viewing direction.
+
+(b)
+
+viewing
+direction
+
+viewing
+direction
+min
+depth
+culled
+region
+culled
+fragments
+
+N
+
+(c)
+
+max
+depth
+culled
+region
+culled
+fragments
+
+where M does not project (Figure 6(c)). Conversely, if the
+depth buffer containing the maximal depth of M is bound,
+the depth test is set to pass for fragments with smaller depth
+than the current depth, and fragments ‘behind’ M along the
+current-viewing direction are culled, see Figure 6(d).
+
+N
+
+(d)
+
+Figure 6: M is rendered twice in depth along the viewing
+direction to obtain two buffers containing its minimal (a)
+and maximal (b) depth. These buffers are then used to cull
+fragments of N ‘in front of’ (c) or ‘behind’ (d) M with respect
+to the viewing direction.
+
+are processed, by comparing their depth value with the value
+already present in the depth buffer. When rendering N along
+a given direction, we can determine if a fragment is not penetrating by comparing its depth value with the values obtained
+by rendering M along the same direction.
+As a preliminary step, after computing D M , we perform
+two depth-only renderings of M along the three axes of M .
+One of the renderings is performed with an initial depth
+buffer cleared with the maximum value of 1, and a depth
+test set to pass if an incoming fragment depth is smaller than
+the one present in the depth buffer. In this way we obtain
+a depth buffer containing at each pixel either the minimal
+depth of M, or 1 for pixels onto which M does not project
+(Figure 6(a)). The second rendering is performed with an
+initial depth buffer cleared with the minimum value of 0 and
+a depth test set to pass if an incoming fragment depth is
+larger than the current depth. This produces a depth buffer
+containing at each pixel either the maximum depth of M or
+0 where M does not project (Figure 6(b)). We store these six
+depth buffers on the GPU.
+For each rendering of N along one of the axes of M , we
+bind one of the corresponding pre-computed depth buffers,
+enable the depth test and disable writing to the depth buffer.
+If the depth buffer containing the minimum depth of M is
+bound, we set the depth test to pass if an incoming fragment depth is larger than the current depth. In this way we
+cull fragments which are ‘in front’ of M with respect to the
+viewing direction, or which correspond to a pixel position
+
+It should be noted that this optimization is only possible for
+the algorithm presented in Section 3.4 since the algorithm of
+Section 3.3 writes the depth of the fragments which disables
+Early-Z culling.
+
+4.2. Geometry Shader
+We present an additional optimization using the geometry
+shader, which is a recently introduced programmable stage
+in the rendering pipeline [Bly06]. It occurs after primitive
+assembly, takes a single primitive as input and generates one
+or several primitives. We use this stage to sample N in a
+single rendering pass.
+We first upload to the GPU three projection matrices corresponding to the orthogonal renderings described in Section
+3.2 along the three axes of M . We then render N, and for
+each of its vertices, compute its projections along the three
+orthogonal rendering views in the vertex shader, as well as
+the position of the vertex in the local coordinate frame of M .
+These positions are passed on to the geometry shader. For a
+given incoming triangle, the geometry shader computes the
+triangle normal in the local coordinate frame of M from the
+incoming positions. We then choose the viewing direction for
+this triangle which corresponds to the axis of M onto which
+the normal has the largest projection (largest coordinate). We
+finally output a triangle whose vertices contain the projected
+coordinates corresponding to the chosen viewing direction
+and texture coordinates corresponding to the positions in the
+local coordinate frame of M . This optimization allows us to
+produce N S in a single rendering pass instead of three passes
+as in Section 3.2.
+
+5. Performance and Comparison
+In this section we discuss the performance and characteristics of our algorithms and compare it to similar algorithms. We implemented them on a PC running Linux with
+an Athlon 64 3800+ X2 CPU (AMD, Sunnyvale, California,
+USA) with 2 GB of memory and an GeForce 8800 GTX
+GPU (NVIDIA, Santa Clara, California, USA) connected
+via a 16x PCI Express bus. We use the Coin (Kongsberg
+SIM, Oslo, Norway) and OpenGL graphics APIs to render
+polygonal models, and the OpenGL shading language
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2047
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+y
+collision time (msec)
+
+60
+
+SOLID deformable
+CPU distance fields
+SOLID rigid
+Our algorithm
+
+50
+40
+30
+20
+10
+0
+0
+
+x
+
+z
+
+Figure 7: Benchmarking of our collision-detection algorithm: the green model is progressively translated towards
+the blue along the x axis and rotated around the y and z axis
+at each translation step. Collision detection is performed for
+each orientation and the collision time is averaged at each
+step.
+(GLSL) to program our shaders. The whole graphics pipeline
+(textures, colour, depth buffers, etc.) is in 32 bits floating
+point precision. We store D M in a 256 × 256 × 256 3D texture. The size of the distance field texture appeared to have
+little influence on performance.
+5.1. Comparison with CPU-based Methods
+We benchmark our application using an approach similar to
+the one presented in [Zac98]: given two identical models at
+the same position and orientation, we first translate one of
+them along the x axis until both models are not colliding but
+in close proximity. In order to benchmark the collision detection algorithm presented in Section 3.4, we then gradually
+bring the models closer together along the x axis. For each
+step we rotate the objects entirely around the y and z axes,
+performing collision detections for 720 different orientations
+(Figure 7). We then average the collision detection time for
+all orientations at a given translation step. We use a similar
+approach to benchmark the proximity query algorithm presented in Section 3.3, but we pull the objects further away
+instead of closing together. We measure the performance in
+terms of the average computation time over the whole range
+of configurations.
+We compare the performance of our algorithm with the
+software library for interference detection (SOLID) collision
+detection library which uses AABBs to detect collisions and
+proximity [vdB97], as well as a distance field proximity algorithm running on the CPU and using vertex-based sampling.
+Since there is no algorithm in SOLID which corresponds
+exactly to the one described in Section 3.4, we compare it
+to an algorithm that detects collisions between two polygonal models, computes a penetration depth at each colliding
+
+0.2
+
+0.4
+0.6
+distance
+
+0.8
+
+1
+
+Figure 8: Benchmarking of the collision-detection algorithm in Section 3.4 for the bunny model.
+
+couple of primitives and returns the maximum value. We
+compare the proximity algorithm of Section 3.3 to a similar
+algorithm in SOLID which computes the closest point between two polygonal models and the associated separation
+distance. We measure the performance of SOLID in the case
+where the two objects are considered rigid, but also in the
+case where one of them is considered deformable, updating
+the AABB hierarchy at each frame. When benchmarking the
+vertex-based distance field algorithm, we compute the sum
+of penetrating vectors at each vertex for collision detection
+and the vertex with the minimum signed distance for proximity queries. A framebuffer size of 1024x1024 was used for
+all benchmarks.
+Figure 8 shows the collision time for the bunny model (69
+451 triangles) for the different collision detection algorithms.
+The initial distance of 1 corresponds to objects in close proximity and the distance 0 corresponds to coincident objects.
+The performance of our algorithm stays fairly constant at
+around 1.8 millisecond per query as distance diminishes and
+the number of contacts increase, whereas SOLID shows a significant performance drop due to the fact that many AABBs
+overlap and a large number of contacts have to be processed.
+For distances close to 1, the models are in close proximity
+and few contacts are processed. In this situation, SOLID is
+able to efficiently prune computations and becomes more performant than our algorithm for rigid objects. Our algorithm
+is also consistently more performant than the vertex-based
+distance field method.
+Figure 9 shows the query time for computing the closest
+point between two bunny models at various distances using
+the different proximity algorithms. The initial distance of 1
+correspond to objects in close proximity and a distance of
+2 corresponds to objects separated by a distance approximately equal to the length of their bounding box. Again the
+performance of our algorithm varies little with configuration.
+This time our algorithm outperforms both SOLID and the
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2048
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+60
+50
+
+query time (msec)
+
+Table 1: Readback time of uniform 3D grids from the GPU
+to main memory for different grid sizes.
+
+SOLID deformable
+CPU distance fields
+SOLID rigid
+Our algorithm
+
+40
+
+Resolution
+
+Readback time (milliseconds)
+
+30
+
+64 × 64 × 64
+
+3
+
+20
+
+128 × 128 × 128
+
+33
+
+10
+
+256 × 256 × 256
+
+345
+
+512 × 512 × 512
+
+2701
+
+1024 × 1024 × 1024
+
+5423
+
+2048 × 2048 × 2048
+
+10849
+
+0
+1
+
+1.2
+
+1.4
+1.6
+distance
+
+1.8
+
+2
+
+Figure 9: Benchmarking of the proximity query algorithm
+in Section 3.3 for the bunny model.
+
+vertex-based distance field algorithm for all configurations
+and types of objects. This is due to the fact that AABB pruning is less efficient for proximity queries than for collision
+detection.
+Compared to the SOLID collision detection algorithm, our
+methods maintain steady performance even in complex contact scenarios. This is a result of the fact that our algorithm
+processes all primitives at every step. In the case of close
+proximity between rigid objects, few AABBs overlap and
+SOLID is more performant than our algorithm. However,
+under the assumption of one rigid and one deformable object, our algorithm is likely to outperform SOLID for any
+configuration due to the cost of updating the AABB tree at
+each frame.
+
+5.2. Comparison with GPU-based Methods
+Unfortunately no direct comparison was possible due to lack
+of access to GPU implementations of proximity query algorithms. It is, however, reasonable to believe that, due to
+its properties (minimum readbacks, few rendering passes),
+our method can attain better performance than most similar
+GPU-based techniques. Given relatively complex scenes with
+∗
+thousands of triangles, many methods, such as [SGG 06],
+although more complete than ours, report interactive frame
+rates (around 100 to 1000 milliseconds), whereas our method
+performs in real time (around 1 to 10 milliseconds).
+It is useful to highlight certain differences between our
+algorithm and other GPU techniques to shed light on their
+impact on performance. The principal reasons behind the efficiency of our algorithm are the fact that it minimizes readbacks to main memory and the number of rendering passes,
+both of which are typical bottlenecks in GPU-based methods.
+By constraining one of the objects to be rigid, we are able to
+perform collision response directly on the GPU, computing
+
+global penetration forces and torques as described in Section
+3.4, thus dramatically reducing the information to be read
+back from the GPU. Similarly, by limiting the proximity information to the closest point between the two models, we
+are also able to minimize readbacks. In comparison, methods
+∗
+such as the ones presented in [SGG 06] perform proximity
+queries on a 3D grid in space, and readback the whole grid
+to the CPU to process the result. Reading back a 3D grid
+on the same configuration can take from tens to thousands
+of milliseconds depending on the grid size as illustrated in
+Table 1. By comparing these timings to the performance of
+our algorithm as illustrated in Table 2, it can clearly be seen
+that our method provides better performance than a method
+based on reading back a 3D grid at similar resolutions. Moreover, the use of blending and depth buffering allows our
+algorithm to perform proximity queries using only three rendering passes or just one when using the geometry shader,
+whereas algorithms based on rendering to a 3D grid perform
+one rendering pass for each slice of the grid. Finally, while
+we are still limited by the precision of the framebuffer in the
+x and y directions, the precision in the z direction is that of
+the depth buffer, and as such is generally higher than the one
+achieved when using a discrete 3D grid. The efficiency of
+our method, however, comes at the price of less flexibility in
+the collision-detection information available.
+Several GPU-based approaches perform collision pruning
+on the GPU and then exact intersection or proximity tests
+∗
+between primitives on the CPU [GLM05], [SGG 06]. This
+might result in varying performance depending on the configuration of the object and the number of exact intersection
+tests to be performed. Our method on the other hand always
+processes all triangles, which allows it to keep a steady performance in every object configuration. The main downsides
+to this are that our method is approximate, contrary to meth∗
+ods such as the ones presented in [GLM05], [SGG 06] and
+that our method cannot take full advantage of configurations
+where there is little overlap between objects.
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2049
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+Table 2: Average computation time for our algorithms, using various framebuffer sizes and optimizations.
+
+Collision time (milliseconds)
+Basic
+Framebuffer size
+
+Model
+
+Proximity query time (milliseconds)
+
+Early-Z
+Framebuffer size
+
+Geometry shader
+Framebuffer size
+
+Basic
+Framebuffer size
+
+Geometry shader
+Framebuffer size
+
+512
+
+1024
+
+2048
+
+512
+
+1024
+
+2048
+
+512
+
+1024
+
+2048
+
+512
+
+1024
+
+2048
+
+512
+
+1024
+
+2048
+
+Cow
+
+0.68
+
+1.58
+
+5.78
+
+0.57
+
+1.26
+
+4.62
+
+0.58
+
+1.32
+
+4.88
+
+0.60
+
+1.15
+
+4.03
+
+0.57
+
+1.09
+
+3.82
+
+Bunny
+
+1.17
+
+1.79
+
+5.26
+
+1.14
+
+1.68
+
+4.30
+
+1.15
+
+1.60
+
+4.52
+
+1.13
+
+1.74
+
+4.47
+
+1.22
+
+1.73
+
+4.34
+
+Horse
+
+1.21
+
+1.90
+
+5.50
+
+1.19
+
+1.76
+
+4.69
+
+1.11
+
+1.59
+
+4.67
+
+1.18
+
+1.68
+
+4.12
+
+1.34
+
+1.80
+
+4.18
+
+Dragon
+
+4.86
+
+5.54
+
+9.32
+
+4.84
+
+5.52
+
+8.83
+
+4.63
+
+5.33
+
+8.23
+
+4.42
+
+4.96
+
+8.07
+
+5.52
+
+6.04
+
+8.67
+
+Blade
+
+5.63
+
+5.96
+
+7.89
+
+5.61
+
+5.93
+
+7.58
+
+5.01
+
+5.27
+
+6.62
+
+12.0
+
+12.5
+
+15.6
+
+14.6
+
+15.1
+
+17.6
+
+1.8
+
+2
+
+1.95
+
+query time (msec)
+
+collision time (msec)
+
+1.85
+
+basic
+geometry shader
+
+1.78
+
+basic
+early-Z
+geometry shader
+
+1.9
+1.8
+1.75
+1.7
+1.65
+
+1.76
+1.74
+1.72
+1.7
+
+1.6
+1.68
+
+1.55
+0
+
+0.2
+
+0.4
+0.6
+distance
+
+0.8
+
+1
+
+Figure 10: Influence of our optimizations on the performance of the collision-detection algorithm in Section 3.4 for
+the bunny model.
+
+5.3. Performance
+The influence of the optimizations on the algorithm from
+Section 3.4 is illustrated in Figure 10. The optimizations improve performance of this algorithm for any possible configuration of the objects. The influence of the geometry shader
+optimization on the algorithm of Section 3.3 is illustrated in
+Figure 11. For this algorithm, the geometry shader does not
+improve performance when the models are far away from
+each other.
+Finally, Table 2 summarizes the computation time for both
+algorithms, averaged over all configurations, for each of the
+models in Figure 12, with varying framebuffer sizes, with
+and without early-Z and the geometry shader optimizations.
+As framebuffer size increases, the number of fragments to
+be rendered grows and our optimizations have a higher impact on performance. The influence of these optimizations
+decreases, however, with model complexity. For thin models such as the blade, the collision algorithm shows better
+
+1
+
+1.2
+
+1.4
+1.6
+distance
+
+Figure 11: Influence of the geometry shader optimization on
+the performance of the proximity query algorithm in Section
+3.3 for the bunny model.
+
+average performance than the proximity algorithm due to
+the smaller M used, which leads to many triangles being
+clipped in configurations of close proximity.
+Our optimizations improve performance of the collisiondetection algorithm in any situation. However, early-Z
+culling becomes less efficient when fragment processing becomes less prominent in the rendering pipeline, as happens
+with increased model complexity. Our optimization using the
+geometry shader reduces the three rendering passes to a single pass. It nevertheless does not yield to triple or even double
+performance as one might expect. We believe this is partly
+due to the cost of introducing the additional geometry shader
+stage in the rendering pipeline. Another reason is the fact
+that we still have to compute three projected coordinates per
+vertex, as well as triangle normals. The better performance
+of the three-pass rendering approach at large distances for
+the proximity algorithm might be due to the fact that many
+triangles are then outside of M , and are thus culled. This
+culling has less influence when using the geometry shader
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2050
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+Figure 12: Benchmarking models: cow (6K tri.), bunny (69K tri.), horse (97K tri.), dragon (480K tri.) and blade (1765K tri.).
+the distance field D M at each deformation, using one of
+the techniques presented in [SPG03]; [SOM04]; [SGGM06].
+However, only the algorithm from Section 3.3 would then be
+relevant, since the global penalty force and torque defined in
+Section 3.4 only make sense for rigid objects.
+Although only two different types of proximity queries and
+collision response schemes have been presented in this paper,
+other techniques such as different reduction techniques could
+be devised to produce other types of proximity information.
+For example, checking whether the objects collide or not can
+be performed by a simple occlusion query.
+
+Figure 13: Dynamic simulation of a complex scene.
+
+since additional computations are introduced before triangle
+culling.
+
+5.4. Complex Scenes
+We finally present an application of the algorithm from Section 3.4 to dynamic simulation of a complex scene. In this
+example, 15 dragon models fall onto a procedurally deformed floor. A snapshot of the simulation can be seen in
+Figure 13. Collisions between all objects in the scene are
+computed using AABBs for broad phase collision pruning
+and our algorithm for narrow phase collision detection and
+response. The scene contains approximately 7.2 million triangles. We use a texture resolution of 1024x1024 for collision
+detection. The average measured execution time for a frame
+of the dynamic simulation (collision detection, response and
+integration of penalty forces for all objects) was 70 milliseconds.
+
+6. Discussion
+In this section we discuss the characteristics, limitations and
+possible improvements to our algorithms.
+Our algorithms address the problem of collision detection
+and proximity queries between a rigid, closed model and a
+deformable model. It would, however, be possible to replace
+the rigid model M with a deformable model and recompute
+
+As mentioned in Section 5, our methods process all triangles of N, and as such do not take advantage of possible
+pruning of primitives. It would, however, be possible to combine our algorithm with bounding volume hierarchies, and
+only render those groups of triangles for which bounding
+volumes overlap.
+Since our algorithms perform collision detection and proximity queries based on a discrete sampling of N in imagespace, its accuracy is limited by framebuffer resolution. In
+particular, we assume that every pixel rendered is totally covered when computing the surface area around a fragment.
+This leads to errors in the computed global penetration force
+and torque. Nevertheless, it is possible to use much higher
+precision on the framebuffer than for storing the distance
+field. Rendering N on the intersection of its bounding box
+with M instead of the whole domain would increase precision. However, precision would vary with the size of this
+intersection, and doing this for deformable models involves
+the extra cost of computing the bounding box of N.
+Our algorithms are also limited by their discrete nature.
+Queries are only performed at discrete intervals in time, and
+thus collisions between objects might be missed. Although
+techniques such as continuous collision detection [RKC02]
+can tackle this issue, they are typically more expensive to
+compute than discrete approaches. On the other hand, the
+high performance of our algorithms allows us to use high
+sampling rates, which help alleviate this problem.
+Another issue of our algorithms is the memory required
+to store distance fields on the GPUs. One way to address
+this would be to use adaptively sampled distance fields
+as presented in [FPRJ00], combined with GPU techniques
+∗
+like those in [LSK 06]. One could also reduce memory
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+2051
+
+consumption by storing only the distance in the texture memory and computing the gradient of D M for each fragment as
+an approximation to the direction to the closest point. This
+would probably hurt the performance of the algorithm in
+Section 3.4.
+
+of the Stanford Computer Graphics Laboratory (bunny), Cyberware (horse), UTIA, Academy of Sciences of the Czech
+Republic, and CGG, Czech Technical University in Prague
+(dragon).
+
+We believe that our collision detection algorithm is particularly well suited for applications in dynamic simulation
+using penalty-based collision response and contact handling.
+
+References
+
+Our collision detection from Section 3.4 bears some similarity to the approach of Hasegawa and Sato [HS04]. They
+pointed out the problem of discontinuities and friction torque
+computation that appear if too few points are sampled. They
+proposed integrating penalty forces and torques over the contact plane of interpenetrating convex objects, and obtained
+global penalty forces and torques based on the volume of
+interpenetration. Although it is not obvious how to compute
+such a contact plane for non-convex objects and difficult to
+compute such an integral, our global penetration forces and
+torques F and T correspond to penalty forces and torques integrated over a contact area. Moreover, the local area-weighted
+penalty forces computed at each fragment correspond to a
+small element of volume contained inside the penetration
+volume. We therefore believe that our method shares many
+of the advantages of the method presented in [HS04]. Unlike
+their method, however, our method does not handle static
+friction yet. This is left for future work.
+Penalty-based methods are especially intuitive as input to
+haptic feedback. Moreover, haptic feedback requires efficient
+and steady performance for the collision-detection algorithm.
+Our algorithm provides this and we therefore think that it is
+particularly well suited for producing haptic feedback using
+penalty-based methods. Although they map conveniently to
+our GPU implementation, penalty-based methods have several drawbacks. One of them is their discrete nature, and it
+would be interesting to explore implementations of different
+collision response schemes on the GPU.
+7. Conclusion
+In this paper, we have presented highly efficient algorithms
+for collision detection and proximity queries between a rigid,
+solid object and an arbitrary polygonal mesh using the parallel computing power of graphics hardware. The computation
+of penalty-based collision response or compact proximity
+information directly on the GPU allows our algorithm to
+minimize readbacks and rendering passes, which leads to
+high and steady performance compared to several existing
+algorithms.
+
+[BA05] BAERENTZEN J. A., AANAES H.: Signed distance
+computation using the angle weighted pseudonormal.
+IEEE Transactions on Visualization and Computer Graphics 11, 3 (2005), 243–253.
+[Bar94] BARAFF D.: Fast contact force computation for nonpenetrating rigid bodies. In Proc. of ACM SIGGRAPH
+(1994), vol. 28, pp. 23–34.
+[BJ07] BARBICˇ J., JAMES D.: Time-critical distributed contact for 6-dof haptic rendering of adaptively sampled reduced deformable models. In SCA ’07: Proceedings of
+the 2007 ACM SIGGRAPH/Eurographics symposium on
+Computer animation (2007), pp. 171–180.
+[Bly06] BLYTHE D.: The direct3d 10 system. In Proc. of
+ACM SIGGRAPH (2006), pp. 724–732.
+[FPRJ00] FRISKEN S. F., PERRY R. N., ROCKWOOD A. P.,
+JONES T. R.: Adaptively sampled distance fields: A general
+representation of shape for computer graphics. In Proc. of
+ACM SIGGRAPH (2000), pp. 249–254.
+[FSG03] FUHRMANN A., SOBOTTKA G., GROSS C.: Distance
+fields for rapid collision detection in physically based
+modeling. In Proc. of GraphiCon 2003 (2003), pp. 58–
+65.
+[GBF03] GUENDELMAN E., BRIDSON R., FEDKIW R.:
+Nonconvex rigid bodies with stacking. In Proc. of ACM
+SIGGRAPH (2003), vol. 22, pp. 871–878.
+[GGK06] GRESS A., GUTHE M., KLEIN R.: GPU-based collision detection for deformable parameterized surfaces.
+Computer Graphics Forum (Proc. of EUROGRAPHICS)
+25, 3 (2006), 497–506.
+[GKLM07] GOVINDARAJU N. K., KABUL I., LIN M. C.,
+MANOCHA D.: Fast continuous collision detection among
+deformable models using graphics processors. Computer
+Graphics 31, 1 (2007), 5–14.
+
+Acknowledgements
+
+[GLM05] GOVINDARAJU N. K., LIN M. C., MANOCHA D.:
+Quick-cullide: Fast inter- and intra-object collision culling
+using graphics hardware. In VR ’05: Proceedings of the
+2005 IEEE Conference 2005 on Virtual Reality (2005),
+pp. 59–66, 319.
+
+This work was supported by the European Community under
+the Marie Curie Research Training Network ARIS∗ ER grant
+number MRTN-CT-2004-512400. The models are courtesy
+
+[GM96] GOTTSCHALK S., MANOCHA D.: OBBTree: A hierarchical structure for rapid interference detection. In Proc.
+of ACM SIGGRAPH (1996), pp. 171–180.
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2052
+
+T. Morvan, M. Reimers & E. Samset/High Performance GPU-based Proximity Queries using Distance Fields
+
+[GOM∗06] GALOPPO N., OTADUY M. A., MECKLENBURG P.,
+GROSS M., LIN M. C.: Fast simulation of deformable
+models in contact using dynamic deformation textures.
+In SCA ’06: Proceedings of the 2006 ACM SIGGRAPH/Eurographics symposium on Computer animation (2006), pp. 73–82.
+[Har05] HARRIS M.: Mapping computational concepts to
+GPUs. In GPU Gems 2, PHARR M., (Ed.). Addison Wesley,
+March 2005, pp. 493–508.
+[HS04] HASEGAWA S., SATO M.: Real-time rigid body simulation for haptic interactions based on contact volume of
+polygonal objects. Computer Graphics Forum (Proc. of
+EUROGRAPHICS) 23, 3 (2004), 529–538.
+[HTG03] HEIDELBERGER B., TESCHNER M., GROSS M. H.:
+Real-time volumetric intersections of deforming objects.
+In Proc. of Vision, Modeling, Visualization VMV’03
+(2003), pp. 461–468.
+[HTG04] HEIDELBERGER B., TESCHNER M., GROSS M.: Detection of collisions and self-collisions using image-space
+techniques. In Proceedings of Computer Graphics, Visualization and Computer Vision WSCG’04 (2004), pp.
+145–152.
+[HZLM02] HOFF K., ZAFERAKIS A., LIN M. C., MANOCHA
+D.: Fast 3D geometric proximity queries between rigid and
+deformable models using graphics hardware acceleration.
+Technical Report: TR02-004, 2002.
+[JBS06] JONES M. W., BAERENTZEN J. A., SRAMEK M.: 3D
+distance fields: a survey of techniques and applications.
+IEEE Transactions on Visualization and Computer Graphics 12, 4 (2006), 581–599.
+[KP03] KNOTT D., PAI D. K.: CInDeR: collision and interference detection in real-time using graphics hardware. In
+Graphics Interface (2003), pp. 73–80.
+[KSW04] KIPFER P., SEGAL M., WESTERMANN R.: UberFlow:
+a GPU-based particle engine. In Proc. of the ACM SIGGRAPH/EUROGRAPHICS conference on Graphics hardware (2004), pp. 115–122.
+[LM03] LIN M., MANOCHA D.: Collision and proximity
+queries. In Handbook of Discrete and Computational Geometry: Collision detection. 2003.
+
+[MW88] MOORE M., WILHELMS J.: Collision detection and
+response for computer animation. In Proc. of ACM SIGGRAPH (1988), pp. 289–298.
+[OL05] OTADUY M. A., LIN M. C.: Stable and responsive
+six-degree-of-freedom haptic manipulation using implicit
+integration. In Proc. World Haptics Conference (2005),
+pp. 247–256.
+[Qui94] QUINLAN S.: Efficient distance computation between non-convex objects. In IEEE Intern. Conf. on
+Robotics and Automation (1994), pp. 3324–3329.
+[RKC02] REDON S., KHEDDAR A., COQUILLART S.: Fast
+continuous collision detection between rigid bodies. In
+Computer Graphics Forum (Proc. of EUROGRAPHICS)
+(2002), vol. 21.
+[RMS92] ROSSIGNAC J., MEGAHED A., SCHNEIDER B.-O.: Interactive inspection of solids: cross-sections and interferences. In Proc. of ACM SIGGRAPH (1992), pp. 353–360.
+[SF91] SHINYA M., FORGUE M.-C.: Interference detection
+through rasterization. The Journal of Visualization and
+Computer Animation 2, 4 (1991), 132–134.
+[SGG∗06] SUD A., GOVINDARAJU N., GAYLE R., KABUL I.,
+MANOCHA D.: Fast proximity computation among deformable models using discrete voronoi diagrams. In Proc.
+of ACM SIGGRAPH (2006), pp. 1144–1153.
+[SGGM06] SUD A., GOVINDARAJU N., GAYLE R., MANOCHA
+D.: Interactive 3D distance field computation using linear
+factorization. In Proc. of the 2006 symposium on Interactive 3D graphics and games (2006), pp. 117–124.
+[SOM04] SUD A., OTADUY M. A., MANOCHA D.: DiFi: Fast
+3D distance field computation using graphics hardware. In
+Computer Graphics Forum (Proc. of EUROGRAPHICS)
+(2004), vol. 23.
+[SPG03] SIGG C., PEIKERT R., GROSS M.: Signed distance
+transform using graphics hardware. In Proc. of IEEE Visualization (2003).
+[TKH∗05] TESCHNER M., KIMMERLE S., HEIDELBERGER B.,
+ZACHMANN G., RAGHUPATHI L., FUHRMANN A., CANI M.-P.,
+FAURE F., MAGNETAT-THALMANN N., STRASSER W., VOLINO
+P.: Collision detection for deformable objects. Computer
+Graphics Forum (EUROGRAPHICS State-of-the-Art Report) 24, 1 (2005), 61–81.
+
+[LSK∗06] LEFOHN A. E., SENGUPTA S., KNISS J., STRZODKA
+R., OWENS J. D.: Glift: Generic, efficient, random-access
+GPU data structures. ACM Transactions on Graphics 25,
+1 (2006), 60–99.
+
+[vdB97] VAN DEN BERGEN G.: Efficient collision detection of
+complex deformable models using AABB trees. Journal
+of Graphics Tools 2, 4 (1997), 1–13.
+
+[MC95] MIRTICH B., CANNY J. F.: Impulse-based simulation
+of rigid bodies. In Symposium on Interactive 3D Graphics
+(1995), pp. 181–188, 217.
+
+[Zac98] ZACHMANN G.: Rapid collision detection by dynamically aligned DOP-trees. In Proc. of IEEE Virtual
+Reality Annual International Symposium (1998), pp. 90–
+97.
+
+c 2008 The Authors
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+

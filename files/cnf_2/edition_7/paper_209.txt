@@ -1,0 +1,1298 @@
+DOI: 10.1111/j.1467-8659.2009.01416.x
+
+COMPUTER GRAPHICS
+
+forum
+
+Volume 28 (2009), number 8 pp. 2090–2103
+
+Interactive Pixel-Accurate Free Viewpoint Rendering from
+Images with Silhouette Aware Sampling
+A. Hornung1 and L. Kobbelt2
+1 ETH
+2 RWTH
+
+Zurich, Switzerland
+Aachen University, Germany
+hornung@inf.ethz.ch
+
+Abstract
+We present an integrated, fully GPU-based processing pipeline to interactively render new views of arbitrary
+scenes from calibrated but otherwise unstructured input views. In a two-step procedure, our method first generates
+for each input view a dense proxy of the scene using a new multi-view stereo formulation. Each scene proxy consists
+of a structured cloud of feature aware particles which automatically have their image space footprints aligned to
+depth discontinuities of the scene geometry and hence effectively handle sharp object boundaries and occlusions.
+We propose a particle optimization routine combined with a special parameterization of the view space that
+enables an efficient proxy generation as well as robust and intuitive filter operators for noise and outlier removal.
+Moreover, our generic proxy generation allows us to flexibly handle scene complexities ranging from small objects
+up to complete outdoor scenes. The second phase of the algorithm combines these particle clouds in real-time
+into a view-dependent proxy for the desired output view and performs a pixel-accurate accumulation of the colour
+contributions from each available input view. This makes it possible to reconstruct even fine-scale view-dependent
+illumination effects. We demonstrate how all these processing stages of the pipeline can be implemented entirely
+on the GPU with memory efficient, scalable data structures for maximum performance. This allows us to generate
+new output renderings of high visual quality from input images in real-time.
+Keywords: free viewpoint rendering, silhouette aware sampling, pixel accuracy, 3D reconstruction
+ACM CCS: I.3.7 [Computer Graphics]: Three-Dimensional Graphics and Realism I.4.8 [Image Processing and
+Computer Vision]: Scene Analysis
+
+1. Introduction
+Photorealistic image synthesis is one of the central challenges
+in computer graphics and vision. Classical rendering is generally based on digital 3D models and simulated illumination. However, in the last years research on view-morphing
+and image-based rendering has shown great potential with
+immense impact on practical applications such as free viewpoint TV of sport events and movies, or simply a realistic
+3D visualization from pictures of your last holiday trip. The
+basic idea is to synthesize novel output views directly from
+a given set of input images. But although the imaging process has been researched extensively, the goal of real-time,
+virtually unconstrained free viewpoint rendering of arbitrary
+scenes is still challenging.
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and
+Blackwell Publishing Ltd. Published by Blackwell Publishing,
+9600 Garsington Road, Oxford OX4 2DQ, UK and 350 Main
+Street, Malden, MA 02148, USA.
+
+Image-based rendering applications either require a very
+dense sampling of the input view space using a large number of images, or one needs a geometric scene proxy to
+merge content from a sparser and less constrained set of input views. Since the accurate and robust generation of such a
+scene proxy remains difficult in practice, many techniques for
+free viewpoint rendering either assume the necessary depth
+information to be available, e.g. using z-cams, require active stereo techniques based on structured light, or employ
+rectified stereo from image pairs. Hence, they are restricted
+with respect to the camera setups and scene types. Moreover,
+a particularly important issue is an exact representation of
+object silhouettes in order to prevent rendering artefacts at
+depth discontinuities. Due to the involved problems, many
+
+2090
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+methods are optimized for a particular application domain
+such as free viewpoint video of human actors instead of general scene types.
+Beside the creation of a suitable geometric proxy, the second central problem is the actual generation of a new view
+from the given scene representation. Merging the contributions from all relevant input images in order to estimate the
+final colour of an output pixel generally involves significant
+computational effort. Because of the ill-posed nature of the
+scene proxy generation or visibility estimation, sophisticated
+filtering and optimization techniques are often inevitable in
+order to achieve an acceptable output quality. Some methods hence restrict themselves to smooth view interpolation
+between images only, or use a coarse camera blending field
+instead of computing the colour contribution to all output pixels. However, for reconstructing fine-scale view-dependent
+illumination effects of complex surfaces, it is often necessary
+to consider the colours from a large number of input views
+for each single pixel. Correspondingly, high-quality methods
+still require significant offline processing, often combined
+with the need for storing huge amounts of data. Moreover,
+many existing techniques have to restrict the synthesis of
+new views to virtual camera positions in the proximity of the
+input views. In order to address these issues, this work has
+the following objectives:
+1. Generic scene representation for arbitrary complexities.
+2. Versatile, unconstrained camera configurations.
+3. Adjustable trade-off in terms of quality versus speed.
+4. Free and interactive 3D user navigation allowing for
+significant viewpoint changes.
+5. An integrated image-based geometry reconstruction
+and rendering pipeline which is fully executed on the
+GPU.
+To achieve these goals, we propose an integrated generic
+and scalable system, which handles all relevant processing
+steps. Our algorithm comprises several technical contributions: A generic particle-based scene representation in combination with a flexible multi-view stereo formulation allows
+for the creation of geometric proxies from a set of input views
+for arbitrary scene types. The particle shapes are sensitive to
+depth discontinuities at object silhouettes and enable a proper
+handling of occlusions in the input images. This approach is
+implemented using a special view-space parameterization
+and an efficient continuous optimization framework. In combination, these techniques support the generation of proxies
+even for complex scenes and unconstrained camera setups.
+In the rendering phase a pixel-accurate camera blending field
+is computed for a photorealistic reproduction of the scene appearance from a large number of input views. Our method is
+optimized for an entirely GPU-based implementation resulting in high performance rendering with unconstrained and
+interactive 3D user navigation.
+
+2091
+
+2. Related Work
+Seminal work on image-based rendering and reconstruction
+has been proposed in [LH96, GGSC96, SD97]. The first two
+approaches focus on representations for rendering, however,
+with restrictions concerning the output quality, the supported
+spatial camera configurations, and the computational efficiency. Sampling issues, in particular for light field rendering,
+have been analysed in [CCST00, LS04]. The third approach
+[SD97] computes an explicit 3D reconstruction from the input images and hence allows for rendering of new views
+as well. However, it is difficult to represent anisotropic surface appearances. Although real-time implementations are
+possible [LMS04], the computational overhead, in particular
+for large and detailed scenes, can be significant due to the
+necessity for discretizing the entire scene volume. Online
+rendering from a sparser set of unstructured views, but given
+a pre-computed depth proxy of the scene has been presented
+in [PCD∗ 97, BBM∗ 01]. The latter approach focuses on sophisticated merging of colour contributions from different
+images. The importance to correctly handle silhouettes has
+already been observed there. However, the generally quite
+coarse blending field can lead to ghosting artefacts. Different
+aspects of these methods have been improved in more recent
+research and are discussed below. The particle proxies and
+pixel-accurate blending field described in this paper partially
+build and improve upon these ideas as well.
+View synthesis using accurate geometric proxies which
+is, however, restricted to interpolation between views is described in [VBK02, ZKU∗ 04]. A very accurate depth estimation technique for continuous video with small inter-frame
+displacements has been described in [ZJWB08]. In contrast
+[FWZ05] uses a purely image-based approach with additional image priors for resolving artefacts due to ambiguous
+colour estimation. These works show high-quality synthesis results, but at the expense of a computationally intensive
+pre-processing. A real-time approach to resolve blurring artefacts of projected textures based on optical flow estimation
+has been presented in [EdDM∗ 08].
+Systems for processing and visualizing multiple video
+streams are described in [MBR∗ 00, CTMS03, MP04], the
+first two focusing on rendering human actors captured in
+controlled setups. [WWG07] presents free viewpoint video
+based on billboard rendering which is specialized to people as well. Similarly, [ABB∗ 07] employ relief impostors in
+order to reconstruct visual appearance. However, a central
+component of the latter work is an optimization of the actual
+view positions.
+More general scene representations are possible with
+techniques based on the above mentioned voxel-colouring
+[SD97] or layered depth images [SGwHS98], which allow for
+an efficient visibility estimation. The employed pixel ordering schemes are, however, not optimal for an efficient GPU
+implementation. Moreover, a proper blending of the colour
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2092
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+Figure 1: Overview of our processing pipeline. From a set of input images Ij loaded to the GPU, a pre-process computes an
+input view proxy Pj for each input view Ij by a photo-consistency optimization and subsequent regularization and noise removal.
+The output view synthesis then merges all proxies Pj to a view-dependent depth map D and computes colour contributions
+from all input views in order to render the final output image I in real-time.
+contributions has not been considered in these works. More
+recently and related to our work, point-based approaches
+have shown great potential for 3D video recording and realtime rendering [WLG04, WWCG07].
+GPU-based approaches with aims similar to our work have
+been presented in [YPYW04, GV07]. However, these methods are based on the commonly employed ‘plane-sweep’
+stereo approach and hence support depth estimation at discrete depths only. Hence, higher resolutions come at the expense of correspondingly increased processing times which is
+true for most stereo methods using discrete depth sampling,
+e.g. [SD97] or techniques based on MRFs or graph cuts.
+[MAW∗ 07] uses plane-sweep stereo as well, but in addition
+merges multiple depth maps similar to our blending field
+computation in order to increase the accuracy of the reconstruction and to robustly remove outliers. For an overview of
+current techniques for stereo and scene reconstruction please
+refer to [Mid08a, Mid08b]. In contrast our particle based
+approach enables an efficient continuous optimization and
+achieves high spatial resolutions with a faithful representation of curved or oblique surfaces.
+Finally, most stereo approaches use isotropic image-space
+footprints (e.g. simple comparison windows) for the consistency estimation. This generally works well for continuous surfaces without a too strong perspective distortion
+between the comparison images, but leads to wrong estimates at oblique surface parts or at object silhouettes. This
+problem has been addressed in previous work by using modified or shiftable 2D correlation windows for improving object boundaries and to handle occlusions [KSC01, HIG02].
+[YK06] uses adaptive weights to control the influence of
+single pixels within correlation windows. However, due to
+the use of correlation windows defined in image space,
+these techniques generally have difficulties to handle arbitrary camera configurations and the resulting scale changes
+or perspective distortions between images. These issues are
+addressed by our feature aware particle-based representation
+and photo-consistency estimation.
+In summary, many methods have to make strong assumptions about the underlying setup and scene structure by us-
+
+ing, e.g. specifically designed proxies, require pre-computed
+depth information, or exhibit significant pre-processing time
+and storage requirements. Our work addresses these issues
+in order to allow for unconstrained navigation for arbitary
+scenes and camera setups.
+
+3. Conceptual Overview
+In this section, we motivate and describe our overall
+approach. The input to this method is a set of n images
+Ij , j ∈ [0, n − 1] showing a static scene from different
+viewing positions. We assume that the camera calibration
+is given, e.g. using structure from motion [BZM97]. The
+goal is then to synthesize a new output image I from a
+new vantage point which reproduces the photo-realistic
+appearance of the original input views. For each output pixel
+in I two properties have to be determined: First, one has to
+compute which set of input images actually influences the
+pixel’s appearance, i.e. which input images are seeing the
+same 3D scene point as the output view. Second, the colour
+contributions of these images to the pixel’s final colour
+have to be estimated. Accordingly, the proposed algorithm
+proceeds in two main phases (Figure 1).
+The first phase is a pre-process and extracts a partial geometric scene proxy from each input view Ij . The key idea
+is to regard each input view camera centre c j as an emitter of a structured particle cloud Pj which is generated by
+uniformly sampling pixels in the corresponding reference
+image Ij at a desired resolution. The basic definition of particle P ∈ Pj is given by a tuple P := (u, v, r). Parameter
+u ∈ IR is the particle’s distance to the camera centre cj ∈ IR3
+of its respective input image Ij , v ∈ IR3 is its associated
+viewing direction from the camera centre through the image
+plane at a particular pixel (x, y), and r ∈ IR is the particle’s
+radius. Then, for each particle, the distance u has to be computed where its corresponding viewing ray v intersects the
+scene.
+As discussed in the previous section a common approach
+in stereo reconstruction is to solve this problem by sampling the viewing rays at discrete positions, and to estimate
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2093
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+the colour- or photo-consistency at each sample position by
+comparing colour differences of projections to image-space,
+similar to the original voxel-colouring method [SD97] or the
+commonly employed plane-sweep stereo [YPYW04]. However, as mentioned in Section 2, these standard approaches
+have restrictions with respect to the spatial resolution and the
+handling of silhouettes and occlusions for arbitrary camera
+configurations. Our proxy generation addresses these problems in several respects. We employ a photo-consistency
+estimation for general volumetric scene elements which is
+robust with respect to perspective distortion by integrating
+consistency values over a 3D domain rather than screenor estimated object-aligned 2D patches (Section 4.1). Moreover, the consistency estimation is based on silhouette aware,
+anisotropic 3D particle shapes which have their image footprint properly aligned to scene discontinuities in order to
+handle object silhouettes and occlusions in the input images
+(Section 4.2). Finally, a particle-based view-space parameterization (Section 4.3) enables the use of efficient continuous optimization and regularization techniques rather than
+a simple discrete sampling of the view-space, and extends
+standard passive stereo to robust reconstruction of smooth
+proxies from arbitrary numbers and configurations of cameras (Sections 4.4 and 4.5).
+After this particle optimization each particle cloud Pj
+represents a geometric proxy of the scene as seen from its
+reference input image Ij and basically encodes which view
+captures which part of the scene. The second phase then proceeds with the actual interactive view synthesis. From the set
+of proxies it can be determined whether an input image Ij
+potentially contributes to the desired output image I by a
+reprojection of the corresponding particle cloud Pj into this
+new view. However, one has to consider the fact that particles from different proxies could project onto the same output pixel, but actually correspond to entirely different scene
+points. Therefore, this second phase consists of the following steps: First, all partial scene proxies Pj generated in the
+first phase are merged into an intermediate, view-dependent
+scene proxy or depth map D which represents the scene geometry as seen from the desired output view I (Section 5.1).
+All particles of a particular input view proxy Pj which lie
+in the spatial vicinity of D then correspond to a scene point
+visible in the input image Ij that is also visible in the output
+view and contributes to the colour information. The output
+colours are computed by projecting the output view pixels
+over the proxy D into the corresponding input image Ij . The
+output view I is then generated by a weighted accumulation
+of the contributions of all relevant input images. This approach effectively corresponds to a pixel-accurate blending
+field (Section 5.2).
+
+4. Input View Proxies
+For clarity, we first describe isotropic particles and then introduce the extension to anisotropic, feature aware particles.
+
+Figure 2: Feature aware particle shapes and discontinuity
+alignment. Silhouette aligned particles in e) are solid, nonsilhouette particles (dashed) are oriented arbitrarily.
+
+4.1. Particle photo-consistency
+Let p denote the 3D position of a particle P. For the photoconsistency estimation φ(P ) we follow the approach described in [HK06] where it was shown that the colour integration of samples projected from a 3D domain rather than
+using object or image aligned 2D patches is less biased in
+cases, where the surface orientation is not known in advance.
+Hence, we uniformly distribute a set of samples {p i : p i −
+p 2 ≤ r 2 } within the volume enclosed by a particle P with
+radius r. The photo-consistency φ(P ) is computed by projecting samples p i into the reference view J 0 = Ij and a set
+of comparison images J 1 , . . . , J m−1 , and summing up the
+variation of each sample’s colour:
+φ(P ) =
+
+φ(pi ),
+
+with
+
+(1)
+
+i
+
+φ(pi ) =
+
+1
+m
+
+(ci,l )2 −
+l
+
+1
+m
+
+2
+
+ci,l
+
+,
+
+l
+
+with c i,l being the colour value of sample p i in image Jl . For
+increased robustness with respect to varying illumination, the
+vectors (c0,l − c¯l , . . . , ci,l − c¯l , . . .)T are normalized prior to
+the computation of φ, with c¯l = m1 i ci,l being the mean
+colour of all samples in a single image Jl . As images Jl our
+method automatically selects the spatially closest cameras to
+Ij in order to minimize visibility issues between the different
+views (see also Section 7).
+
+4.2. Silhouette aware particles
+As motivated above, simple isotropic image footprints may
+result in wrong photo-consistency estimates at object silhouettes since fore- and background pixels are evaluated together
+(Figure 2a). These issues can be addressed by modifying
+the shape of the particles. Simple anisotropic shapes such
+as ellipsoids only alleviate, but do not resolve this problem
+(Figure 2b). Moreover, the compression along one axis has
+to be compensated by stretching the footprint along the silhouette in order to keep the footprint large enough.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2094
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+φ
+
+a)
+
+φ
+
+0.7
+0.6
+0.5
+0.4
+0.3
+0.2
+0.1
+0
+
+φ
+0
+
+0.5
+
+1
+
+1.5
+
+2
+
+2.5
+
+u
+
+0
+
+0.1
+
+0.2
+
+0.3
+
+0.4
+
+0.5
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1
+
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+60
+
+70
+
+80
+
+90
+
+100
+
+u
+d) perspective warping
+
+b)
+
+c) no warping
+
+0.7
+0.6
+0.5
+0.4
+0.3
+0.2
+0.1
+0
+
+3
+
+3.5
+
+4
+
+4.5
+
+5
+
+0.7
+0.6
+0.5
+0.4
+0.3
+0.2
+0.1
+0
+
+e) particle warping
+
+u
+
+Figure 3: Consistency plots of different view space warping
+approaches for two scene points.
+Therefore, in order to allow for a sharp segmentation, we
+modify the above formulation, which is based on spherical
+3D particles, by intersecting them with a silhouette aligned
+feature plane. The plane normal is orthogonal to the associated viewing ray of a particle such that the particle projects to
+a hemi-circle in image space (Figure 2c). This particle shape
+has several important advantages: First, it can be aligned to
+object silhouettes such that either only foreground or only
+background pixels are taken into account for the consistency
+estimation. Second, the sampling away from the silhouettes
+remains rather isotropic, without incorporating additional
+colour samples from oblique and, therefore, less reliable surface areas.
+The problem is that the actual object silhouettes are unknown and that they cannot be reliably estimated from a single image alone by using, e.g. colour gradients. With multiple
+input images and our photo-consistency estimation described
+in the previous section, however, we can generally expect the
+colour variance of a particle to be higher for wrong silhouette alignment due to the mixture of fore- and background
+pixels, so that a correct feature orientation can be detected
+by measuring φ.
+We add an additional parameter d to the tuple defining a
+particle P = (u, v, d, r), where d ∈ IR3 is the feature plane
+orientation orthogonal to v. The set of samples for the photoconsistency estimation of P is then defined as {p i : p i −
+p 2 ≤ r 2 ∧ dT p i ≤ dT c j }, so that only samples are considered which lie on one side of the sphere intersected by the
+plane dT (p i − c j ) = 0, where c j is the camera centre of the
+image Ij emitting P. The particle orientation is then included
+as an additional parameter into the overall optimization process described in Section 4.4.
+
+Figure 4: Geometry of the parameterization.
+
+v. The graphs show the values of φ for sample positions u
+along v for three view-space parameterizations. The ranges
+of the u axes differ due to the different parameterizations, but
+effectively represent the same interval on v. Uniformly distributed sample positions u in view-space result in a highly
+non-uniform sampling in image space due to the perspective
+projection, so that minima of distant scene points with u →
+∞ appear significantly stretched (Figure 3c). Moreover, 3D
+particles with a constant radius have a footprint of decreasing size in image space for increasing distance, so that their
+overall colour variation also decreases. These two facts lead
+to a distortion of φ, without a proper consideration of the
+image sampling rate. This renders consistency optimization
+routines based on uniform discrete sampling unstable since
+minima of φ are more difficult to locate.
+Most standard passive stereo methods address these problems by using rectified stereo image pairs and comparison
+windows at discrete pixel disparities in image space. Another solution commonly employed in related work (e.g.
+[YPYW04]) are projectively corrected parameterizations of
+the view-space. However, as shown in Figure 3(d), this leads
+to exactly the opposite effect compared to (c): close minima
+are overly stretched while distant minima are compressed
+considerably. These significantly changing widths of the desired minima of φ and the correspondingly inhomogeneous
+sampling properties again render the robust optimization of
+the particle positions u unnecessarily difficult.
+
+4.3. View-space parameterization
+
+Here, we propose a new particle-based, logarithmic parameterization of the view-space which addresses the above
+problems and allows for efficient continuous optimization
+and filtering. As a side note we would like to mention that
+the optimal sampling properties of a logarithmic parameterization have been observed in the context of shadow mapping
+by Wimmer et al. [WSP04]. In our setting each particle had
+an associated radius r which, however, was not specified in
+detail yet. We present a derivation of the particle radii which
+results in a natural parameterization of the 3D space and
+which relates the particle sizes to the scene approximation
+quality.
+
+Exemplary plots of φ for a viewing ray through a close (red)
+and distant (blue) scene point (a) are shown in Figure 3.
+The dotted lines are the corresponding epipolar lines in the
+comparison image (b), and the thickened line segment represents the sampled interval on the respective viewing ray
+
+The resolution of an image Ij is directly related to the precision of a 3D scene proxy that can be reconstructed from
+that image. Intuitively, each pixel (or image space window)
+spans a viewing cone with the corresponding camera centre
+c j (Figure 4) which integrates visual information over a part
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2095
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+of the scene. The diameter of that cone determines the depth
+precision that can be achieved, since an intersection of this
+cone with the scene geometry covers smaller scene regions
+close to the camera, and larger regions with increasing distance. Hence, for a correct integration of the image resolution
+into our problem formulation, the particle primitives have to
+be associated with viewing cones rather than viewing directions. This implies that a particle at a distance u has to have a
+radius r corresponding to the radius of the associated viewing
+cone at that distance. Consequently, it is the number of pixels
+covered by its projected footprint that stays constant rather
+than its 3D radius. From these observations we can derive a
+parameterization for the particle parameters u and r based on
+the footprint radius rs of its associated viewing cone.
+The radius r of a particle is computed from its screen-space
+radius rs , the camera’s focal distance f , and the distance u of
+a particle by
+r=
+
+rs
+u.
+f
+
+(2)
+
+Defining ratio α := rfs (i.e. r = αu), two ‘neighbouring’
+particle positions u 0 and u 1 under consideration of their size
+change within the viewing cone are related by (see Figure 4)
+1+α
+u0 .
+⇔ u1 =
+1−α
+
+u1 − αu1 = u0 + αu0
+
+(3)
+
+(4)
+
+Instead of considering only particles Pi at discrete positions i, this equation obviously holds as well for particles Pk
+at continuous parameter space positions k ∈ R. The particle
+radius at u(k) is r(k) = αu(k) = αλk u 0 (see (2)). Inversely,
+given a particle position u, the corresponding parameter value
+is computed as
+k(u) = logλ
+
+u
+.
+u0
+
+(5)
+
+To simplify the notation in the following sections, we additionally introduce a distance norm based on this log-space
+parameterization, measuring distances in terms of particles:
+P (ui , v) − P (uj , v)
+
+P
+
+= |k(ui ) − k(uj )|.
+
+The positive effect of this log-space parameterization using
+a uniform sampling of parameter k is shown in Figure 3(e):
+Minima for close and distant points have identical shapes,
+independent of domain boundaries of u. This significantly
+simplifies corresponding optimization routines for finding
+these minima and allows for uniform step sizes. Moreover,
+given two extremal interval boundaries u 0 and ue along a ray,
+which are known to contain the scene’s region of interest, the
+number of necessary sample positions within this interval can
+be automatically derived from (5). Finally, as will become
+clearer in the following sections, the distance norm in (6)
+allows for a straightforward definition of outlier particles,
+noise, and corresponding filter operators. Since the particle
+radius r depends only on rs it can be removed from the particle
+definition.
+
+4.4. Optimization
+
+Recursive application of this relation yields an exponen, and given a fixed, but
+tial function for u. Writing λ = 1+α
+1−α
+arbitrary position u 0 of the first particle P 0 , the position of
+any other particle Pi is given as
+u(i) = λi u0 .
+
+estimation. However, a single parameterization resulting in
+uniform sampling with more than one comparison image is
+obviously not possible. Hence, in the context of our problem
+formulation and design goals supporting an arbitrary number of input views, this parameterization seems to be the best
+possible choice.
+
+In order to produce high-quality rendering results it is inevitable to compute discontinuity preserving, but otherwise
+smoothly varying depth estimates for the particles. Hence,
+one generally needs very robust optimization techniques and
+additional smoothness terms in order to solve this problem. In
+related work one finds a variety of approaches, ranging from
+exhaustive, but effectively discrete sampling up to complex
+non-linear energy minimization procedures. Unfortunately,
+most of these approaches are computationally highly expensive and one of the main sources for the often considerable
+processing times in image-based rendering. Moreover, the
+required artificial smoothness energies often introduce an
+undesirable bias.
+Instead of a combined optimization of φ and a smoothing
+regularization of particle positions, we split these two tasks
+into subsequent processing steps: First, an optimal position
+and orientation is computed for each particle independently.
+Then we apply discontinuity preserving filter operations in
+order to compute the final proxy. Formally, the optimization
+problem can be described by the following expression:
+
+(6)
+
+This parameterization yields several significant advantages: The only relevant free parameters in order to compute reasonable sampling step sizes along viewing rays are
+the screenspace radius rs of the corresponding viewing cone,
+and a reference position u 0 . Using (4), a uniform sampling
+with respect to k results in a non-uniform sampling along the
+viewing ray which properly considers the necessary particle
+size change. The resulting sampling is not necessarily uniform in all comparison images during the photo-consistency
+
+arg min φ(P (u, v, d(γ ))),
+u,γ
+
+(7)
+
+i.e. for each particle, we have to find the optimal viewing ray
+position and feature direction defined by rotating d around
+the rotation axis defined by the viewing ray v.
+The estimation is started with a uniform sampling of particles Pi at discrete sample positions in the previously defined
+log-space and uniformly sampled, discrete feature directions γj ∈ {0, π4 , π2 , . . .} by a stepwise rotation of the particle
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2096
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+lying scene using the distance norm · P defined in (6). For
+example, in our implementation this convergence threshold
+is set to 1% of the particle radius.
+4.5. Regularization and filtering
+
+Figure 5: Benefit of our continuous optimization and silhouette aware particle shapes. With isotropic particle shapes (a)
+a band of background particles is wrongly associated with
+the foreground around the silhouette of the pillar, resulting in
+significant rendering artefacts. With silhouette aware particle shapes (b) the outline is reproduced much more faithfully
+(rs = 5). Side (c) and top view (d) of the curved pillar and
+the oblique floor which are generally more problematic to
+reconstruct with discrete depth labels.
+
+orientations, i.e. we compute ∀ui ∀γj φ(P (ui , v, d(γj ))). The
+only user-defined input parameters to this procedure are two
+search interval boundaries u 0 and ue , and the desired footprint size rs . The required number of samples is then given by
+(5). After this global sampling at discrete particle positions
+Pi , a subsequent continuous optimization is performed by using the current optimum as a starting position for incremental
+interval refinement (golden section search [PFTV92]). The
+initial interval for this search is defined as [P i−2 , P i+2 ],
+corresponding to an offset of two particles in each direction
+along the viewing ray with respect to Pi . During this phase
+the previously computed feature direction remains fixed for
+each particle.
+Figure 2(d) and (e) visualize the automatic alignment to
+discontinuities at object silhouettes. In non-feature regions,
+the particle directions have no influence on the overall consistency estimation. Figure 5(a, b) compares the resulting
+proxy and silhouette quality from different vantage points
+with isotropic and feature aware particles, respectively. Similar to the particle positions, we explicitly do not want to
+enforce any artificial smoothness on the direction field. Moreover, a particular advantage of this optimization is the fact
+that it does not depend on a pre-analysis of silhouettes based,
+e.g. on image gradients which is generally an error-prone
+process. This approach effectively corresponds to a feature
+aware, continuous stereo optimization, resulting in faithful
+reconstructions of discontinuities as well as of curved and
+oblique surfaces (Figure 5c, d). All relevant parameters such
+as the convergence threshold for the golden section search
+can be provided intuitively and independent from the under-
+
+During the above optimization, an image-based regularization is achieved by using a particle footprint of several pixels.
+Moreover, the theoretical sensitivity of the photo-consistency
+measure to textureless regions can be alleviated by dynamically increasing the particle size until a sufficient colour
+variance in the reference image Ij is achieved [HK07]. Our
+experiments showed, however, that a small footprint of rs = 5
+is generally sufficient. Nevertheless, due to the feature aware
+sampling and proper separation of fore- and background regions the footprint size can be easily increased without sacrificing sharp object silhouettes in particular for the more
+dominant silhouettes of foreground objects.
+For cases where background regions visible in reference
+image Ij are occluded in the comparison images, a proper
+depth cannot be computed, resulting in a small number of
+outlier particles. Moreover, the purely image-based regularization exhibits a certain amount of remaining noise as well.
+As motivated in the previous section we do not want to bias
+the initial particle optimization. Instead we propose a simple
+set of three subsequent spatial filters which effectively handle outliers and measurement noise as a post-optimization
+process. The nice property of these filters is that they can
+again be formulated intuitively in terms of · P .
+Under the assumption that the scene consists of piecewise
+smooth surfaces, we first reposition isolated outlier particles P ∈ Pj emerging from local minima of φ which lie
+in otherwise sufficiently smooth surface regions. Due to the
+structured nature of the particle cloud resulting from a regular
+sampling of the input image Ij , this is achieved by a uniform
+filter kernel, counting the number of neighbours of P which
+are within a certain distance τ :
+s(P )
+= #{P : P in 8 − neighbourhood of P ∧ P − P
+
+P
+
+< τ }.
+(8)
+
+If this smoothness measure has a value s(P ) ≤ 3, we move
+P into the centre of gravity of its neighbours. This filter FS has
+two major effects: Particles with a stable proximity remain
+fixed, while isolated outlier particles are moved towards the
+surface. The remaining outlier particles without a sufficiently
+smooth support are removed by a filter FO similar to FS . We
+again estimate the support of a particle using (8), and reject
+all particles with s(P ) ≤ 3 instead of repositioning them. τ
+depends on the particle density of Pj (the particle sampling
+of Ij , see Section 3), but proved to work robustly for all our
+experiments with τ = 0.1.
+Finally the remaining measurement noise is removed by
+a last weighted smoothing operator FW . We compute a
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2097
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+(a)
+
+(c)
+
+(b)
+
+Figure 7: Filtering of depths. The bars visualize the different
+interval refinement strategies for merging depth maps.
+
+Figure 6: Regularization and outlier removal. (a) A reference image Ij from the Middlebury Temple data set [Mid08a].
+(b) A cut-out of the corresponding particle cloud Pj directly
+after the photo-consistency estimation without any explicit
+regularization (top) and after the regularization and filtering
+step (bottom). For an improved visualization we converted Pj
+into a triangle mesh by creating a vertex from every particle
+and connecting neighbouring particles. (c) Top views of the
+same meshes.
+
+weighted average of neighbouring particles by taking their
+distance into account, so that depth discontinuities are preserved. The weight of each neighbour particle P is simply
+computed as w(P ) = 1.0/max ( P − P P , 0.1). Since
+the filters FS and FO already converge to a stable solution after a few iterations, the overall proxy quality is not
+sensitive to changes of the involved parameters. An example for a particle cloud Pj before and after optimization
+(Pj ← FW ◦ FO ◦ FS (Pj )) is shown in Figure 6. These steps
+finalize the first phase for generating the input view proxies.
+
+5. Output View Synthesis
+For computing a new view of the scene, one could in prinicple follow two obvious approaches. The first would be a
+forward splatting approach similar to layered depth images
+[SGwHS98]. However, this approach has the significant disadvantage that the output view sampling and quality would
+depend solely on the geometric complexity of the scene proxies. Our aim is to decouple the geometric proxy resolutions
+from the output view sampling, so that it is possible to synthesize high-quality views even from proxies with low geometric
+complexity.
+A second possibility would be to utilize the same optimization as for the input views, but with the particles defined with
+respect to the output view similar to [FWZ05]. However, the
+two main restrictions here are that, first, the optimization procedure for input proxies Pj has one fixed colour constraint
+for each particle in its originating view Ij which is no longer
+true for the unknown output view. Although this may seem
+a subtle problem, the photo-consistency estimation becomes
+
+significantly more ambiguous and ill-posed in practice. The
+second problem is that since it is difficult to make any prior
+visibility estimation, it is not clear for which viewing ray positions a particle is actually visible or occluded. This results in
+significant rendering artefacts in particular for output views
+with a large baseline to any input view. Since our proxies
+are generated from nearby input views the occlusion problem can be effectively handled using the silhouette aware
+particles and our filtering scheme.
+For computing a new view I of the scene, we instead propose the following approach which computes pixel-accurate
+colour contributions by backward warping and which allows
+the desired decoupling of the proxy resolutions from the output view resolution.
+5.1. View-dependent proxy generation
+The first step consists of computing a view-dependent depth
+proxy D for the output view I . For this purpose, we first
+splat each proxy Pj into the output view, and store the resulting depth maps Dj . These depth maps then have to be merged
+into a single depth map D . A corresponding operator has to
+robustly remove remaining outliers in the depth maps Dj , and
+compute a reliable depth value for each output pixel. However, simple outlier resistant filtering by computing, e.g. the
+Median value of all depth maps Dj is not sufficient (Figure 7):
+Assume that each depicted particle belongs to a proxy Pj ,
+and that (a) is an outlier particle. Particles located at positions
+(b) and (c) represent valid scene points. Computing the Median would wrongly choose a depth value from the occluded
+set of particles (b, red), because this scene part has been
+observed by more cameras. The correct scene point visible
+in the output view, however, should be located at position
+(c, green). However, this visibility problem can be properly
+resolved by the following 2-phase filter.
+An iterative, GPU-friendly Median filter can be implemented by partitioning the search space into two sections,
+and counting the number of elements within each section
+[VKG03]. This procedure is iterated by subdividing the interval containing the Median (Figure 7, red bars). Our modified
+filter has the additional prioritized rule to subdivide the section closer to the camera, if at least n cameras ‘vote’ for this
+part of the scene, i.e. there are at least n particles (Figure 7,
+green bars). If, after enough interval subdivisions, the number of particles within the investigated intervals is < n, the
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2098
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+I
+
+Ij
+
+(b)
+
+I
+
+(a)
+
+D
+
+Ij
+
+(c)
+
+(d)
+
+D
+
+Dj
+
+Dj
+
+Figure 8: The left-hand figure shows the activation of output view pixels. On the right-hand the output colours for
+the activated pixels are gathered from the input views by
+reprojection.
+filter proceeds and computes the Median depth value of the
+remaining particles. This approach robustly eliminates remaining outlier particles and correctly resolves occlusions
+between different scene parts projecting to the same pixel by
+taking the closest depth value that is reliably seen by enough
+cameras. Moreover, it results in a continuous proxy D even
+for rather sparse input proxies Dj . Parameter n basically depends on the noise-level, i.e. the expected number of outliers,
+and the number of input cameras. However, in all our experiments we consistently used n = 3. This process is illustrated
+in Figure 9.
+
+5.2. Colour estimation
+Given D the next task is to compute the ‘blending field’, i.e.
+to accumulate the actual colour contributions from the input
+images to each output pixel. This can again be evaluated
+efficiently by a forward splatting approach similar to the
+previous section. Each particle proxy Pj is splatted into the
+output view. We then test for each covered output pixel (x,
+y), whether the depth value d(x, y) of the covering splat
+lies within a narrow band around the computed depth map
+D (x, y) of the output view. Each ‘activated’ pixel (x, y) in
+I covered by such a splat then has to receive some colour
+contribution from Ij .
+For correctly estimating the colour, the output pixel in turn
+has to be reprojected along its viewing ray over D into Ij ,
+and the corresponding weighted colour has to be added to
+an accumulation buffer. This process is depicted in Figure 8:
+For computing the colour contribution of one of the input
+cameras Ij (orange) we first splat each P ∈ Pj (a) into the
+output view (b) as described in the previous paragraph. The
+activated pixels are then reprojected onto the output view
+proxy D (c) and from there into the input image Ij for
+the actual colour lookup (d). Since each pixel’s colour is
+accumulated by individual projection, this approach properly
+considers the sampling of the output view and corresponds
+to a pixel-accurate blending field (see Figure 9c). The weight
+of each view is computed similar to the ULR framework
+[BBM∗ 01].
+
+Figure 9: View-dependent proxy generation. Columns (a)
+and (b) show two reference images I 0 and I 1 (top row), the
+resulting particle clouds P0 and P1 splatted into the output
+view (middle row), and the depth maps D 0 and D 1 (bottom
+row). The merged depth map D is shown in (c, bottom) and
+the output image I after the colour reprojection in (c, top).
+6. GPU Implementation
+The described procedure can be implemented completely on
+the GPU as an alternative pipeline for free viewpoint rendering from images. Our implementation based on OpenGL
+and GLSL shaders basically follows the general approach in
+GPGPU processing in which custom programs are executed
+for each generated vertex and fragment. The CPU is used
+only for high level control of the algorithm.
+6.1. Proxy generation
+The first important data structure is a single set of width ×
+height vertices, corresponding to the proxy particle clouds
+Pj . For efficiency reasons, these vertices are stored in a vertex
+buffer object, and hence have to be transferred to the GPU
+only once at the beginning of the process. Note that the
+density of Pj can be chosen independently of the actual
+input image resolution which is an important aspect for the
+scalability of our method. All further particle data, i.e. u,
+v, and d, is stored in textures of size width × height, such
+that one has a one-to-one correspondence between particles
+at position (x, y) in Ij and their texture data. These textures
+are entirely processed on the GPU, and never have to be
+transferred explicitly to or back from the GPU. For instance,
+the initialization of a given texture storing v can be performed
+by loading the corresponding camera projection matrix of Ij
+to the GPU. A fragment program then computes and writes v
+to this texture. When rendering and processing the particles
+Pj they retrieve their data from these textures. The GPU
+algorithms described in the following are implemented as
+an iterative multi-pass rendering approach with alternating
+rendering targets.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+2099
+
+For evaluating the photo-consistency we essentially follow the approach described in [HK06]. However, the programmability of recent GPUs now supports the generation
+of new geometry on the GPU using geometry shaders. This
+allows us to move one of the most time consuming steps,
+the generation of samples p i inside the particles entirely to
+the GPU. We render the corresponding particle list Pj stored
+on the GPU, and spawn for each P ∈ Pj corresponding 3D
+samples p i using a geometry shader. Each spawned sample
+position then writes its 3D position serialized into an output
+texture which can then be used for the consistency estimation
+in [HK06].
+The central data structures for the GPU-based uniform
+and golden section search are two textures, one for storing
+the particle position during the optimization and one for storing its consistency values and the feature orientation. For
+instance, for the implementation of the section search, one
+has to store a 4-tuple (u 0 , ul , ur , ue ) for each particle: 2 interval boundaries and 2 sample positions on the viewing ray
+at which we evaluate the consistency. Hence, we store this
+tuple in the four channels of a floating point texture. Second,
+we have to store the estimated photo-consistency values φ l
+and φ r at positions ul and ur , and an update flag indicating
+for which of these two positions the consistency has to be
+recomputed in the next iteration. The current feature orientation γ is stored in the remaining texture channel, resulting in
+a tuple (φ l , φ r , f , γ ). The GLSL-shader then uses these two
+textures as input, evaluates φ l and φ r as described above,
+and computes new sample and boundary values for the next
+iteration based on (4) and (5).
+The convergence of the optimization routine can be
+checked by rendering all P ∈ Pj into a single output pixel.
+Rasterized fragments corresponding to converged particles
+are discarded, while non-converged particles create some arbitrary output value. This single output pixel for controlling
+the optimization process is actually the only data transferred
+back from the GPU to the CPU in the whole pipeline. Finally,
+the implementation of the filter operators is straightforward
+by again rendering a single quad into an width × height
+output buffer, with correspondingly activated fragment programs. Each fragment first estimates the stability s(P) using a
+series of texture lookups, and then performs the corresponding filter update.
+
+6.2. View synthesis
+The splatting approach described in Section 5.1 is straightforward, since it is basically needed only for the generation
+of depth maps Dj , and for ‘activating’ fragments in the output view during the colour estimation. Hence, we employ
+a standard splatting approach [BHZK05]. The depth maps
+Dj are generated by rendering each particle cloud Pj into
+the output view, and storing the resulting depth values in a
+floating point texture. The filter for merging the depth maps
+
+Figure 10: Middlebury results [Mid08a] for the Temple (a)
+and the Dino (b).
+
+Dj into D is implemented on the GPU using an extension of
+the bi-sectioning approach described in [VKG03]. Computing the colour contribution of an image Ij to an output pixel
+again uses standard splatting. Each generated fragment first
+checks, whether its depth value is in the proximity of D . If
+yes, it is projected over D into Ij and the resulting weighted
+colour value is added to a colour accumulation buffer. A final
+normalization pass produces the final output image.
+
+7. Results
+We tested our method with different data sets and scene types.
+The experiments were performed on a Nvidia GeForce 8800
+graphics card. Even though 3D reconstruction is not our primary target we evaluated the numerical accuracy of the proxy
+generation with the Middlebury multi-view stereo data sets
+[Mid08a]. For both models, the Temple and the Dino, we
+computed 11 particle proxies from a subset of cameras of
+the ‘full’ data sets, and merged the resulting point clouds
+into a single triangle mesh using [KBH06]. Figure 10 shows
+renderings and the achieved accuracy and completeness for
+these models. These results are quite competitive considering the fact that we used a much lower number of input views (11 proxies / reference images, and 5 additional
+comparison images for each proxy) than other MVS algorithms for creating these models. Please note, however, that
+the primary focus of our method is the efficient creation of
+sufficiently accurate, silhouette preserving geometry proxies for new view-synthesis rather than high-quality MVS 3D
+model reconstruction. Although we could texture and render
+a reconstructed 3D model as well, there is a much higher
+computational overhead involved for computing a consistent
+mesh. In contrast, view-dependent particle proxies can be
+generated efficiently with robust outlier voting and hence
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2100
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+Figure 12: Semper statue. Two of the three small-baseline
+input images of this particularly large scene (a). Rendering with viewing parameters similar to the input views (b).
+New views from different viewing positions and with different focal distances (c,d). Camera parameters with significant
+deviation from the input views (e).
+Figure 11: Monkey example. (a) Two exemplary input images. (b) New output view with camera parameters similar to
+the input views. (c) Top view with an increased field of view.
+(d) Side view showing the faithful reproduction of the curved
+head. (e) View-dependent illumination effects on the fur and
+the nose.
+seem more promising, in particular with respect to future
+extensions such as free viewpoint video.
+The camera configurations for the other examples ranged
+from small base-line stereo with only 3 input images (Figure 12) up to over 40 images (Figure 11, 13). The number of
+proxies Pj ranged from 3 for the Semper statue up to 20 proxies for the Monkey. For each corresponding reference image
+Ij , we used between 2 and 4 additional comparison images for
+estimating φ. This process generally takes a couple of minutes, depending on the desired proxy resolution, the number
+of samples per particle, and the depth of the scene, since
+the number of sampling steps during the uniform optimization is derived from the particle size (see (5)). For instance,
+for the Semper statue (Figure 12) with a high input resolution of 3072 × 2048 we used 300k particles for each of the
+
+three proxies with 50 samples per particle, corresponding to a
+7 × 7 window size in standard NCC based approaches. The
+resulting computation time was 180 seconds per proxy. For
+the Bahkauv statue (Figure 13) with 40 images at 720 × 576
+and 100k particles, our method needs 35 seconds per proxy.
+The Monkey example with 56 images of 654 × 490 pixels
+and 60k particles took 20 seconds per proxy. For comparison,
+our CPU reference implementation needed several hours for
+the same data. This offline process is fully automatic without
+requiring any user intervention.
+The actual free viewpoint rendering runs with several
+frames per second at resolutions of 800 × 600 or higher.
+The performance depends mainly on the number and density
+of the proxies Pj , and the resolution of D . However, even
+for high numbers of input views or particles as for the Monkey or Semper example, we reach easily 20 fps or higher. If
+required, higher performance can be achieved by downscaling the proxy and depth map resolution without sacrificing
+too much visual quality due to our per-pixel blending.
+As shown in the examples, a particular advantage of this
+method is that even output views with camera parameters
+which deviate significantly from all input images are able
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+2101
+
+Figure 13: Bahkauv statue. (a) The first and last image of the input video sequence. (b) Renderings from new positions and
+with different camera parameters.
+to preserve the photo-realistic appearance of the scene (Figure 11c, d). View-dependent specular highlights and other
+subtle illumination effects are visible in Figure 11(e). However, too strong reflections or dominant specular highlights
+like on the large glass window in Figure 12(b) are problematic for the consistency estimation based on colour variances. Regions which are occluded and not visible in at least
+2 input views result in white spots in the output renderings
+(Figure 12). However, this is not a restriction of our method,
+but rather due to the possibility for unconstrained user navigation outside the hull spanned by the input views. In contrast, many previous techniques do not allow for extreme
+viewpoint changes with respect to the original input views.
+The input images of the Bahkauv statue were captured
+with a hand-held camera in a particularly difficult scene with
+many depth discontinuities and fine features. Despite these
+difficulties we are able to render new views of acceptable
+output quality. For these types of scenes it would be desirable
+to capture a higher number of images.
+
+Since our method recovers all information solely from
+raw images, we generally require more input views than,
+e.g methods with given depth information or those based on
+active stereo. However, since we can efficiently process a
+large number of images, this is not a real disadvantage, but
+rather allows us to reconstruct even subtle view-dependent
+effects. Nevertheless, active methods could be easily integrated into our system. In future work we would like to address improvements, e.g. for rendering scenes with complex
+silhouettes requiring alpha boundaries such as the Monkey
+example. Moreover, in order to achieve a more faithful silhouette reconstruction also for very coarse proxies, the splatting approach in Section 5.1 should be adapted to render the
+anisotropic, oriented splat shapes computed during the optimization. We would also like to investigate the applicability
+of our method to free viewpoint video with combined spatiotemporal filtering or image completion to fill white spots in
+the output images. Finally, while the rendering phase is realtime capable, it would obviously be desirable to improve the
+reconstruction phase for online processing of video streams.
+
+8. Discussion and Conclusions
+In this paper, we presented an integrated pipeline for free
+viewpoint rendering from images on the GPU. The reconstruction phase is based on a particle cloud optimization
+with silhouette aware particles and a special view-space parameterization which allow for an efficient continuous depth
+optimization and properly reconstructed silhouettes. The rendering phase then merges these proxies robustly into a viewdependent output proxy, and computes pixel-accurate colour
+contributions from all relevant input images. Our formulation is not restricted to any particular scene type or camera
+configuration, and allows us to decouple the geometric complexity from the output quality, resulting in a highly scalable
+and flexible rendering pipeline. In contrast to many previous techniques, our method allows for extreme viewpoint
+changes with respect to the original input views.
+
+Acknowledgements
+The Monkey sequence of Fitzgibbon et al. was obtained
+from http://www.robots.ox.ac.uk/∼awf/ibr/, and
+the Semper data set of Strecha et al. from http://cvlab.
+epfl.ch/data/strechamvs/. This project was funded by
+the DFG research cluster ‘Ultra High-Speed Mobile Information and Communication’ (UMIC), http://www.umic.rwthaachen.de/.
+References
+ANDUJAR C., BOO J., BRUNET P., FAIREN M.,
+[ABB∗ 07]
+NAVAZO I., VAZQUEZ P., VINACUA A.: Omni-directional relief impostors. Computer Graphics Forum 26, 3 (2007),
+553–560.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+2102
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+∗
+
+[BBM 01]
+BUEHLER C., BOSSE M., MCMILLAN L., GORTLER
+S., COHEN M.: Unstructured lumigraph rendering. In Proc.
+SIGGRAPH ’01 (2001), pp. 425–432.
+[BHZK05] BOTSCH M., HORNUNG A., ZWICKER M.,
+KOBBELT L.: High-quality surface splatting on today’s
+GPUs. In Proceedings of Symposium on Point-Based
+Graphics (New York, NY, USA, 2005), Stony Brook, pp.
+17–24.
+[BZM97] BEARDSLEY P. A., ZISSERMAN A., MURRAY D. W.:
+Sequential updating of projective and affine structure from
+motion. International Journal of Computer Vision 23, 3
+(1997), 235–259.
+[CCST00] CHAI J., CHAN S.-C., SHUM H.-Y., TONG X.:
+Plenoptic sampling. In Proc. SIGGRAPH ’00 (2000), pp.
+307–318.
+[CTMS03] CARRANZA J., THEOBALT C., MAGNOR M., SEIDEL
+H.-P.: Free-viewpoint video of human actors. ACM Transactions on Graphics 22, 3 (2003).
+∗
+
+EISEMANN M., DE DECKER B., MAGNOR M. A.,
+[EdDM 08]
+BEKAERT P., DE AGUIAR E., AHMED N., THEOBALT C., SELLENT
+A.: Floating textures. Computer Graphics Forum 27, 2
+(2008), 409–418.
+
+[KSC01] KANG S. B., SZELISKI R., CHAI J.: Handling occlusions in dense multi-view stereo. In Proceedings of the
+IEEE Conference on Computer Vision and Pattern Recognition ’01 (Hawaii, USA, 2001), pp. 103–110.
+[LH96] LEVOY M., HANRAHAN P.: Light field rendering. In
+Proc. SIGGRAPH ’96 (1996), pp. 31–42.
+[LMS04] LI M., MAGNOR M., SEIDEL H.-P.: Hardwareaccelerated rendering of photo hulls. Computer Graphics
+Forum 23, 3 (2004), 635–642.
+[LS04] LIN Z., SHUM H.-Y.: A geometric analysis of light
+field rendering. International Journal of Computer Vision
+58, 2 (2004), 121–138.
+MERRELL P., AKBARZADEH A., WANG L.,
+[MAW∗ 07]
+MORDOHAI P., FRAHM J.-M., YANG R., NISTER D., POLLEFEYS
+M.: Real-time visibility-based fusion of depth maps. In
+Proceedings of the IEEE International Conference on
+Computer Vision ’07 (Rio de Janeiro, Brazil, 2007).
+MATUSIK W., BUEHLER C., RASKAR R., GORTLER
+[MBR∗ 00]
+S. J., MCMILLAN L.: Image-based visual hulls. In Proc.
+SIGGRAPH ’00 (2000), pp. 369–374.
+[Mid08a]
+Middlebury multi-view stereo evaluation.
+http://vision.middlebury.edu/mview/, June 2008.
+
+[FWZ05]
+FITZGIBBON A., WEXLER Y., ZISSERMAN A.:
+Image-based rendering using image-based priors. International Journal of Computer Vision 63, 2 (2005), 141–151.
+
+[Mid08b]
+Middlebury stereo evaluation. http://vision.
+middlebury.edu/stereo/, June 2008.
+
+[GGSC96] GORTLER S. J., GRZESZCZUK R., SZELISKI R.,
+COHEN M. F.: The lumigraph. In Proc. SIGGRAPH ’96
+(1996), pp. 43–54.
+
+[MP04] MATUSIK W., PFISTER H.: 3D TV: A scalable
+system for real-time acquisition, transmission, and autostereoscopic display of dynamic scenes. ACM Transactions on Graphics 23, 3 (2004), 814–824.
+
+[GV07]
+GEYS I., VAN GOOL L. J.: View synthesis by the
+parallel use of GPU and CPU. Image and Vision Computing 25, 7 (2007), 1154–1164.
+[HIG02]
+HIRSCHMULLER H., INNOCENT P., GARIBALDI J.:
+Real-time correlation-based stereo vision with reduced
+border errors. International Journal of Computer Vision
+47, 1–3 (2002), 229–246.
+[HK06]
+HORNUNG A., KOBBELT L.: Robust and efficient
+photo-consistency estimation for volumetric 3D reconstruction. In Proceedings of the European Conference on
+Computer Vision (New York, USA, 2006), pp. 179–190.
+
+PULLI K., COHEN M., DUCHAMP T., HOPPE H.,
+[PCD∗ 97]
+SHAPIRO L., STUETZLE W.: View-based rendering: Visualizing real objects from scanned range and color data. In
+Eurographics Workshop on Rendering (1997), pp. 23–34.
+[PFTV92] PRESS W. H., FLANNERY B. P., TEUKOLSKY S. A.,
+VETTERLING W. T.: Numerical Recipes: The Art of Scientific
+Computing, 2nd ed. Cambridge University Press, 1992.
+[SD97]
+SEITZ S. M., DYER C. R.: Photorealistic scene reconstruction by voxel coloring. In Proceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition
+(San Juan, Puerto Rico, 1997), pp. 1067–1073.
+
+[HK07]
+HABBECKE M., KOBBELT L.: A surface-growing approach to multi-view stereo reconstruction. In Proceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition ’07 (Minneapolis, MN, USA, 2007).
+
+[SGwHS98]
+SHADE J., GORTLER S., WEI HE L., SZELISKI R.:
+Layered depth images. In Proc. SIGGRAPH ’98 (1998),
+pp. 231–242.
+
+[KBH06]
+KAZHDAN M., BOLITHO M., HOPPE H.: Poisson
+surface reconstruction. In Proceedings of the Symposium
+on Geometry Processing (2006), pp. 61–70.
+
+[VBK02]
+VEDULA S., BAKER S., KANADE T.: Spatiotemporal view interpolation. In Proceedings of the Eurographics workshop on Rendering (2002), pp. 65–76.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+A. Hornung & L. Kobbelt / Free Viewpoint Rendering
+
+2103
+
+[VKG03]
+VIOLA I., KANITSAR A., GROLLER M. E.:
+Hardware-based nonlinear filtering and segmentation using high-level shading languages. In IEEE Visualization
+(2003), pp. 309–316.
+
+[YK06] YOON K.-J., KWEON I. S.: Adaptive supportweight approach for correspondence search. IEEE Transactions on Pattern Analysis and Machine Intelligence 28,
+4 (2006), 650–656.
+
+[WLG04] W¨URMLIN S., LAMBORAY E., GROSS M.: 3D video
+fragments: Dynamic point samples for real-time freeviewpoint video. Computers and Graphics 28, 1 (2004),
+3–14.
+
+[YPYW04]
+YANG R., POLLEFEYS M., YANG H., WELCH G.:
+A unified approach to real-time, multi-resolution, multibaseline 2D view synthesis and 3D depth estimation using
+commodity graphics hardware. International Journal of
+Image and Graphics 4, 4 (2004), 627–651.
+
+[WSP04] WIMMER M., SCHERZER D., PURGATHOFER W.:
+Light space perspective shadow maps. In Rendering Techniques (2004), pp. 143–152.
+[WWCG07]
+WASCHBU¨ SCH M., W¨URMLIN S., COTTING D.,
+GROSS M.: Point-sampled 3D video of real-world scenes.
+Signal Processing: Image Communication 22, 2 (2007),
+203–216.
+[WWG07]
+WASCHBU¨ SCH M., W¨URMLIN S., GROSS M.: 3D
+video billboard clouds. Computer Graphics Forum 26, 3
+(2007).
+
+[ZJWB08] ZHANG G., JIA J., WONG T. T., BAO H.: Recovering consistent video depth maps via bundle optimization. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (Anchorage, AK,
+USA, 2008).
+ZITNICK C. L., KANG S. B., UYTTENDAELE
+[ZKU∗ 04]
+M., WINDER S., SZELISKI R.: High-quality video
+view interpolation using a layered representation.
+ACM Transactions on Graphics) 23, 3 (2004), 600–
+608.
+
+c 2009 The Authors
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

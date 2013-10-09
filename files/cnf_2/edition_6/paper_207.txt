@@ -1,0 +1,1692 @@
+DOI: 10.1111/j.1467-8659.2010.01798.x
+Pacific Graphics 2010
+P. Alliez, K. Bala, and K. Zhou
+(Guest Editors)
+
+Volume 29 (2010), Number 7
+
+Metalights : Improved Interleaved Shading
+William Faure † and Chun-Fa Chang ‡
+National Taiwan Normal University
+
+Abstract
+We present metalights, a novel Virtual Point Light (VPL) encapsulating structure which enhances classic interleaved shading by improving VPL sampling, based on few initial screen space samples to estimate VPL contribution to current view. Our method leads to important noise variance reduction in the final picture by only
+adding a small fraction of computation. The implementation is straight-forward and well adapted to both CPU
+and GPU-based engines. We also present different image-space assignment schemes for the VPL subsets to break
+the regularity of the noise pattern or to adapt it to simple antialiasing.
+Categories and Subject Descriptors (according to ACM CCS): I.3.7 [Computer Graphics]: Three-Dimensional
+Graphics and Realism—Raytracing
+
+1. Introduction
+Instant Radiosity [Kel97] is an elegant method for rendering global illumination effects by casting virtual point lights
+(VPL) from primary light sources onto the geometry surface.
+VPLs can also bounce over the geometry to render multiple
+levels of indirect lighting. The final image including global
+illumination effects is then rendered in a single pass by simply accumulating the contribution of the primary sources and
+the VPLs.
+However, the number of VPLs required to accurately simulate indirect lighting of a scene highly depends on the complexity of the geometry and is hardly predictable, e.g. when
+the lights are widely distributed (HDR environment lights,
+multiple light bounces, etc). Tens or hundreds of thousands
+of VPLs are usually necessary to completely remove artifacts.
+Keller and Heidrich [KH01] describe a general framework for expanding the period of the sampling grid used,
+e.g. to improve antialiasing supersampling. Originally designed as a geometry sampling method, it also provides a
+way to distribute the shading over blocks of adjacent pixels
+(Interleaved Shading) by assigning different VPLs to different pixels. The image space is organized into multiple,
+
+identical size blocks, in which each pixel is shaded using a
+different subset of VPLs.
+This method is especially well adapted to hardware and
+network rendering and dramatically accelerates rendering,
+at the cost of an ordered noisy overlay on the picture. The
+solution adopted in current literature about interleaved shading is to simply filter it in order to reduce the variance of
+the noise. However, the quality of these filters is highly dependent on the scene (complexity and scale of the objects,
+point of view, partition of the VPLs into subsets), and unfortunately removes many important details along with the
+noise itself, or does not correctly handle high variance noise
+in some areas. Two commonly used filters are presented in
+Figure 1 in an unfavorable yet common situation in which
+the lighting is mostly indirect, producing complex combinations of hard and soft shadows. The failure of these filtering
+algorithms is mainly due to the high variance of the heavy
+noise they have to clean.
+To our knowledge, no previous work presents a robust
+method to reduce interleaved shading noise before any filter is applied and our metalight structure provides a solution
+by adapting the VPLs selection to the specific constraints of
+interleaved shading.
+1.1. Main contribution
+
+† Contact: william.faure@gmail.com
+‡ Contact: chunfa@ntnu.edu.tw
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+In this paper, we propose a simple algorithm to improve
+quality of interleaved shading by encapsulating the global
+
+2110
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+
+(a) Original interleaved shading
+
+Figure 2: Metalight based rendering of the scene presented
+in Figure 1. Note the important reduction of the noise compared to Figure 1a. Figure 10 show another example of
+metalight-based interleaved shading.
+
+set of VPLs into a metalight structure, which controls the
+global assignement of VPLs subsets to pixels in the interleaved shading pattern and controls the sampling process
+of these VPLs when only a few representatives are used to
+shade a given pixel.
+
+(b) Moving box filter [LSK∗ 07]
+
+Metalights distribute the contribution of similar VPLs
+over contiguous pixels, while they ensure that each pixel
+receives representants of all possible VPL kinds. This separation of the light sources is done by analyzing the total
+contribution of each VPL in the luminance channel of a subsampled image. Our method only requires inserting a simple
+and short preprocessing step right after VPL casting and an
+optional VPL sampling algorithm during image rendering.
+Therefore, metalights can be implemented in virtually any
+interleaved shading based rendering framework. This framework can be also generalized to irregular interleaved shading, for which pixels are assigned subsets of VPLs in any
+order.
+2. Previous works
+
+(c) Gaussian-like filter [SIMP06]
+
+Figure 1: Filtering methods. All examples use a discontinuity map, either with parameters available in the corresponding publication, or manually-tuned thresholds.
+(a) Original result from the standard interleaved shading.
+(b) The noise is not completely cleaned in some areas. Moreover, details on the surface of the objects are overly blurred.
+(c) The noise still appears on edges as well as in wide areas of the scene presenting high variations in 3D space between consecutive fragments, while other smoother zones
+are overly blurred.
+
+The literature tackling the many-light problem is quite wide.
+Our research is motivated by the fact that numerous publications propose efficient frameworks to increase rendering
+speed using interleaved shading. However, to our knowledge, no previous work attempts to improve interleaved
+shading quality itself; the noise is usually dealt with a constant box filter or a Gaussian-like filter taking account of geometric features (Figure 1). Other algorithms are designed
+to exchange the VPL set for a simpler one. Among the most
+relevant to our research:
+2.1. Lightcuts and matrix row-column sampling
+Lightcuts [WFA∗ 05] reorganizes the VPLs into a hierarchical structure of light clusters by pairing similar light sources
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+
+2111
+
+Figure 3: Metalights shading examples: Sponza, Reflective Dragon, Four Columns.
+
+based on their absolute position. [WABG06] extend the concept presented in [WFA∗ 05] to other dimensions of the rendering equation. For each pixel, a set of points spread in
+space, time, lens surface and pixel area are generated and
+a subset is selected to be shaded by a cut in the light tree.
+Banding of the shadows seen in Lightcuts is usually absent,
+replaced by noise. However, this noise cannot be easily removed because of the incoherent shading within each pixel.
+[HPB07] proposes to reorganize the VPLs into clusters
+based on their contribution to the lighting of the scene, as
+seen from the current point of view.
+Both of these methods then select an adequate set of clusters that can produce a satisfactory approximation of the
+lighting and choose one single VPL in each cluster to be rendered (in place of the whole clusters). However, as large sets
+of sources are approximated using a single point light, both
+Lightcuts and [HPB07] produce distracting shadow banding,
+particularly in highly occluded scenes.
+2.2. VPL selection by unoccluded intensity
+[War94] sorts the light sources by local, unoccluded, contribution. It then accumulates shading until a certain threshold of correctness is obtained. Using the visibility statistics
+from the previously processed light sources at each pixel,
+it extrapolates the residue of illumination required to obtain the final illumination. However, it relies on unoccluded
+light contribution, failing to speed up rendering in highly occluded scenes.
+2.3. Adaptive importance sampling
+[DWF06] presents a complex algorithm to adapt the shading
+to the image-space data. First, a global cluster tree structure
+is built to store lights and the image-space is split into several blocks. The scene is then rendered block by block, in
+several passes, by incrementally updating local image-space
+visibility statistics and selecting adequate light clusters to
+shade the fragments in the current block. Color variance of
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+the shaded fragments over the consecutive passes is used as
+a stopping criterion for the shading procedure using a minimal threshold. This method works well for highly occluded
+environments and can produce adaptive antialiasing. However, the light clustering principle relies upon the concentration of the light sources in packets and the highly organized
+structure of the HDR lighting map. In many cases, VPLs are
+randomly spread over unknown shapes and therefore it is not
+clear whether [DWF06] can be applied to efficiently render
+Instant Radiosity solution in such environments. [WBS03]
+proposes to sample one VPL per pixel in a first pass over
+the entire image to build a PDF that will then be used as
+a guide for path tracing. A distributed version of this algorithm is based on [WKB∗ 02]. However, the subsets of VPLs
+assigned to the parallel processes are not optimal and do not
+take into account the VPLs importance in image-space.
+[SKS09] use error diffusion to reduce the number of samples required to shade using both distant and unstructured
+VPLs. [CETC06, CJAMJ05] use importance sampling for
+distant lights, HDR environment lights and large area lights.
+Importance sampling is also used in [BGH05] to shade with
+structured VPLs, and is adapted to unstructured VPLs in
+[WÅ09] by taking advantage of a light tree. However, such
+method uses a world-space clustering structure for the VPLs
+which is not used in the case of metalights. As precised
+in [WÅ09] and [Vea97], importance sampling of wide light
+sources (such as scattered VPLs) from diffuse surfaces does
+not work very well without the aid of world space structures
+or hybrid sampling methods.
+We do not use any importance sampling but rather use
+VPL contribution statistics for a double stratified sampling,
+the first one to build VPL subsets and the second to sample
+VPLs within subsets.
+2.4. Filtered interleaved shading
+[KH01] is adapted in [WKB∗ 02] to work as a
+network-distributed application for Interleaved Shading and
+[SIMP06] applies it to work on current GPU hardware.
+
+2112
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+
+IS
+VPLI
+
+Ω
+
+Lj
+Ωk
+
+Interleaved Shading
+VPL Importance: A real number representing the visual importance of each VPL (defined in 3.3). Each
+VPL stores one importance along with other traditional attributes (position, direction, color).
+The set of all VPLs (in practice, a linear array of
+VPLs) created by the instant radiosity algorithm. Note
+that: N = Card (Ω) and we assume that (n × m) | N.
+The VPLs in Ω. 0 ≤ j < Card (Ω)
+The subsets of VPLs created by the interleaved shading algorithm. These subsets are later defined in 3.4.
+Each Ωk will be assigned to a pixel in a n × m interleaved shading block, thus 0 ≤ k < n × m.
+N
+= n×m
+and :
+Note that Card (Ωk ) = Card(Ω)
+n×m
+
+Our idea is to use sampled illumination data gathered in
+screen space, in a first pass, to sort VPLs according to their
+average contribution to the lighting of the entire picture and
+use these data as a guide to assign each VPL to a particular
+Ωk .
+3.2. Creation of the VPLs
+VPLs are first generated to model the global illumination of
+the scene. The many-light model is actually very flexible,
+and these hemispherical light sources can be generated by
+different means: by traditional instant radiosity algorithm,
+decomposing an area light or an HDR environment light into
+finite elements, and any combination of these methods.
+
+Ωk = Ω
+
+3.3. Image-space sampling of VPL importance
+
+0≤k<n×m
+
+Lk, j
+α
+
+λ
+MSM
+
+The VPLs in Ωk . 0 ≤ j < Card (Ωk )
+Represents a precision ratio (0 < α ≤ 1). This number will be used to control the fraction of VPLs to use
+during the shading process.
+The total number of screen space samples used to statistically estimate the VPLI values in 3.3.
+Metalight Shading Map. A function of the imagespace that controls the selection of the Ωk subsets at
+pixel level (3.5).
+
+Table 1: Notations
+
+∗
+
+[LSK 07] implements it to render partially dynamic scenes
+using Instant Radiosity. All these methods rely on an adaptive blur filter based on position, normal and discontinuity
+buffers which fails to render surface details and clean object
+edges (Figure 1).
+3. Metalight
+In this section, we describe how to build and use a metalight. This structure encapsulates VPLs and improves their
+stratification to reduce the noise variance due to interleaved
+shading and partial shading. Table 1 summarizes the notations found in this paper to describe VPLs, VPL sets and
+metalights.
+3.1. Overview
+We consider interleaved shading using n × m blocks. A metalight provides a light source structure to the unstructured
+VPLs set Ω. When queried, the metalight first selects the
+adequate Ωk subset corresponding to the current pixel and
+N
+then selects α n×m
+VPLs Lk, j j=1...α N within this subn×m
+
+set, where α is a sampling ratio between 0 and 1. Finally,
+each Lk, j casts a ray to shade that geometry fragment and the
+metalight accumulates the illumination, returning a penumbra color.
+
+We then compute λ samples in screen space to set up the
+VPLI parameters. This is done by rendering a small-sized
+picture with λ pixels using all VPLs. We accumulate in the
+metalight VPLI parameters the total luminance contribution
+for each VPL L j in Ω .
+3.4. Metalight stratification
+The VPLI serves as a rule for stratification. We use stratified
+sampling twice in our algorithm:
+• The first (deterministic) stratified sampling happens when
+Ω is split into n × m subsets. This step is common to all
+interleaved shading algorithms, except that we now focus
+on improving the quality of the Ωk subsets by using a better VPL sampling method.
+• The second stratified sampling may happen when subsampling of the Ωk subsets is desired (i.e. α < 1). In that case,
+we want to improve the representativeness of the selected
+VPLs.
+
+Without a stratification rule, stratified sampling would be
+equivalent to a direct random VPL selection. We show that
+VPLI sorting yields important shading convergence speed
+improvement (Appendix A). The quality results shown in
+Section 4 can therefore be credited to our initial sorting according to VPLI. This idea is also very different from importance sampling, the latter requiring precise information
+about the relative importance of the elements to sample, not
+only their order.
+3.4.1. Creation of the Ωk subsets
+The VPLs are sorted by VPLI in Ω. If we keep the same
+indexing Li for the now-sorted VPLs, we implicitly define
+the subsets Ωk by the following formula (card-dealing algorithm) Ωk = L j | Mod ( j , m × n) = k , corresponding to
+the distribution of all the VPLs to each subset Ωk in turn
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2113
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+
+Figure 5: Regular vs. irregular MSM.
+
+Figure 4: Metalight balancing.
+
+(Figure 4). It can be seen as a deterministic stratified sampling of Ω.
+This distribution scheme allows a fair spreading of the
+VPLI over all the Ωk subsets (hence over all the pixels in a
+given n × m block) while keeping the Ωk subsets size identical. This can be seen in Figure 4 with the subsets VPLI functions having similar shapes. This has a double visual consequence leading to the reduction of the distracting shadow
+banding artifacts in favor of a very soft noise:
+• A given pixel will receive representatives of as many visual importance values (VPL kinds) as possible, allowing
+it to render a wide range of possible shading behaviors.
+• Visually similar VPLs will be assigned to different pixels,
+thus allowing a better shading coherence between pixels.
+3.4.2. Light selection in Ωk and Ω for final rendering
+Once the subsets are balanced, we render the final picture using interleaved shading. The parameter α can be
+changed to control the quality/speed trade-off. Additional
+post-processing, possibly geometry-aware, can also be applied to obtain antialiasing or smoother shading.
+As presented in Section 3.4, the Ωk subsets are designed
+in such a way that they individually cover the widest range
+possible of visual importance. In this section, we consider
+Ωk a given subset of VPLs assigned to a particular pixel, and
+we suppose α < 1. We then hope to select good representaN
+tives in Ωk so that shading with α n×m
+will be equivalent to
+using the whole Ωk subset.
+However, a direct random sampling of Ωk would result
+into a great variance in the shading. In order to reduce the
+noise, stratified sampling is used to select representative
+VPLs. We use the VPLI as a ruler for strata definition, which
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+is also well adapted to the sorted structure of the metalight.
+Ωk is split into α1 strata containing the same number of elements and a single VPL is chosen in each stratum to shade
+the current fragment. The randomly selected VPLs are thus
+well distributed over the entire subset Ωk .
+3.5. Assigning the Ωk subsets to the pixels
+F Ω : (x ; y) → 0...n × m
+is called the metalight shading map, or MSM, and is a function of the image-space assigning ΩF Ω to the pixel (x ; y).
+(x ; y)
+
+Since metalights can be implemented in both GPU-based
+and CPU-based rendering frameworks, we tried to design
+different functions that such frameworks would allow us to
+use, for example to break the periodicity of the structured
+noise pattern or optimize the noise structure. In our implementation, the MSM is created beforehand and can be reused
+in consecutive renderings.
+Regular interleaved MSM. This is the most common
+MSM, well adapted to GPU rendering for which we usually
+set n = m = 2 p :
+Ω
+: (x ; y) −→ Mod (y , m) × n + Mod (x , n)
+Fregular
+
+Irregular interleaved MSM. We assume here that n = m =
+2q + 1 , which ensures that each block is square and has a
+center point (which will be used as the filter matrix center
+point when using antialiasing). The screen space is split into
+elementary zones, as visually described in Figure 6:
+• A & D are 1 × q pixels blocks;
+• B & C are q × 1 pixels blocks;
+• W , X, Y , Z are q × q pixels blocks.
+q VPL subsets are allocated to A, B, C, D blocks, and q2 subsets are allocated to W , X, Y , Z blocks. An additional shuffling of the VPL subsets within each block of pixels is also
+possible to further break the noise structure. The resulting
+Ω
+Ω
+irregular MSM Firregular
+is compared to Fregular
+in Figure 5
+
+2114
+W
+
+A
+
+X
+
+A
+
+W
+
+A
+
+0
+
+C
+
+0
+
+B
+
+0
+
+C
+
+Y
+
+D
+
+Z
+
+D
+
+Y
+
+D
+
+Z
+
+B
+
+0
+
+C
+
+0
+
+B
+
+0
+
+C
+
+W
+
+A
+
+X
+
+A
+
+W
+
+A
+
+X
+
+B
+
+0
+
+C
+
+0
+
+B
+
+0
+
+C
+
+Y
+
+D
+
+Z
+
+D
+
+Y
+
+D
+
+Z
+
+C
+
+0
+…
+
+…
+
+…
+
+B
+
+0
+…
+
+…
+
+…
+
+…
+
+2
+
+14
+
+20
+
+12
+
+15
+
+20
+
+2
+
+14
+
+20
+
+12
+
+15
+
+…
+
+…
+
+22
+
+23
+
+5
+
+18
+
+24
+
+5
+
+22
+
+23
+
+5
+
+18
+
+24
+
+…
+
+2
+
+14
+
+Pattern :
+
+…
+
+…
+
+20
+
+12
+
+15
+
+20
+
+2
+
+22
+
+20
+
+18
+
+24
+
+20
+
+22
+
+14
+
+20
+
+15
+
+12
+
+…
+
+14
+
+23
+
+5
+
+15
+
+12
+
+5
+
+2
+
+23
+
+5
+
+24
+
+18
+
+…
+…
+
+…
+
+3
+
+7
+
+0
+
+1
+
+21
+
+0
+
+3
+
+7
+
+0
+
+1
+
+21
+
+…
+
+22
+
+23
+
+5
+
+18
+
+24
+
+5
+
+3
+
+7
+
+0
+
+1
+
+21
+
+0
+
+7
+
+3
+
+0
+
+1
+
+21
+
+…
+
+4
+
+8
+
+9
+
+6
+
+13
+
+9
+
+4
+
+8
+
+9
+
+6
+
+13
+
+…
+
+3
+
+7
+
+0
+
+1
+
+21
+
+0
+
+8
+
+4
+
+9
+
+13
+
+6
+
+16
+
+8
+
+11
+
+16
+
+6
+
+13
+
+…
+
+…
+
+10
+
+11
+
+16
+
+17
+
+19
+
+16
+
+10
+
+11
+
+16
+
+17
+
+19
+
+…
+
+4
+
+8
+
+9
+
+6
+
+13
+
+9
+
+10
+
+11
+
+16
+
+19
+
+17
+
+9
+
+10
+
+4
+
+9
+
+17
+
+19
+
+…
+
+21
+
+1
+
+21
+
+…
+
+22
+
+0
+
+21
+
+0
+
+22
+
+0
+
+…
+
+10
+
+11
+
+16
+
+17
+
+19
+
+16
+
+7
+
+3
+
+0
+
+21
+
+1
+
+0
+
+3
+
+7
+
+0
+
+1
+
+21
+
+…
+
+2
+
+14
+
+20
+
+12
+
+15
+
+20
+
+2
+
+14
+
+20
+
+12
+
+15
+
+…
+
+21
+
+22
+
+0
+
+1
+
+21
+
+0
+
+22
+
+23
+
+20
+
+18
+
+12
+
+20
+
+14
+
+23
+
+5
+
+18
+
+12
+
+…
+
+22
+
+23
+
+5
+
+18
+
+24
+
+5
+
+22
+
+23
+
+5
+
+18
+
+24
+
+…
+
+2
+
+14
+
+5
+
+15
+
+24
+
+5
+
+2
+
+22
+
+20
+
+15
+
+24
+
+…
+
+…
+
+3
+
+7
+
+0
+
+1
+
+21
+
+0
+
+3
+
+7
+
+0
+
+1
+
+21
+
+…
+
+3
+
+7
+
+0
+
+21
+
+1
+
+0
+
+7
+
+3
+
+0
+
+21
+
+1
+
+…
+…
+
+…
+
+C
+
+0
+…
+
+…
+X
+
+B
+
+B
+…
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+
+21
+
+1
+
+…
+
+…
+
+4
+
+8
+
+9
+
+6
+
+13
+
+9
+
+4
+
+8
+
+9
+
+6
+
+13
+
+…
+
+11
+
+4
+
+9
+
+13
+
+17
+
+16
+
+8
+
+11
+
+16
+
+17
+
+6
+
+…
+
+10
+
+11
+
+16
+
+17
+
+19
+
+16
+
+10
+
+11
+
+16
+
+17
+
+19
+
+…
+
+10
+
+8
+
+16
+
+6
+
+19
+
+9
+
+4
+
+10
+
+9
+
+19
+
+13
+
+…
+
+…
+
+21
+
+22
+
+0
+
+1
+
+21
+
+0
+
+21
+
+22
+
+0
+
+1
+
+21
+
+…
+
+7
+
+3
+
+0
+
+1
+
+21
+
+0
+
+3
+
+7
+
+0
+
+1
+
+21
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+…
+
+Figure 6: Construction of a perfect irregular MSM. Left: we split the screen space into blocks depending on the number
+of subsets used. Middle: VPL subsets IDs are allocated to blocks. Right: an irregular MSM is built by shuffling the IDs
+within blocks. A = {5, 20}, B = {3, 7}, C = {1, 21}, D = {9, 16},W = {2, 14, 22, 23}, X = {12, 15, 18, 24}, Y = {4, 8, 10, 11},
+Z = {6, 13, 17, 19}.
+
+(the particular irregular MSM shown in Figure 6 is called
+Ω
+FAA
+).
+3×3
+Ω
+Other than breaking the noise pattern, Firregular
+has the
+advantage of improving (q + 1) × (q + 1) supersamples antialiasing quality done directly with interleaved shading. For
+example, the MSM in Figure 6 helps getting 3 × 3 antialiasing. This can be achieved in high quality because the center
+of the antialiasing filter kernel has a fixed ID (subset 0 in our
+example) to reduce variance at the peak of the filter, and all
+other subsets are within the filter (purple area in Figure 6) to
+contribute to the shading of the current pixel. Figure 3 shows
+Ω
+some examples of antialiased images using FAA
+.
+3×3
+
+4. Results
+As a proof of concept, we implemented metalights in POVRay 3.6 running on a quadcore Intel Xeon 2.67GHz and we
+use this system to measure rendering times and compare output quality.
+Since metalights only add a small overhead to existing
+systems’ rendering performance, the rendering times highly
+depend on the underlying framework. They can greatly vary
+and our timings may be considered as the worst case scenario
+(CPU raytracer). Note that our focus is on quality improvement only.
+4.1. Reference picture
+We do not study the accuracy of the instant radiosity algorithm in this paper, but rather check if metalight-based interleaved shading can efficiently shade a scene using a given
+set of VPLs. Therefore, the fully shaded image, in which the
+whole Ω set is used to shade every pixels, is our ground-truth
+comparison reference.
+We present in this section the results of using metalights
+instead of a standard interleaved shading approach. All images are rendered in HDR format (32 bits/channel) for bet-
+
+ter precision. We call noise layer the absolute difference between an interleaved shaded image and the reference image.
+4.2. λ samples
+Our experiments show that, for various complexity scenes
+such as those presented in this paper, 102 < λ < 202 is usually sufficient and is done in less than 5 seconds using a single core CPU raytracer. Using larger λ (which could be up
+to ImageSizex × ImageSizey ) does not provide quality improvements worth the additional preprocessing.
+4.3. Noise pattern reduction
+We use Fourier transform (2D transform, and 1D transform of average line and column) to assess the amplitude
+of the noise pattern peak frequency. Both unfiltered and filtered (using a Gaussian low-pass filter) results are evaluated.
+Noise pattern peak frequency is located horizontally at wn
+and vertically at mh , where w and h are the width and height
+of the picture, and n and m are the width and height of the
+pattern. In this section, we use w = h = 512 and n = m = 5,
+putting the first peak frequency at 102.4 Hz.
+As shortly presented in Figure 1, both moving-box blur
+and Gaussian-like filters from [SIMP06,LSK∗ 07] fail to give
+good quality results even when manually tuning both kernel
+size and discontinuity map criterion. Therefore, in this section, we do not take into account geometric features and simply observe how much filtering is required to clean the noise
+pattern in standard interleaved shading and our method.
+Figures 7 and 8 show the important amplitude reduction
+of the peak noise frequency when using metalights, before
+and after filtering, using different filter sizes.
+Figure 9 illustrates how strong the filter has to be, on average, to completely remove the peak noise frequency. Metalight’s low variance noise is easier to clean using a smaller
+Gaussian kernel compared to standard interleaved shading,
+which allows a better protection of surface and edge details.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2115
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+2034 Rgcm"pqkug"htgswgpe{"*32406"J|+"cornkvwfg
+
+0.1
+0.01
+
+2032
+
+0.001
+
+202:
+
+4
+
+2028
+
+10
+
+90
+
+100
+
+110
+
+Hz
+
+2026
+
+120
+
+2024
+
+0.1
+
+2022
+
+Uvcpfctf K0U cxgtcig"tqy
+Uvcpfctf K0U cxgtcig eqnwop
+Ogvcnkijv cxgtcig"tqy
+Ogvcnkijv cxgtcig eqnwop
+
+Σ
+2
+
+3
+
+4
+
+5
+
+6
+
+0.01
+
+Figure 9: Filtering of the peak noise frequency in the noise
+layer (scene from Figure 10) when applying a gaussian filter
+with standard deviation σ.
+
+0.001
+10
+
+4
+
+Hz
+90
+
+100
+
+110
+
+120
+
+4.4. Variance reduction
+Figure 7: 1D Fourier transform of (top) average row and
+(bottom) average column of the noise layer from the scene in
+Figure 10). Blue: standard interleaved shading. Red: metalights. Solid lines: no filtering. Dashed lines: σ = 1.7. Dotted
+lines: σ = 3.0.
+Standard I.S.
+
+Metalight
+
+Original
+
+Original
+
+Σ=1.7
+
+Σ=1.7
+
+Metalights reduce noise variance both globally and locally,
+especially when a limited number of VPLs is sampled. In
+that case, the noise loses its periodicity, and Fourier transforms are replaced by global variance estimation of the noise
+layer for varying α (Figure 11) and false-color variance plot
+for α = 1 (Figure 10).
+Using a metalight greatly reduces the local and global
+variance of the noise layer, even in irregular zones such as
+the back of the dragon and the inner parts of the body folds.
+Also note that the VPL set Ω is kept identical for both standard and metalight-based interleaved shading (i.e. we do not
+discard VPLs with zero VPLI). The significantly faster convergence of the variance when using metalights validates
+VPLI as a good criterion for stratified sampling.
+
+4.5. Antialiasing quality
+
+Σ=3.0
+
+Σ=3.0
+
+Figure 8: 2D Fourier transform Log-amplitude of the noise
+layer (scene from Figure 10).
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+Figure 1 showed that blurring schemes are not robust enough
+in some situations. Metalights improve the quality of the filtered image, while keeping advantage of the speed-up from
+interleaved shading. We use 3 × 3 supersampling and a 5 × 5
+Lanczos kernel to filter supersampled, interleaved shaded
+pictures; the reference picture is rendered and filtered at that
+same resolution, except that all VPLs are used to shade every
+supersample.
+Figure 12 compares rendering times and quality for the
+four-columns scene using Lanczos filtering, for identical final image size. Images are rendered at supersampled resolution 2100 × 2100 and use all VPLs, Card (Ω) = 10000 and
+25 subsets. The metalight uses λ = 400 initial screen space
+samples to set up the VPLI. All pictures have a final size of
+700 × 700 pixels. We can notice the quality and performance
+of a metalight to handle supersampling without having to
+manually select scene-dependent filtering parameters.
+
+2116
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+
+(a) Standard I.S.
+(14min 7s)
+
+(b) Metalight
+(c) Reference
+(VPLI: 1.3s
+(7h 12min)
+rendering: 14min 15s)
+
+Figure 12: Antialiasing and rendering times.
+
+5. Conclusion
+We presented metalights, a light source structure which
+adapts the screen space assignment and the sampling of
+VPLs to the current view when using interleaved shading.
+The noise pattern is greatly reduced at the cost of a very
+small overhead. Metalights also improves adaptation to antialiasing. They are not dependent on the rendering engine
+and their implementation is straight-forward.
+
+(a) Standard IS
+
+Although metalights reduce noise variance on average,
+there is still space for many improvements. Localizing the
+VPLI by partitionning image space and interpolating VPLI
+during rendering may provide better quality but would add
+more overhead computation. The screen sampling and VPL
+partitioning from [HPB07] may also be used instead of our
+initial sorting step. Although interleaved shading was not in
+the scope of their original publication, these VPL clusters
+could be put in sequence to feed the metalight. Another possibility would be to interpret Lightcuts light tree to sort the
+VPLs. In any case, our algorithm would then run on top of
+it, starting from the card-dealing step, to improve per-pixel
+subset assignment and stochastic sampling of the VPLs.
+(b) Metalight
+
+6. Acknowledgements
+
+Figure 10: Noise layer local variance (the color of each
+pixel in the false color plots is based on the variance of 3 × 3
+matrices centered at that pixel).
+Variance
+
+We thank the anonymous reviewers for many insightful suggestions that greatly helped improving the paper. This work
+is supported in part by National Science Council (Taiwan)
+under grant NSC 98-2220-E-003-001 and by Google Research Award.
+
+0.01
+Standard I.S.
+Metalight
+
+References
+
+0.001
+
+0.0001
+20
+
+40
+
+60
+
+80
+
+100
+Α (%)
+
+Figure 11: Noise layer global Log-variance for varying α.
+
+[BGH05] B URKE D., G HOSH A., H EIDRICH W.: Bidirectional
+importance sampling for direct illumination. In Proceedings
+of the Eurographics Symposium on Rendering Techniques, Konstanz, Germany, June 29 - July 1, 2005 (2005), Eurographics Association. 3
+[CETC06] C LINE D., E GBERT P. K., TALBOT J. F., C ARDON
+D. L.: Two stage importance sampling for direct lighting. In Rendering Techniques 2006: 17th Eurographics Workshop on Rendering (June 2006), pp. 103–114. 3
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+2117
+
+W. Faure & C.-F. Chang / Metalights : Improved Interleaved Shading
+[CJAMJ05] C LARBERG P., JAROSZ W., A KENINE -M ÖLLER T.,
+J ENSEN H. W.: Wavelet importance sampling: Efficiently evaluating products of complex functions. In Proceedings of ACM
+SIGGRAPH 2005 (2005), ACM Press. 3
+[DWF06] D ONIKIAN M., WALTER B., F ERNANDEZ S.: Accurate direct illumination using iterative adaptive sampling. IEEE
+Transactions on Visualization and Computer Graphics 12, 3
+(2006), 353–364. 3
+[HPB07] H AŠAN M., P ELLACINI F., BALA K.: Matrix rowcolumn sampling for the many-light problem. In SIGGRAPH
+’07: ACM SIGGRAPH 2007 papers (New York, NY, USA, 2007),
+ACM, p. 26. 3, 8
+[Kel97] K ELLER A.: Instant radiosity. In SIGGRAPH ’97: Proceedings of the 24th annual conference on Computer graphics
+and interactive techniques (New York, NY, USA, 1997), ACM
+Press/Addison-Wesley Publishing Co., pp. 49–56. 1
+[KH01] K ELLER A., H EIDRICH W.: Interleaved sampling. In
+Proceedings of the 12th Eurographics Workshop on Rendering
+Techniques (London, UK, 2001), Springer-Verlag, pp. 269–276.
+1, 3
+[LSK∗ 07] L AINE S., S ARANSAARI H., KONTKANEN J.,
+L EHTINEN J., A ILA T.: Incremental instant radiosity for realtime indirect illumination. In Proceedings of Eurographics Symposium on Rendering 2007 (2007), Eurographics Association,
+pp. 277–286. 2, 4, 6
+
+62
+52
+42
+32
+2
+32
+42
+52
+62
+
+Guvkocvkqp"gttqt"*'+
+
+52
+
+Guvkocvkqp"gttqt"*'+
+
+42
+32
+2
+32
+
+Ucorng"uk|g"*'"qh" +
+2
+
+47
+
+72
+
+97
+
+42
+
+Vguv"pwodgt"*6'"qh" +
+
+52
+
+322
+
+72
+
+322
+
+372
+
+422
+
+472
+
+522
+
+(a) Error % for increasing sample (b) Visual representation of the
+size.
+variance at low sample rate
+(4% of Ω) for 300 tests.
+
+Figure 13: Influence of a rough sorting before stratification
+starts. Green: random stratification , Blue: rough sorting
+
+62
+52
+42
+32
+2
+32
+42
+52
+62
+
+Guvkocvkqp"gttqt"*'+
+
+Ucorng"uk|g"*'"qh" +
+2
+
+47
+
+72
+
+97
+
+322
+
+62
+52
+42
+32
+2
+32
+42
+52
+62
+
+Guvkocvkqp"gttqt"*'+
+
+Ucorng"uk|g"*'"qh" +
+2
+
+3
+
+4
+
+5
+
+6
+
+(a) Error % for increasing sam- (b) Low sampling rate behaviour.
+ple size.
+
+[SIMP06] S EGOVIA B., I EHL J. C., M ITANCHEY R., P ÉROCHE
+B.: Non-interleaved deferred shading of interleaved sample
+patterns. In GH ’06: Proceedings of the 21st ACM SIGGRAPH/EUROGRAPHICS symposium on Graphics hardware
+(New York, NY, USA, 2006), ACM, pp. 53–60. 2, 3, 6
+
+Figure 14: Stratified sampling convergence speed when the
+samples order is known (not their actual value). Green: random stratification, Blue: perfect sorting.
+
+[SKS09] S ZIRMAY-K ALOS L., S ZÉCSI L.: Deterministic importance sampling with error diffusion. Computer Graphics Forum
+28, 4 (2009), 1055–1064. 3
+
+Appendix A: Stratified sampling performance
+
+[Vea97] V EACH E.: Robust Monte Carlo Methods for Light
+Transport Simulation. PhD thesis, Stanford University, Stanford,
+California, Dec. 1997. 3
+[WÅ09] WANG R., Å KERLUND O.: Bidirectional importance
+sampling for unstructured direct illumination. Computer Graphics Forum 28, 2 (Apr. 2009), 269–278. 3
+[WABG06] WALTER B., A RBREE A., BALA K., G REENBERG
+D. P.: Multidimensional lightcuts. In SIGGRAPH ’06: ACM
+SIGGRAPH 2006 Papers (New York, NY, USA, 2006), ACM,
+pp. 1081–1088. 3
+[War94] WARD G.: The radiance lighting simulation and rendering system. In SIGGRAPH ’94: Proceedings of the 21st
+annual conference on Computer graphics and interactive techniques (New York, NY, USA, 1994), ACM, pp. 459–472. 3
+[WBS03] WALD I., B ENTHIN C., S LUSALLEK P.: Interactive
+global illumination in complex and highly occluded environments. In EGRW ’03: Proceedings of the 14th Eurographics
+workshop on Rendering (Aire-la-Ville, Switzerland, Switzerland,
+2003), Eurographics Association, pp. 74–81. 3
+[WFA∗ 05] WALTER B., F ERNANDEZ S., A RBREE A., BALA
+K., D ONIKIAN M., G REENBERG D. P.: Lightcuts: a scalable
+approach to illumination. In SIGGRAPH ’05: ACM SIGGRAPH
+2005 Papers (New York, NY, USA, 2005), ACM, pp. 1098–1107.
+2, 3
+[WKB∗ 02] WALD I., KOLLIG T., B ENTHIN C., K ELLER A.,
+S LUSALLEK P.: Interactive global illumination using fast ray
+tracing. In EGRW ’02: Proceedings of the 13th Eurographics
+workshop on Rendering (Aire-la-Ville, Switzerland, Switzerland,
+2002), Eurographics Association, pp. 15–24. 3
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+To motivate our approach of sorting VPL by their average
+contribution before stratification, we propose here a numerical test to compare random stratification to ordered stratification. We sample x elements from a fixed set Ω random
+numbers. We then extrapolate the total sum of Ω by multiCard(Ω)
+plying the sum of the chosen samples by
+.
+x
+Random stratification is done by splitting Ω into x equal
+size subsets (±1 element) and sampling one element from
+each subset.
+Ordered stratification is built by sorting the elements in Ω
+using rough estimates. This is done by adding a small error
+(25% of the peak value) to the real value of the elements to
+simulate the VPLI estimation-based sorting from our algorithm. The stratified sampling then runs as described above.
+Figure 13 shows that sum converges faster when we sort
+the elements in Ω even if our estimates contain errors. Figure 13b shows that this is still true at very low sampling rate
+(when we only sample 4% of the set, which corresponds
+to the partitioning used for 5 × 5 interleaved shading) and
+Figure 14 shows the convergence speed if we know the exact order of the samples prior to the stratification (without
+knowledge of their actual values).
+
+

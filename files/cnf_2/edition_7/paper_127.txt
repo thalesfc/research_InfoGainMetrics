@@ -1,0 +1,1012 @@
+Eurographics Symposium on Rendering 2009
+Hendrik P. A. Lensch and Peter-Pike Sloan
+(Guest Editors)
+
+Volume 28 (2009), Number 4
+
+The Use of Precomputed Triangle Clusters for Accelerated
+Ray Tracing in Dynamic Scenes
+Kirill Garanzha 1
+Bauman Moscow State Technical University, Russia
+
+Abstract
+In this paper we present a hybrid algorithm for building the bounding volume hierarchy (BVH) that is used in
+accelerating ray tracing of animated models. This algorithm precomputes densely packed clusters of triangles on
+surfaces. Folowing that, a set of clusters is used to rebuild the BVH in every frame. Our approach utilizes the assumption that groups of connected triangles remain connected throughout the course of the animation. We
+introduce a novel heuristic to create triangle clusters that are designed for high performance ray tracing. This
+heuristic combines the density of connectivity, geometric size and the shape of the cluster.
+Our approach accelerates the BVH builder by an order of magnitude rebuilding only the set of clusters that is much
+smaller than the original set of triangles. The speed-up is achieved against a 'brute-force' BVH builder that
+repartitions all triangles in every frame of animation without using any pre-clustering. The rendering performance
+is not affected when a cluster contains a few dozen triangles. We demonstrate the real-time/interactive ray tracing
+performance for highly-dynamic complex models.
+Categories and Subject Descriptors (according to ACM CCS): I.3.7 [Computer Graphics]: Three-Dimensional
+Graphics and Realism – Raytracing.
+
+1. Introduction
+Ray tracing [Shi00] is widely used in producing high-quality images. Nowadays, algorithmic improvements have
+made interactive ray tracing a reality on modern desktop
+PCs [Bik07]. These improvements include building an
+acceleration structure that is used to reduce the number of
+ray-triangle intersection tests at the expense of traversing
+such a structure. The high-quality acceleration structure
+yields high performance ray tracing.
+The bounding volume hierarchy (BVH) [KK86] of axisaligned bounding boxes (AABB) is one of the most popular
+acceleration structures applicable for high performance ray
+tracing. A typical BVH encloses the scene primitives with
+bounding volumes, organizing them into a tree. BVH has
+several advantages: predictable memory consumption; the
+fastest empty space passing for the trees produced through
+using the surface area heuristic (SAH) [Hav01]; efficient
+and practical techniques for fast construction or update
+[Wal07; WK06; YCM07; WBS07]. However, BVH has
+several disadvantages: it does not give an exactly spatiallyordered traversal of a ray. If any acceleration structure is
+used for ray tracing in dynamic scenes then it is necessary
+to rebuild the BVH for every frame of the animation. Creation of a fast BVH-builder for the animated models is still a
+significant challenge.
+1
+
+email: garrill@bk.ru
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+Figure 1: Cloth (92K triangles), Exploding Dragon
+(252K), Balls (146K), Fairy Forest (174K), Conference
+(282K), Thai (10M). The first 4 models are dynamic.
+Hybrid BVH-builder performance for every frame is 6.7ms,
+12ms, 5.2ms, 7.8ms, 13ms and 311ms for respective
+models. This builder provides the high-performance ray
+tracing (e.g., 37ms, 24ms, 42ms, 57ms, 110ms and 174ms
+for primary rays at 1024×1024). The same rendering
+performance is provided by the ‘brute-force’ builder that
+repartitions all triangles in every frame. All timings were
+computed on a laptop with Core 2 Duo @ 1.83GHz.
+
+1200
+
+Kirill Garanzha / The Use of Precomputed Triangle Clusters for Accelerated Ray Tracing in Dynamic Scenes
+
+Often, scene objects are stored as triangle meshes and the
+animation is performed by changing the world-space positions of the vertices while the mesh-connectivity stays unchanged (the vertex-indices stay constant in the datastructure of the triangle). Such animations are named as
+deformable [WMG*07]. Still, even exploded animations
+can be programmed by introducing more instances of vertices for triangles preserving some fraction of connectivity at
+the same time. If the ratio of VerticesCount / TrianglesCount < 3 then there is some fraction of connectivity
+among the triangles of the mesh. In real life, a triangle is
+not a real object – it is a primitive of geometry representation. Even few connected triangles represent something.
+In this paper we present a hybrid algorithm for building
+the BVH that is used to accelerate the ray tracing in dynamic scenes. This algorithm precomputes densely packed
+clusters of triangles from surfaces. Then a set of clusters is
+used to rebuild the BVH in every frame. We assume that
+groups of connected triangles remain connected throughout
+the course of the animation.
+Contribution. We introduce a novel heuristic to create
+triangle clusters that are designed for accelerated ray tracing
+in dynamic scenes. This heuristic combines the density of
+connectivity, geometric size and the shape of a cluster.
+
+ture mapping [SSGH01] and to create the levels-of-details.
+Face hierarchies described by Garland et al. [GWH01] can
+be used in radiosity algorithms; they can be combined with
+the builders of trees of oriented bounding boxes for ray
+tracing and collision detection.
+Günther et al. [GFW*06] proposed a motion decomposition with an assumption that the connectivity of the deformable mesh is constant and that the motion is semi-hierarchical. They compute affine transformations for the coherently moving parts of the model. And then they build a
+fuzzy kd-tree that bounds the motion of the local objects.
+The tree can be built for predefined animations or skinned
+animations. The run-time kd-trees are computed by updating the boxes of fuzzy kd-trees.
+Lauterbach et al. [LYTM08] proposed a 2-level acceleration structure for the high-performance ray tracing of
+massive models. The 2-level hierarchy consists of strip
+hierarchies, which are implicitly encoded on each triangle
+strip. Then a global high-level hierarchy is constructed
+whose leaf-nodes contain the strip hierarchies. The scheme
+is designed to reduce the memory consumption of acceleration structure. Our approach can be considered as the
+builder of the 2-level tree where we use triangle clusters
+instead of triangle strips. However, our approach is designed specially for dynamic scenes.
+
+2. Related Work
+The recent state of the art report [WMG*07] contains detailed information of using acceleration structures for ray
+tracing animated scenes.
+2.1 BVH Build Improvements
+Most of the fast build methods perform recursive partitioning of the input set of triangles into 2 disjointed subsets
+in a top-down order. A fast bottom-up builder was presented by Walter et al. [WBKP08].
+Wald’s algorithm [Wal07] builds high-quality BVHs of
+AABBs. The build-algorithm considers not all possible
+partition-candidates to produce the node but only a fixed
+number of them uniformly distributed within the space of
+the node’s AABB. The builder can be accelerated by using
+a rough presort of triangles in a regular 3D grid [WK06].
+Hunt et al. [HMFS07] proposed an algorithm that uses a
+scene graph as a rough presort of geometry. At every partition step of the tree-builder the groups of primitives represented by higher nodes in the BVH of the scene graph are
+used in place of individual primitives. This is done to reduce the amount of geometry that is considered in the process creating a new tree-node. Garanzha [Gar08] proposed a
+method that detects the types of motion for the BVHsubtrees at run time. For every detected type of the motion
+the cheapest BVH update technique is applied (refitting,
+subtree-reinsertion or restructuring).
+2.2 Face Clustering Methods
+Triangle clusters are exploited to minimize the overdraw
+[SNB07] in the z-buffering algorithms, to improve the tex-
+
+3. Hybrid BVH Construction
+In this section we describe an approach for building a BVH
+quickly. We accelerate the builder by reducing the input set
+of the algorithm. We use a set of special triangle clusters as
+the input set of the builder. These clusters are precomputed
+at the beginning of the animation sequence and they are
+used to rebuild the BVH in each frame. We assume that
+vertex-indices stay constant during the life-time of each
+triangle. This is a reasonable assumption for a wide variety
+of dynamic scenes where an acceleration structure builder is
+time-critical. Other animation properties are not known in
+advance (i.e. the animation can be hierarchical, deformable
+or exploding). Our clustering heuristic is motivated by the
+geometric probability model and the motion prediction.
+3.1
+
+Heuristic Motivation
+
+Geometric probability. Let X and Y be convex spatial regions in the world space such that X contains Y, i.e.
+X ∩ Y = Y (see Fig. 2a). According to [Hav01] P(Y | X) =
+SA(Y) / SA(X) is the conditional probability that an arbitrary
+ray intersects the spatial region Y assuming it intersects the
+spatial region X. SA(X) – is the surface area of spatial region X. When an arbitrary ray traverses the BVH and
+reaches a leaf, it is highly desirable to have a rather high
+probability P(Y | X) for the ray to intersect the primitives of
+the leaf (X corresponds to the AABB of the leaf that contains a one or several primitives Y). In the case of an intersection, the traversal process stops early without testing the
+rest of the BVH.
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Kirill Garanzha / The Use of Precomputed Triangle Clusters for Accelerated Ray Tracing in Dynamic Scenes
+
+1201
+
+The chance P(Y | X) of a ray hitting a triangle’s AABB to
+actually hit the triangle is equal to 0.5 in the best case (a
+triangle with an axis-aligned orientation and one axisaligned edge) (see Fig. 2b). For arbitrary oriented and arbitrary sized triangles the value of P(Y | X) can be significantly lower than 0.5 and is not easily predicted.
+If Y is a sphere of radius R and X is the bounding cube of
+the sphere then P (Y | X ) = 4πR 2 /(6 ⋅ ( 2 R ) 2 ) = π / 6 (see Fig.
+2c). If Y is an arbitrary oriented flat disk of radius R and X
+is the bounding cube for all possible disk orientations then
+P (Y | X ) = 2 ⋅ (πR 2 ) /( 6 ⋅ ( 2 R ) 2 ) = π / 12 (see Fig. 2d). Note
+that for a fixed disk orientation the AABB is smaller than
+the bounding cube for all possible orientations:
+P (Y | X ) ∈ (π / 12..π / 4] ) (see Fig. 2e).
+In general cases the value of P(Y | X) is greater for
+spheres or even arbitrary oriented disks than for triangles.
+Considering these observations, we conclude that it is beneficial to create triangle clusters that approximate
+spheres/disks and then to use them as the building blocks
+for the leaves of the BVH that can be rebuilt in every frame
+of the animation. Spheres/disks can rotate and move arbitrarily in the world-space and at the same time the value of
+P(Y | X) stays within a ‘good’ interval (π / 12..π / 4] .
+Motion prediction. As we precompute the clusters at the
+beginning of the animation sequence then our clustering
+heuristic should guarantee that clusters stay non-disruptive
+throughout the course of the animation. See Fig. 3: both
+clusters approximate disks and consist of 14 triangles but
+cluster (b) has a denser connectivity (13 distinct vertices)
+than cluster (a) (16 distinct vertices). There is no guarantee
+that once created the cluster (a) will save the disk-like
+shape: parts of the (a)-like cluster can rotate independently
+disrupting the disk-shape. The clustering heuristic should
+favor (b)-like clusters that have denser connectivity (the
+ratio of VerticesCount / TrianglesCount is smaller). There
+is more chance that (b)-like clusters will save their disk-like
+shape throughout the course of the animation.
+
+3.2 Clustering Heuristic Estimation
+Sphere/disk approximation. Any cluster should have a
+shape similar to a sphere or to a disk. Let’s consider k connected triangles of a cluster and the bounding sphere S(k) of
+radius R(k) that encloses all the triangles (see Fig. 4).
+The area of any circle in S(k):
+AreaC (k ) = π ⋅ R ( k ) 2
+(1)
+Let’s consider a plane P that passes through the center of
+S(k) and that has a normal of length 1:
+k
+
+N AVG ( k ) = Normalized ( ∑ ni )
+
+(2)
+
+i =1
+
+where ni is the normal of length 1 for the i-th triangle. If all
+individual ni cancel each other then NAVG(k) = NaN (e.g., in
+the case of a cluster representing an actual sphere or cube).
+In this case, any value could be assigned to NAVG(k) (e.g.,
+the most popular value among ni).
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Figure 2: Geometric probability that an arbitrary ray
+intersects the spatial region Y assuming it intersects the
+spatial region X: P(Y | X) = SA(Y) / SA(X).
+
+Figure 3: b-cluster has a denser connectivity (and smaller
+value of VerticesCount / TrianglesCount) than a-cluster.
+
+Figure 4: The clusters of connected triangles should have
+a shape that is similar to a sphere or to a disk.
+
+We introduce the term and call it a ‘bidirectional’ area of
+k projected triangles in the plane P:
+k
+
+AreaP ( k ) = ∑ TriAreai ⋅ abs( dot ( N AVG ( k ), ni ))
+
+(3)
+
+i =1
+
+where TriAreai is the area of the i-th triangle.
+The k triangles approximate a sphere or a disk better if
+the value of the following function is higher:
+AreaP ( k )
+reg ( k ) =
+(4)
+AreaC ( k )
+For locally flat/smooth surface patches reg ( k ) ∈ (0..1)
+(for all i dot(NAVG(k),ni) > 0). In this case a disk can be
+approximated if the value of reg(k) is closer to 1. For highly
+curved surfaces the value of reg(k) can be greater than 1
+(e.g. for an actual sphere). Note that reg(k) evaluates the
+sphere/disk-approximation as the value of AreaC(k) is computed for the tight bounding sphere S(k). A greater value of
+reg(k) is assigned for a better approximation.
+
+Limiting terms. To control the desired shape regularity
+of a cluster for k connected triangles we introduce the
+bounding function:
+CountDistinctVertice s( k )
+regBound ( k ) =
+(5)
+MaxCount
+where MaxCount is the rough-maximum desired number of
+vertices in a cluster (MaxCount is the predefined parameter). The function regBound(k) grows linearly with the
+greater number of distinct vertices in a cluster of k triangles
+
+1202
+
+Kirill Garanzha / The Use of Precomputed Triangle Clusters for Accelerated Ray Tracing in Dynamic Scenes
+
+(see Fig. 3). A smaller value of regBound(k) is assigned to
+the cluster of denser connectivity where the ratio of
+VerticesCount / TrianglesCount is smaller.
+The set of k connected triangles is accepted to form a
+cluster if the value is true:
+reg ( k ) − regBound ( k ) > 0
+(6)
+This heuristic (6) requires a higher value of reg(k) for the
+cluster with a higher number of vertices.
+The issue of the cluster’s geometric size is not addressed
+in the heuristic (6). It can be a problem for the models
+composed of highly-variable sized triangles (e.g. for architectural models). See Fig. 5 to visualize the issue. In the
+case of Fig. 5a, both clusters have a similar number of triangles, but they differ in their sizes. The AABB of a larger
+cluster has a relatively large empty space in comparison to
+the AABB of a smaller cluster. This case creates overlapping regions between the respective AABBs. Such regions
+force the ray traversal process to test more objects for intersection, which can be avoided if the clustering heuristic
+discards the creation of large clusters (see Fig. 5b). In order
+to address this issue we introduce the following ‘penalty’
+term for large clusters:
+SA( S ( k ))
+sizeBound ( k ) = max(1,
+)
+(7)
+MaxSize ⋅ AvgSA
+where AvgSA is the surface area of the bounding sphere for
+the average triangle in the scene. MaxSize is the roughmaximum desired size of the cluster (MaxSize is the predefined parameter). The value of sizeBound(k) is greater than
+1 for the set of k triangles that can form a cluster with the
+undesirably large geometrical size. The term sizeBound(k)
+is combined with heuristic (6) in the following way:
+Acc ( k ) = reg ( k ) − sizeBound ( k ) ⋅ regBound ( k )
+(8)
+If Acc(k) > 0 then the set of k connected triangles can be
+accepted to form a cluster that satisfies our observations
+made in Section 3.1. A greater value of Acc(k) corresponds
+to a ‘better’ cluster. This formula (8) is organized into a
+sum of a positive and negative contribution of cluster’s
+properties (4), (5), (7) to the cluster’s acceptance rate.
+Acc(k) combines its limiting terms in a multiplication that
+allows the creation of balanced clusters in terms of their
+geometric size and the number of vertices (see Fig. 7, 8).
+3.3 Clusters Creation
+The function Acc(k) can be applied in 2 bottom-up clustering algorithms: iterative ‘growing’ and ‘contraction’.
+Iterative growing. At each step a new cluster is created
+and a random triangle is added to the cluster. Then for a
+cluster of k-1 triangles we evaluate Acc(k) for all possible
+additions (for every triangle that is connected to the cluster
+through the vertex-indices). The triangle that corresponds
+to the maximum value of Acc(k) is added to the cluster.
+Such a process of cluster ‘growing’ stops if Acc(k) < 0 for
+all possible additions.
+Iterative contraction (details in [GWH01]). This approach uses the dual graph of the mesh (see Fig. 6a). The
+
+Figure 5: The issue of the cluster’s geometric size: (a) the
+AABB of a larger cluster overlaps the AABB of a smaller
+cluster; (b) if the clustering heuristic discards the creation
+of geometrically large clusters, then the overlapping
+regions of the respective AABBs are reduced.
+
+Figure 6: Dual edge contraction: 2 triangles of the mesh
+(a) corresponding to the nodes of the dual graph are
+merged into 1 cluster (b).
+
+Figure 7: Clusters: initial set of triangles (the left image),
+the set of clusters produced by iterative growing (the
+middle image) and iterative contraction (the right image).
+dual graph is defined by mapping each triangle of the mesh
+to a node in a dual graph, and connecting 2 dual nodes with
+an edge if the corresponding triangles are connected
+through vertex-indices. An edge contraction in the graph
+merges 2 nodes into one (see Fig. 6b). This operation corresponds to merging 2 clusters into a single cluster.
+For each dual edge we assign Acc(k). All dual edges are
+sorted in the queue (the queue is implemented using a hash
+table with the cells mapped to the interval [-2..2]). The
+clustering algorithm iteratively contracts the dual edge of
+the maximum Acc(k). After the 2 dual nodes have been
+merged into a single one, then the value of Acc is updated
+for the set of dual edges connected to the new node. This
+iterative process stops if the current maximum value Acc in
+the queue is less than 0. Then a reduced set of dual nodes
+forms the output set of created clusters.
+‘Growing’ algorithm creates complete clusters one by
+one. This algorithm can create the subset of rather ‘perfect’
+clusters while leaving no ‘building material’ for other clusters (see Fig. 7, arrow on the middle image). ‘Contraction’
+algorithm iteratively generates an entire set of clusters. This
+algorithm considers the global configuration of Acc values
+and merges the best pair of sub-clusters at each step. The
+pairwise merging can produce aliased boundaries (see Fig.
+7, right image). The aliasing is reduced by computing the
+shortest path over the mesh edges between the endpoints of
+the boundary (the same is done in [SSGH01]).
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Kirill Garanzha / The Use of Precomputed Triangle Clusters for Accelerated Ray Tracing in Dynamic Scenes
+
+1203
+
+3.4 BVH Builder
+After the set of triangle clusters is created, each cluster
+contains a set of triangle-indices and a set of vertex-indices.
+The set of vertex-indices is used to compute the AABB for
+each cluster in every frame of the animation (after the new
+world-space vertex-positions are generated).
+We build the binary BVH of AABBs using the algorithm
+[Wal07] that is quite fast and parallelizable. The input set
+of this builder is the set of updated clusters’ AABBs. At
+every step of the building-algorithm the set of AABBs is
+recursively partitioned into 2 disjointed subsets. The SAH
+is used to evaluate every possible partition-candidate. The
+advantage of this algorithm is that it considers a fixed number of possible partition-candidates uniformly distributed in
+the space of the current nodes’ bounding volume. Good
+partitions can be detected by evaluating no more than 16 or
+32 of such partition-candidates.
+We stop the process of partitioning in 2 cases: 1) if the
+set of clusters which should be partitioned within the node,
+contains a sum of triangles that is less than some threshold
+(32 triangles in our case); 2) if the best partition-candidate
+yields the 2 coincident bounding boxes for the 2 subsets of
+clusters. Then for the set of non-partitioned clusters the
+union of all triangles is merged and the leaf-node is created.
+Case 2) merges the clusters based on their run-time 3D
+proximity without creating additional BVH-branches that
+would be an overhead for ray tracing.
+3.5
+
+Discussion and Comparison
+
+Our clustering heuristic differs from the one introduced in
+[GWH01] by design and application purposes. Their clustering system iteratively contracts the dual edge with the
+least error assigned. The error function: Error(k) = Efit +
+a1Edir + a2Eshape, where the smaller value of Efit corresponds
+to a ‘more planar’ cluster; the smaller value of Edir corresponds to the similar orientations of faces inside the cluster;
+the smaller value of Eshape corresponds to the regular
+boundary shape of the cluster; a1 and a2 are the user-specified weights for error components. For large clusters the
+algorithm is forced to choose between either irregular planar clusters or regular non-planar clusters.
+Our heuristic Acc(k) is designed for the special needs of
+the high-performance ray tracing in dynamic scenes. We
+use sphere/disk approximated clusters as they reduce the
+run-time inefficiencies of the BVH for all possible worldspace rotations of the cluster (the geometric probability was
+observed). Acc(k) favors clusters of dense connectivity that
+are rather non-disruptive. These properties of Acc(k) allow
+for the precomputing of the set of ‘dynamic’ clusters that
+are to be used to build the high-quality BVH of AABBs in
+every frame of the animation (we assume that groups of
+connected triangles remain connected throughout the
+course of the animation). Another difference between Error(k) and Acc(k) is that Error(k)=0 is the limiting value for
+the ‘perfect’ cluster, while the borderline for acceptable
+clusters is undetermined. In our method Acc(k)=0 is the
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Figure 8: Cloth simulation (92K triangles) and Thai
+(10M): a lot of small triangles, Conference (282K):
+irregularly-sized triangles mixed with long and thin
+triangles). The right column: clusters created with
+MaxSize = MaxCount = 100 by iterative contraction for
+Cloth and Conference, and iterative growing for Thai.
+borderline for acceptable clusters: if Acc(k) > 0 then the
+cluster is accepted. This property adds a flexible control for
+the generation of desired clusters via parameters MaxSize
+and MaxCount of our heuristic.
+4. Results
+All results are computed on a laptop ASUS G1S with Intel
+Core 2 Duo T5550 (2 cores at 1.83GHz, FSB 667MHz, L2
+cache 2Mb, RAM 2Gb DDR2, 32-bit Windows Vista). All
+images and FPS were rendered at 1024×1024. For
+benchmarks we use 6 models (see Fig. 1). These models
+represent various properties: [UNC] deformable motion,
+exploding simulation, colliding simulation, hierarchical
+motion, a scene with long and thin triangles, a large model.
+4.1 Clusters Creation
+We illustrate the output of our clustering heuristic applied
+to iterative contraction for Cloth simulation and the Conference (see Fig. 8). We use iterative growing algorithm for
+Thai as there is no enough virtual address space on 32-bit
+OS to maintain the dual graph for 10M triangles. Our technique creates good disk approximations for the Cloth and
+Thai as they are ‘easy’ models for our algorithm (all trian-
+
+1204
+
+Kirill Garanzha / The Use of Precomputed Triangle Clusters for Accelerated Ray Tracing in Dynamic Scenes
+
+gles are rather evenly-sized). Conference model is a ‘hard’
+model for our algorithm (a lot of long thin triangles). Instead of disk-approximations our algorithm detects rectangular clusters that are rather evenly-sized (this model is
+truly rectangular). A cluster with a hole is also detected as
+the connectivity is not available in that region (see Fig. 8
+bottom-right image, left corner). It is possible to create
+disk-like clusters for the model that is pre-tessellated, but
+we accept rectangular clusters for such ‘hard’ models.
+4.2 Ray Tracer Implementation
+We use the ‘ranged traversal’ algorithm for primary rays
+and the ‘partition’ algorithm for secondary rays [ORM08].
+Vertex-Culling algorithm [Res07] enables the use of ‘shallow’ acceleration structures whose leaf-nodes contain a lot
+of triangles. These triangles are efficiently culled by the
+algorithm that creates a transient frustum for active rays
+every time a ray-packet visits a leaf-node. It is reported that
+ray traversal performance is not affected for the tree where
+every leaf contains several dozen or even hundreds of triangles. This property is very well suited to our hybrid BVH
+builder where we use large clusters as the building blocks.
+Our ray tracer uses 32×32 ray packets that are organized
+into 2×2 SIMD rays. The parallel ray-tracing is implemented by using the screen-space tiling. The parallel BVH
+builder is implemented by using a fast and rough presort of
+cluster’s AABBs in a regular 3D grid [WK06; Wal07].
+Though the number of clusters that are used as building
+blocks for the BVH builder can be different, the process of
+node partitioning stops if the clusters within the node contain a sum of triangles that is less than 32. For dynamic
+models the clusters are built once considering the geometry
+of the first frame (we assume that connected triangles remain connected throughout the course of the animation).
+4.3 Analysis
+The output data of our hybrid BVH builder is shown in
+Table 1 and Fig. 9 for all the tested models. Ray tracing
+timings for coherent primary rays and incoherent 2-bounce
+reflections are presented (every point of every surface is
+reflective). Incoherent reflected rays are especially sensitive
+to the quality of the BVH providing the stress test for our
+approach. The row MaxCount = MaxSize = 0 corresponds
+to a BVH builder that partitions the original set of all triangles in every frame [Wal07]. This data also corresponds to
+the ‘reference’ high-quality BVH produced by this builder.
+For all values MaxCount > 0, MaxSize > 0 our hybrid BVH
+builder is significantly faster. The ray tracing timings are
+not affected by our builder until some cluster-size is
+reached for a particular scene. The most noticeable benefits
+can be observed for larger models, e.g. Thai (10M triangles). The best parameters of our clustering heuristic are
+MaxCount = MaxSize = 50 for all tested models: 1) the
+BVH builder is an order of magnitude faster than the ‘reference’ builder; 2) the ray tracing timings are not slower
+than the ‘reference’ timings. The ray tracing timings can
+drop slightly for significantly larger clusters. A very large
+
+Cloth Drag. Balls Fairy Conf. Thai
+MaxCount = MaxSize = 0. (The rows of reference BVH-quality)
+Clustering, sec
+0
+0
+0
+0
+0
+0
+# of clusters
+92K
+252K 146K 174K 282K
+10M
+BVH Build, ms
+23
+62.8
+37.2
+52
+82.4
+4.9K
+Primary rays, ms
+44.5
+32.1
+50.2
+68
+109
+250
++reflections, ms
+163
+213
+533
+718
+1940
+1270
+MaxCount = 10, MaxSize = 10
+1.9
+2.9
+7.4
+1.2
+3
+165
+Clustering, sec
+49K
+139K
+69K
+83K
+148K 5.1M
+# of clusters
+BVH build, ms
+14.4
+39.2
+23.6
+27.2
+43
+2.6K
+Primary rays, ms
+42.1
+28.2
+44.4
+63.6
+108
+240
++reflections, ms
+152
+188
+448
+688
+1880
+1255
+MaxCount = 50, MaxSize = 50
+1.5
+1.9
+8.4
+2.8
+5.5
+143
+Clustering, sec
+5.2K 24.6K 8.2K 17.9K
+32K
+469K
+# of clusters
+BVH build, ms
+6.7
+12.1
+5.2
+7.8
+12.6
+311
+Primary rays, ms
+36.6
+24.4
+42
+57.5
+110
+174
++reflections, ms
+154
+157
+409
+720
+1990
+980
+MaxCount = 100, MaxSize = 100
+3.7
+2.3
+9.3
+5.8
+10
+139
+Clustering, sec
+# of clusters
+3.7K 16.4K 4.3K 10.7K 20.4K 194K
+5.6
+7.1
+4.1
+4.5
+9.2
+167
+BVH build, ms
+Primary rays, ms
+34.9
+25.7
+41.9
+57.5
+109
+166
++reflections, ms
+167
+161
+452
+802
+2326
+1070
+
+Table 1: Hybrid BVH Builder stats for various parameters of Acc(k). Image viewpoints can be seen on Fig. 1.
+Build, ms
+Primary rays only, ms
+FPS primary
+
+70
+60
+50
+40
+30
+20
+10
+0
+0
+
+10
+
++ 2-bounce refl., ms / 10
+FPS refl. × 10
+
+50
+100
+MaxSize = MaxCount = X
+
+Figure 9: The stats for Dragon model. The data is taken
+from Table 1. FPS = 1000 / (Build + Ray Tracing time).
+
+cluster produced may not approximate a shape of disk well.
+When a cluster contains a lot of triangles the BVH builder
+creates a leaf with lots of triangles without further splitting.
+The use of large clusters yields a lower quality BVH. The
+Vertex-Culling algorithm amortizes the quality degradation
+of the BVH that is built for such large clusters.
+For some rows MaxCount > 0, MaxSize > 0 ray tracing
+timings may be faster than reference timings for particular
+models. It is possible as we prefetch the vertices of a cluster
+before executing the ray-triangle intersection test. This
+simple optimization enables better cache hit rates.
+Fig. 10a represents a detailed per frame comparison of
+the quality for the BVHs produced by using Acc(k)50,50
+(MaxCount=MaxSize=50) and Acc(k)0,0 (MaxCount= MaxSize = 0, i.e. reference BVH-quality). Though the clusters
+for Acc(k)50,50 are precomputed considering the geometry of
+the first frame, the quality of the BVHs produced is very
+high throughout the course of the animation even for the
+exploding dragon.
+If the assumption that the triangles within the clusters
+stay connected is violated, then the triangles within a clusc 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+1205
+
+Kirill Garanzha / The Use of Precomputed Triangle Clusters for Accelerated Ray Tracing in Dynamic Scenes
+
+ter can eventually diverge by moving in the opposite direction. Such clusters can’t be considered as being compact
+and they will create overlaps with other clusters resulting in
+performance degradation. Without this assumption the clusters precomputation is unnecessary and the BVH builder is
+not accelerated. The advantage of this assumption is that it
+enables the triangle reordering techniques (e.g. triangle
+strips can be used for efficiency purposes).
+4.4 Comparison
+We compare our heuristic Acc(k)50,50 with the naïve SAHclustering and the method from [GWH01] (see Error(k) in
+Section 3.5). These heuristics are applied to our framework
+for dynamic scenes. The function of the heuristic for naïve
+SAH clustering is defined for k triangles:
+k
+
+Naive( k ) = ∑ SA(Trianglei ) / SA( AABB for k triangles )
+i =1
+
+where SA() – is the surface area. The higher value of Naïve(k) is assigned to k triangles that are densely packed in a
+3D-space. The function Error(k) is used with parameters
+a1=0.2 and a2=2 (we require regular boundary shape of a
+cluster). The clusters for these 3 heuristics are generated
+using iterative contraction and considering the geometry of
+the first frame. The process of iterative contraction stops for
+Naïve(k) and Error(k) if the number of available clusters for
+these heuristics is equal to the number of clusters produced
+by Acc(k)50,50 (the BVH builder repartitions the same number of clusters for Acc(k)50,50, Naïve(k) and Error(k)). The
+charts in Fig. 10b, 10c demonstrate the benefits of
+Acc(k)50,50 over other heuristics. The BVHs produced by
+our clustering method provide a better ray tracing performance for various dynamic models.
+Though the clusters produced by Naïve(k) can be highquality clusters for the first frame they can be rotated or
+disrupted that would yield a lower value of geometric probability P(Y | X) for them (see Section 3.1). The issue of
+triangles’ connectivity within a cluster is not addressed in
+Naïve(k). All these factors lead to a lower ray tracing performance for dynamic models. The issues of triangles’ connectivity and geometric size of a cluster are also not addressed in Error(k). But Error(k) is better than Naïve(k) for
+dynamic scenes as it precomputes the clusters with regular
+boundary shapes (i.e. more compact).
+In Table 2 we summarize the latest advances in creating
+fast BVHs on various architectures. The row with [Gar08]results represents a comparison with an approach to update
+the BVH based on the tree topology built for an earlier
+frame of the animation. This row can also be considered as
+a rough comparison with an idea from [HMFS07] that utilizes a scene graph (or the tree topology from the previous
+frame) as a presort of the scene geometry. In contrast to the
+build methods based on existing scene graphs our special
+purpose clusters are created automatically from the “soup”
+of triangles.
+Even with constant triangle connectivity a pure refitting
+based approach [WBS*07] fails for Exploding Dragon (10×
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+a) comparison with MaxSize=MaxCount=0
+1,15
+1,10
+1,05
+1,00
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+60
+
+70
+
+80
+
+90
+
+100
+
+60
+
+70
+
+80
+
+90
+
+100
+
+80
+
+90
+
+100
+
+b) comparison with SAH-clusters
+2,8
+2,5
+2,2
+1,9
+1,6
+1,3
+1,0
+0
+
+10
+
+20
+
+30
+
+40
+
+50
+
+c) comparison with [GWH01]-clusters
+
+1,8
+1,6
+1,4
+1,2
+1,0
+0
+
+10
+20
+30
+Dragon Factor
+Cloth Factor
+
+40
+
+50
+60
+Fairy Factor
+Balls Factor
+
+70
+
+Animation frame #
+
+Figure 10: BVH-quality comparison factors of Acc(k)50,50
+with: (a) Acc(k)0,0, (b) SAH-clustering and (c) [GWH01]clustering. The clusters produced by respective heuristics
+are used to build the BVHs. In every frame of animation the
+evaluation of Factor = (RT for (a), (b) or (c)) / (RT for
+Acc(k)50,50), where RT corresponds to the render timings of
+images with 2-bounce reflections. Case (a) presents a per
+frame comparison of Acc(k)50,50 with the reference BVHquality. The value of Factor > 1 denotes the higher quality
+of the BVHs produced by using Acc(k)50,50.
+Balls
+
+Fairy Dragon Thai
+
+Acc(k)50,50 , 1.83GHz Core 2 Duo
+
+5.2
+
+7.8
+
+12.1
+
+311
+
+[Wal07], 2.6GHz Xeon, 8 cores
+
+n/a
+
+21
+
+20
+
+1100
+
+[WIP08], 3GHz Opteron, 8 cores
+[LGS*09] GeForce 280GTX,
+low/high - quality tree
+[ZHWG08], kd-tree
+GeForce 8800 Ultra
+[GAR08], 2.4GHz Core 2 Quad,
+(only 1 core is utilized)
+
+n/a
+
+53
+
+14
+
+n/a
+
+n/a
+
+10/124
+
+17/66
+
+n/a
+
+n/a
+
+77
+
+93
+
+n/a
+
+25
+
+n/a
+
+86 avg
+
+n/a
+
+Table 2: BVH/kd-tree advances (build timings in ms).
+ray tracing slowdown), Balls (4× slowdown), Cloth (2×
+slowdown) and Fairy (1.3× slowdown). With this approach
+a constant topology of the BVH is precomputed assuming a
+selected frame of the animation based on the SAH heuristic.
+In contrast to this approach we precompute the clusters
+based on triangle connectivity rather than 3D-proximity
+that can degrade severely in exploding simulation.
+5. Limitations
+In order to design our hybrid BVH builder we assume that
+groups of connected triangles remain connected throughout
+the course of the animation. Our method is a complete
+overhead for models without connected triangles (where
+VerticesCount / TrianglesCount = 3).
+
+1206
+
+Kirill Garanzha / The Use of Precomputed Triangle Clusters for Accelerated Ray Tracing in Dynamic Scenes
+
+If most of the clusters produced undergo severe stretching in random directions and if these clusters are transformed into long and thin clusters then the ray tracing performance can degrade. Such cases represent an implicit
+limitation of our method: most evenly-sized clusters should
+remain rather evenly-sized throughout the course of the
+animation. This limitation is primarily inherited from the
+nature of the axis-aligned bounding boxes within the BVH.
+We try to solve this issue by using ‘shallow’ BVHs and we
+merge proximate clusters in the BVH builder. A possible
+way of solving this issue would be the asynchronous repair
+of disrupted/stretched clusters. For such cases we can also
+try to use a kd-tree builder that partitions a 3D space.
+6. Conclusion and Future Work
+In this paper we have presented a hybrid algorithm to build
+the BVH quickly that is used to accelerate the ray tracing of
+animated models. We assume that groups of connected
+triangles remain connected throughout the course of the
+animation. We have introduced a novel heuristic to precompute dense triangle clusters that are used as building
+blocks for the BVH builder in every frame of the animation.
+Though the set of clusters is much smaller than the original
+set of triangles the rendering performance of a ray tracer is
+not affected when a cluster contains several dozen triangles.
+We have also demonstrated the real-time / interactive ray
+tracing performance for highly-dynamic models.
+There are several avenues of future work. We can combine our approach with the other builders for BVHs or kdtrees [WK06; YCM07; HMFS07; WBKP08; ZHWG08;
+LGS*09]. In order to support triangles with dynamic vertex-indices we can introduce the method that allows runtime cluster splitting using a motion detection heuristic
+from [Gar08]. We will focus on triangle reordering techniques for better memory locality, computation culling
+[SNB07] and compact representation [LYTM08].
+Acknowledgements
+
+[Hav01] HAVRAN V.: Heuristic Ray Shooting Algorithms. PhD
+thesis, Faculty of Electrical Engineering, Czech Technical University in Prague, 2001.
+[HMFS07] HUNT W., MARK W., FUSSELL D., STOLL G.: Fast and
+Lazy Build of Acceleration Structures from Scene Hierarchies.
+In Proc. of the IEEE/EG Symposium on Interactive Ray Tracing
+(2007).
+[KK86] KAY T., KAJIYA J.: Ray tracing complex scenes. In Proc.
+of SIGGRAPH (1986), 269–278.
+[LGS*09] LAUTERBACH C., GARLAND M., SENGUPTA S., LUEBKE
+D., MANOCHA D.: Fast BVH Construction on GPUs. In Proc. of
+Eurographics 2009.
+[LYTM08] LAUTERBACH C., YOON S.-E., TANG M., MANOCHA D.:
+ReduceM: Interactive and Memory Efficient Ray Tracing of
+Large Models. In Proc. of the Eurographics Symposium on Rendering (2008).
+[ORM08] OVERBECK, R., RAMAMOORTHI, R., MARK, W.-R.: Large
+Ray Packets for Real-time Whitted Ray Tracing. In Proc. of the
+IEEE/EG Symposium on Interactive Ray Tracing (2008).
+[Res07] RESHETOV A.: Faster ray packets - triangle intersection
+through vertex culling. In Proc. of the IEEE/EG Symposium on
+Interactive Ray Tracing (2007).
+[SSGH01] SANDER P., SNYDER J., GORTLER S., HOOPE H.: Texture
+Mapping Progressive Meshes. ACM Transactions on Graphics
+(Proc. SIGGRAPH 2001) (2001).
+[Shi00] SHIRLEY P.: Realistic Ray Tracing. AK Peters, Ltd., 2000.
+[SNB07] SANDER P., NEHAB D., BARCZAK J.: Fast Triangle Reordering for Vertex Locality and Reduced Overdraw. ACM TOG
+(Proc. SIGGRAPH) 26, 3 (2007).
+[UNC] Dynamic Scenes. http://gamma.cs.unc.edu/RT
+
+[Wal07] WALD I.: On fast construction of SAH-based bounding
+volume hierarchies. In Proc. of the IEEE/EG Symposium on Interactive Ray Tracing (2007).
+[WBKP08] WALTER, B., BALA, K., KULKARNI, M., PINGALI, K.:
+Fast Agglomerative Clustering for Rendering. In Proc. of the
+IEEE/EG Symposium on Interactive Ray Tracing (2008).
+[WBS07] WALD I., BOULOS S., SHIRLEY P.: Ray Tracing Deformable Scenes using Dynamic Bounding Volume Hierarchies.
+ACM TOG 26, 1 (2007).
+
+The author thanks Erica Darkina and anonymous reviewers
+for providing feedback on the paper.
+
+[WK06] WÄCHTER C., KELLER A.: Instant Ray Tracing: The
+Bounding Interval Hierarchy. In Proc. of the 17th Eurographics
+Symposium on Rendering (2006).
+
+References
+
+[WMG*07] WALD I., MARK W., GÜNTHER J., BOULOS S., IZE T.,
+HUNT W., PARKER S., SHIRLEY P.: State of the Art in Ray Tracing Animated Scenes. In State of the Art Reports, Eurographics
+2007 (2007).
+
+[Bik07] BIKKER J.: Real-time Ray Tracing through the Eyes of a
+Game Developer. Proc. of the IEEE/EG Symposium on Interactive Ray Tracing (2007).
+[Gar08] GARANZHA K.: Efficient Clustered BVH Update Algorithm for Highly-Dynamic Models. Proc. of the IEEE/EG Symposium on Interactive Ray Tracing (2008).
+[GFW*06] GÜNTHER J., FRIEDRICH H., WALD I., SEIDEL H.-P.,
+SLUSALLEK P.: Ray tracing animated scenes using motion decomposition. Computer Graphics Forum 25, 3 (Sept. 2006),
+517–525. (Proc. of Eurographics).
+
+[YCM07] YOON S.-E., CURTIS S., MANOCHA D.: Ray Tracing
+Dynamic Scenes using Selective Restructuring. Proc. of the Eurographics Symposium on Rendering (2007).
+[ZHWG08] ZHOU, K., HOU, Q., WANG, R., GUO, B.: Real-Time
+KD-Tree Construction on Graphics Hardware. In Proc.
+SIGGRAPH Asia (2008).
+
+[GWH01] GARLAND M., WILLMOTT A., HECKBERT P.: Hierarchical Face Clustering on Polygonal Surfaces. In Proc. of the
+Symposium on Interactive 3D Graphics (2001).
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

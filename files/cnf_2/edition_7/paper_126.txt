@@ -1,0 +1,1050 @@
+Eurographics Symposium on Rendering 2009
+Hendrik P. A. Lensch and Peter-Pike Sloan
+(Guest Editors)
+
+Volume 28 (2009), Number 4
+
+Spatial Directional Radiance Caching
+Václav Gassenbauer †
+
+Jaroslav Kˇrivánek
+
+IRISA / INRIA Rennes
+Czech Technical University in Prague
+
+Cornell University
+Charles University, Prague
+
+Kadi Bouatouch
+IRISA / INRIA Rennes
+
+Abstract
+We present a new approach for accelerated global illumination computation in scenes with glossy surfaces. Our
+algorithm combines sparse illumination computation used in the radiance caching algorithm with BRDF importance sampling. To make this approach feasible, we extend the idea of lazy illumination evaluation, used in the
+caching approaches, from the spatial to the directional domain. Using importance sampling allows us to apply
+caching not only on low-gloss but also on shiny materials with high-frequency BRDFs, for which the radiance
+caching algorithm breaks down.
+Categories and Subject Descriptors (according to ACM CCS): Computer Graphics [I.3.7]: Three-Dimensional
+Graphics and Realism – Rendering, Global Illumination—
+
+1. Introduction
+Global illumination (GI) effects constitute an important aspect of generating realistic images for applications spanning
+film production, video games, industrial design or architecture. Many algorithms for simulating GI effects have been
+proposed, however, these methods are very time-consuming
+for general environments. Therefore, full global illumination
+solution is often restricted to a simpler case, such as ambient
+occlusion or predominantly diffuse indirect illumination, for
+which efficient algorithms are known [WRC88, WABG06,
+HPB07]. In this paper, we focus on a more difficult case
+of indirect illumination on surfaces with arbitrary material
+properties, coming from both diffuse and glossy objects. We
+refer to those effects as directional indirect illumination.
+Monte Carlo (MC) ray tracing algorithms are almost exclusively used for rendering scenes with directional indirect
+effects. Unfortunately variance of MC estimators gives rise
+to image noise that decreases only with the square-root of the
+number of samples. Therefore, research in computer graphics has focused on variance reduction techniques, of which
+the most widely accepted is importance sampling [PH04,
+CAE08, CAM08]. Other acceleration techniques trade efficiency for bias in the resulting solution. Some of these
+techniques calculate illumination only at several locations
+in the scene exactly. The resulting image is then generated
+† e-mail: gassev1@fel.cvut.cz
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+using a reconstruction function from these points. The pioneering work in this area was the irradiance caching algorithm [WRC88], the extensions of which include radiance caching on glossy surfaces with low-frequency BRDFs
+[KGPB05] and in participating media [JDZJ08].
+In this paper, we propose an algorithm that combines the
+sparse computation of indirect illumination used in radiance
+caching with the variance reduction offered by BRDF importance sampling. The main idea is to extend the sparse
+illumination evaluation from the spatial to the directional
+domain: The indirect radiance at a point in a direction is
+evaluated by interpolating radiance samples from neighboring directions and locations. Using this strategy we obtain
+an algorithm that has the following advantages: (1) exploits
+spatial and directional illumination coherence, (2) ensures
+a smooth integration of the view-dependent BRDFs through
+interpolation in both these domains, (3) avoids conversion of
+the scene BRDFs into a special-purpose representation, such
+as spherical harmonics [KGPB05], thereby making the algorithm more flexible, (4) gains efficiency by exploiting BRDF
+importance sampling.
+The proposed algorithm computes the first bounce of indirect illumination on glossy surfaces. Multiple bounces can
+be added e.g. by the use of photon mapping [Jen01]. The
+algorithm can be used as a part of a full solution to global
+illumination computation. Diffuse inter-reflections could be
+handled using irradiance caching, highly specular reflections
+
+1190
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+
+by classical MC sampling methods, while the reflections on
+glossy surfaces could be computed using our algorithm.
+The remainder of this paper is organized as follows. Section 2 summarizes the prior work, Section 3 reviews the radiance caching algorithm, Section 4 describes our algorithm
+while Section 5 provides its evaluation. The algorithm is discussed in Section 6 and Section 7 concludes the paper.
+
+2. Releated Work
+Our algorithm is a variant of illumination caching techniques. The seminal work in this area is irradiance caching
+[WRC88], that accelerates global illumination computation
+on diffuse surfaces. Indirect illumination is computed by interpolating previous irradiance values if these are available.
+If none of the previously cached irradiance values can be
+used, a new one is computed by sampling the hemisphere
+and cached. Ward and Heckbert [WH92] propose to use the
+translation and rotation gradient to improve the quality of
+interpolation. Tabellion and Lamorlette [TL04] use irradiance caching combined with an approximate lighting model
+in cinematic lighting. Brouillat et al. [BGB08] propose to
+use a photon map [Jen01] for fast construction of a coarse
+approximation of irradiance cache. Arikan et al. [AFO05]
+speed up irradiance caching by decomposing illumination
+into near and distant terms. The abovementioned methods
+work for diffuse illumination only while radiance caching
+proposed by Kˇrivánek et al. [KGPB05] is designed for the
+use on glossy surfaces with low-frequency BRDFs. The goal
+of our work is to modify radiance caching in such a way that
+caching can be applied for higher-frequency BRDFs.
+Other extensions of the (ir)radiance caching algorithms
+include the support for caching in dynamic environments [GBP07]. Instead of building (ir)radiance cache for
+each frame from scratch, they reuse and update existing
+records for several frames. Gautron et al. [GKBP05] also
+propose speeding up irradiance caching using the graphic
+accelerator by reformulating the algorithm to better fit the
+GPU architecture. Jarosz et al. [JDZJ08] extend the radiance caching algorithm to cache lighting in participating media. Later they reformulated the gradient computation to accounts for changes of occlusion [JZJ08]. These extensions
+show the potential of the caching methods for faithfully rendering global illumination effects.
+The idea of reusing partial results of illumination computation is not limited to the caching approaches. For example, photon mapping proposed by Jensen [Jen01] and instant
+radiosity proposed by Keller [Kel97] reuse the same set of
+paths initiated from light sources for all image pixels. Approaches for reusing camera-paths and bidirectional paths
+have also been proposed [BSH02, HDMS03, CSH08]. Other
+techniques [PBSP08, PWP08, LW95] reuse the information
+gathered during illumination sampling to build an importance function to be used at other locations.
+
+3. Background: Radiance Caching
+Radiance caching [KGPB05] is based on the observation that
+indirect illumination tends to change slowly on glossy surfaces. Therefore, it can be computed only at some points,
+stored in a cache, and later reused for fast interpolation. This
+approach can significantly speed up the computation.
+Whenever indirect illumination needs to be computed at
+a point p, the cache is queried for nearby records (i.e. the
+cached illumination values) available for interpolation, formally defined by the set:
+S(p) = i | wsi (p) >
+
+1
+,
+a
+
+(1)
+
+where a is a user defined maximum interpolation error. The
+greater the value of a, the more allowance for interpolation.
+The spatial weight wsi (p) determines the contribution of the
+i-th record to illumination at a given point p with normal n.
+It is given by:
+wsi (p) =
+
+p − pi
+Ri
+
+−1
+
++
+
+1 − n · ni
+
+,
+
+(2)
+
+where Ri is the harmonic mean distance to the objects visible
+from the i-th recordŠs location pi , and ni is the normal at pi .
+If the set S(p) is empty, i.e. no records in the vicinity of
+p have been found, it is necessary to compute a new record.
+The full hemisphere above p is sampled and the directional
+incoming radiance is approximated by a vector of spherical
+i
+harmonics coefficients Λi . A SH approximation of ∂Λ
+and
+∂x
+∂Λi
+,
+∂y
+
+the derivatives of Λi with respect to translation along
+the local x and y axes, is also computed. These vectors are
+stored as a new record in the radiance cache.
+If S(p) is not empty, the total outgoing radiance is
+computed by spatial interpolation of the contributions
+Liout (p, ωout ) due to the records in S(p):
+Lout (p, ωout ) =
+
+∑i∈S(p) wsi (p) · Liout (p, ωout )
+∑i∈S(p) wsi (p)
+
+The contribution of the i-th radiance record is given by:
+Liout (p, ωout ) = Ri Λi + dx
+
+∂Λi
+∂Λ
++ dy i
+∂x
+∂y
+
+· C(p, ωout ),
+
+where Ri is a rotation matrix used to align coordinate frames
+at pi and p, dx and dy is the displacement from pi to p in the
+local coordinate frame of record i. Finally, C(p, ωout ) is the
+vector of SH coefficient representing the BRDF lobe at p for
+the outgoing direction ωout .
+4. Spatial Directional Radiance Caching
+4.1. Motivation
+The major limitation of radiance caching consists of the uniform sampling of full hemisphere used to estimate incoming
+radiance. With uniform sampling, the rays traced outside the
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+
+1191
+
+4.2. Overview
+
+p2
+p
+
+Spatial Cache
+
+p1
+
+Figure 1: Lazy evaluation scheme in the directional domain.
+Our goal is to compute the outgoing radiance at point p.
+Suppose that there are two cache records at points p1 and
+p2 close to p, that store the incoming radiance samples with
+high density around the BRDF peaks. The incoming radiance at p may be obtained by merging the information in
+the records at p1 and p2 . If, after the merging, some parts of
+the hemisphere still do not have high enough sample density,
+additional rays are traced.
+
+Our algorithm is based on the following caching scheme. To
+compute outgoing radiance at a point p, we search for nearby
+records available for interpolation in the spatial cache. If no
+records are available we create a new cache record as follows. We generate random directions using BRDF importance sampling, compute incoming radiance for each direction by ray tracing, project these directions onto a 2D domain, D, and build a kd-tree over the radiance samples. We
+call this kd-tree the L-tree. We store the entire L-tree in the
+spatial cache as a single record. Given the L-tree, we then
+continue the computation as though the spatial cache query
+succeeded.
+If there are one or more L-trees available close to p, we interpolate their contributions. We generate random directions
+using BRDF importance sampling as before. But instead of
+computing the incoming radiance for these directions by ray
+tracing, we try to find close radiance samples stored in the Ltrees for each direction and possibly reuse it. If no suitable
+radiance sample is available for a direction, we shoot a ray to
+obtain a new radiance sample and update an existing L-tree.
+Finally, the outgoing radiance is computed as a weighted average of the radiance samples from the individual L-trees.
+The pseudo-code for our spatial directional radiance caching
+is given in Algorithm 1.
+
+lobe of a glossy BRDF produce wasted effort. Nonetheless,
+the use of spherical harmonics in radiance caching necessitates a uniform sampling pattern.
+To avoid unnecessary computation for shiny glossy surfaces, our algorithm employs BRDF importance sampling
+when a new cache record is created. Doing so, however, requires to keep track of the sample density on the hemisphere
+of the cached records, so that they can be reused at other locations, where the BRDF lobe may be slightly different. We
+approach this issue by extending the radiance caching’s lazy
+evaluation scheme from the spatial to the directional domain,
+adding directional samples on the fly as needed. Figure 1 illustrates our lazy evaluation procedure. Using this approach,
+we are able to handle shiny materials for which the original
+radiance caching would not be efficient. As an added benefit,
+there is no need to convert the BRDFs into the SH basis.
+Since we use non-uniform sampling to create cache
+records, we need a representation for the incoming radiance that offers directional localization. This is why spherical harmonics are not an option. Wavelets do offer localization but the rotation Ri is a limiting factor. Although it can
+be made relatively fast by pre-computing the rotation matrices [WNLH06], the memory requirements for a reasonable
+directional resolution (256 × 256 or more) render this approach impractical. Furthermore, adding new radiance samples to existing records is not simple. Our choice is, therefore, to retain the individual radiance samples and organize
+them in a kd-tree for fast access.
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+Algorithm 1 Spatial directional radiance caching
+S ← L OOK U P S PATIAL(p, n)
+if (S is empty) then
+[ωinj ]Nj=1 ← S AMPLE BRDF(p, ωout , N)
+for each ωinj compute Lin (p, ωinj ) using ray tracing
+L-tree ← build kd-tree over [ωinj ]Nj=1
+Store L-tree in spatial cache
+S ← {L-tree}
+end if
+out
+[ωinj ]M
+j=1 ← S AMPLE BRDF(p, ω , M)
+in
+for each ω j do
+for each i in S do
+Ti ← L OOK U P D IRECTIONAL(ωinj )
+end for
+if (∪Ti is empty) then
+Choose L-treeu ∈ S for updating
+if (no suitable L-tree exists) continue
+Lin (p, ωinj ) ← T RACE R AY(p, ωinj )
+Insert Lin (p, ωinj ) into L-treeu
+end if
+L˜ in (p, ωinj ) ← I NTERPOLATE R ADIANCE([Ti ]i∈S )
+Update L˜ out (p, ωout )
+end for
+
+1192
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+
+L-tree(p i )
+
+4.3. New Record Computation
+To create a new spatial record, we first generate N random
+directions using BRDF importance sampling and compute
+incoming radiance for each direction by ray tracing. We then
+map these samples from the sphere to the domain D using
+paraboloid mapping [HS98] which has low distortion and
+fast analytical transform. We construct a kd-tree over the
+radiance samples mapped to D. To keep the memory requirements low, we quantize sample position inside D to
+2 bytes (resolution of 256 × 256) and use Ward’s RGBE
+format to represent the incoming radiance. Together with 2
+bytes for bookkeeping information, each L-tree node takes
+8 bytes. The record computation is completed by inserting
+the whole L-tree into the spatial cache organized as an octree [WRC88].
+The number of rays N used for creating a new record is
+derived from the number of directions M used to compute
+the outgoing radiance during interpolation. If N is too low
+(N < 8M), the query to the contributing L-trees often fails
+and triggers many L-tree updates, negatively affecting performance. The number of L-tree updates stops decreasing
+for N > 16M. A good compromise that works well in our
+scenes is to use N ≈ 12M.
+4.4. Incoming Radiance Interpolation
+To compute outgoing radiance at point p we start by querying the spatial cache. The definition of the set S(p) of records
+used for interpolation and their spatial weights are borrowed
+from the original radiance caching algorithm, see Equations
+(1) and (2). If the set S(p) is empty, we compute a new record
+as described above and insert it into S(p).
+In the next step we generate M random directions ωinj using BRDF importance sampling at p. We map these directions to D and for each direction ωinj we collect nearby radiance samples stored in the contributing records’ L-trees.
+These samples are used for the directional interpolation.
+Given a direction ωinj and an L-tree i, we use a range query
+to collect nearby radiance samples stored in the L-tree as
+shown in Figure 2. The query radius rd (ωinj ) is given by:
+
+
+
+
+1
+1
+in
+,
+rd (ω j ) = min rmax ,
+
+2π M p(ωin ) 
+j
+
+p(ωinj )
+
+is the probability density of the BRDF samwhere
+pling in direction ωinj . The radius is designed to adapt both
+to the number of rays M and to the reflectance properties
+at p. In particular, the radius will be smaller when the pdf
+value is high, i.e. around the peak of the BRDF lobe. We use
+a ceiling of rmax = 0.15 to avoid errors when the pdf value
+is very small. The collected radiance samples are formally
+defined by the set Ti (ωinj ):
+Ti (ωinj ) = k | wdik (ωinj ) > 0 ,
+
+pi
+
+p
+
+Found
+Not found
+
+Figure 2: Directional interpolation. We generate M directions ωinj by BRDF sampling at p. The directions are mapped
+to points in D. For each point ωinj (blue dots) we find directionally close radiance samples (green dots) in the contributing L-trees. These radiance samples are used for interpolation. The directions for which no radiance samples are found
+yield ray tracing and L-tree update.
+
+The upper bar denotes the paraboloid mapping from the
+sphere to D, i.e. ω is ω mapped to D. The directional weight
+wdik (ωinj ) of the k-th radiance sample in the i-th L-tree with
+respect to ωinj is defined as:
+
+in
+
+ωin
+ik − ω j
+d
+wik (ωinj ) = max 0, 1 −
+2
+
+rd (ωinj )
+
+2
+
+
+
+,
+
+
+
+where ωin
+ik is the coordinate of the k-th radiance sample in
+the i-th L-tree.
+All the collected radiance samples in sets Ti (ωinj ) from all
+the contributing L-trees participate in the directional interpolation. Suppose we have two contributing L-trees. The first
+one is spatially close to p but the radiance sample found in
+it lies almost by the edge of the directional search radius.
+The second one has exactly the opposite property, i.e. it is
+spatially far from p but the radiance sample found is incident with the direction sample. For proper evaluation of both
+these cases it is necessary to find a relationship that correlates between the spatial and the directional weights. We use
+the following weighted sum:
+
+∑ ∑ wsi (p)wdik (ωinj )Likin
+
+˜ in
+
+L
+
+i∈S k∈Ti
+(p, ωinj ) =
+
+∑ ∑ wsi (p)wdik (ωinj )
+
+i∈S k∈Ti
+
+in
+where Lik
+is the k-th radiance sample stored in the i-th L-tree
+in
+and L˜ (p, ωinj ) is the interpolated incoming radiance.
+
+If, however, no radiance sample close to ωinj was found
+in any L-tree, a new radiance sample is computed using ray
+tracing. A question arises how to choose the ray origin and
+update the contributing L-trees. The first option is to place
+the ray origin at the interpolation location p. However, such
+a sample cannot be used to update the contributing L-trees
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+1193
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+(No heuristic)
+
+since that could potentially lead to its reuse at a too distant
+spatial location. Instead, one could create a new L-tree at p
+with all the added radiance samples. However, this approach
+generates many new L-trees with only a few radiance samples and the interpolation becomes inefficient.
+The second option, which we use in our algorithm, is to
+place the ray origin at the location of one of the L-trees. The
+L-tree is selected randomly from among the contributing Ltrees for which ωinj is above their tangent plane. The computed radiance sample is then inserted into the selected Ltree. A simple implementation of the insertions turned out to
+be the most efficient one: We keep a buffer of added radiance
+samples; when it is full, the tree is rebuilt. If no L-tree can
+be used for update, which occurs very rarely, we reject the
+sample ωin . We have opted for the second technique since it
+distributes the additional radiance samples well among the
+existing L-trees.
+
+(REF)
+
+(With heuristic)
+
+(No heuristic - 1.08k recs)
+
+(With heuristic - 1.43 recs)
+
+4.5. Outgoing Radiance Computation
+The interpolated incoming radiances L˜ in (p, ωinj ) calculated
+for each ωinj are used to compute the outgoing radiance
+L˜ out (p, ωout ). The value of L˜ out (p, ωout ) at a point p in the
+direction ωout is computed using the following Monte Carlo
+estimator:
+1
+L˜ out (p, ωout ) =
+M
+
+M
+
+∑
+
+L˜ in (p, ωinj ) fr (p, ωinj , ωout ) cos θinj
+
+Figure 3: Cache record density control. Individual image
+lists rendering of a simple scene using our algorithm without
+detection of high changes of indirect illumination, rendering
+with the detection of high changes and a reference image.
+Last picture shows the distribution of cache records for both
+images. Note the higher density of cache records in places
+with large change of indirect illumination.
+
+p(ωinj )
+
+j=1
+
+(3)
+where fr (p, ωinj , ωout ) is the BRDF at p and θinj is the angle
+between the surface normal at p and ωinj .
+
+where
+i
+
+4.6. Cache Record Density Control
+For faithful reconstruction of indirect illumination, the distribution of the records should be proportional to its change
+rate. In the original irradiance cache algorithm the rate
+of change is estimated based on the information about
+surrounding geometry obtained during hemisphere sampling [WRC88]. Estimating the rate of change of indirect
+illumination for glossy surfaces is more difficult, though,
+since it should take into account the reflectance properties
+and the viewing direction. The formula is difficult to derive
+even for the simplest reflectance models. Instead, our interpolation criterion is based on the original formulas for diffuse surfaces with the addition of the following heuristics.
+While creating a new cache record, we estimate
+the derivatives of outgoing radiance with translation,
+∇x L˜ out (p, ωout ) and ∇y L˜ out (p, ωout ). The derivatives are
+used for clamping the harmonic mean distance Ri of the new
+record, similar to regular irradiance caching [KG09]:
+if
+
+i
+
+> 1/Ri ,
+
+then Ri := 1/
+
+i,
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+=
+
+∇x L˜ out (p, ωout ) 2 + ∇y L˜ out (p, ωout )
+L˜ out (p, ωout )
+
+2
+
+.
+
+This heuristic automatically decreases the radius of the
+cache record where indirect illumination changes quickly.
+Although the method is formally not correct, it gives plausible results in practice as shown in Figure 3.
+Finite differences are used to estimate the derivatives of
+outgoing radiance. For each incoming radiance sample, we
+displace the ray origin along local x and y coordinate axes,
+update the ray direction, and re-evaluate the BRDF. We use
+the updated BRDF values to compute the approximation of
+the outgoing radiance at the displaced positions. Finite differences are used to estimate two derivatives ∇x L˜ out (p, ωout )
+and ∇y L˜ out (p, ωout ). For the sake of simplicity we assume
+the incoming radiance does not change with the displacement (which may not be true if the contributing surface is
+glossy [JZJ08]).
+5. Results
+We compare our algorithm (spatial directional radiance
+caching, SDRC) with the original radiance caching algo-
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+
+Images were rendered with the global illumination effects
+up to the fourth bounce indirect lighting. The first bounce
+was computed using the compared algorithms while photon map was used for the higher recursion level. Irradiance
+cache was used to compute diffuse indirect lighting. We used
+the following default settings for the algorithms. In SHRC,
+we used spherical harmonics order of 10. The maximum allowed caching error was set to a = 0.25 and the number of
+rays for hemisphere sampling is set to ensure the same computation time. In SDRC, the default maximum allowed error
+was a = 0.22. Both the SHRC and SDRC used the neighbor clamping heuristic to improve spatial record distribution [KBPv06].
+The SHRC and SDRC algorithms render the image in
+two passes. The first pass, rendered with one camera ray per
+pixel, populates the spatial cache. The second pass then uses
+four camera rays per pixel to generate the image. The approximation error a is increased 1.3 times in the second pass
+to improve the smoothness of interpolated illumination.
+Kettle Scene. Figure 5 shows renderings of a glossy kettle in a diffuse box. The kettle material is represented using
+anisotropic Ward’s BRDF with the roughness of αx = 0.18
+and αy = 0.09. The box walls are covered with a diffuse texture. The scene is lit by an area light source.
+Uniform hemisphere sampling is not efficient for glossy
+surfaces with a narrow BRDF lobe. A lot of computation
+time can be saved using importance sampling as we do in
+the SDRC. The saved time can be used to set smaller the
+interpolation error for the SDRC, a = 0.17. Total number of
+records generated by SHRC is 2.53; for SDRC, it is 4.67k.
+Rendering using the SDRC shows 1.58 times smaller RMS
+error than the SHRC and 1.26 times smaller than MC. See
+table 1 for details.
+Figure 4 shows the RMS error produced by the SHRC
+and the SDRC as a function of the surface finish. For the
+sake of simplicity we use Phong’s BRDF model instead of
+
+SHRC
+
+32
+
+SDRC
+
+Images generated by the algorithms exhibits artifacts of
+very different kinds. Images generated using MC contain
+high frequency noise. On the other hand, SHRC suffers from
+low frequency error which can be seen as splotches in the
+image. The SDRC exhibits both types of errors in lesser amplitude. As a result of the different nature of the errors it is
+difficult to compare rendering times needed to obtain images
+of the same visual quality. Instead, we compare the image
+quality obtained by the algorithms for equal-time computation. For each image we show RMS error although this error measure may not be quite meaningful in terms of visual
+quality.
+
+Specular exponent [-]
+16
+24
+
+8
+
+REF
+
+rithm (SHRC) and Monte Carlo importance sampling (MC).
+The algorithms were implemented as plug-ins in the PBRT
+ray tracer [PH04]. All images were rendered on a Mac-Book
+Pro with Intel Core 2 Duo 2.40GHz (using one core). No
+optimization using the GPU was used.
+
+11
+10
+
+SDRC
+SHRC
+
+9
+RMS [%]
+
+1194
+
+8
+7
+6
+5
+4
+3
+
+Specular Exponent [-]
+
+2
+8
+
+12
+
+16
+
+20
+
+24
+
+28
+
+32
+
+Figure 4: Renderings for different surface finish. The bottom
+image shows the RMS dependency on the Phong’s lobe exponent. The SHRC is suitable for the indirect term computation
+up to the lobe exponent of 16. For higher exponents, it blurs
+out the reflection thereby altering the material perception.
+Our algorithm, on the other hand, provides a sharper image
+for higher lobe exponent. The top image shows a visual example of the the RMS dependency for the lobe exponent. The
+details show a glossy reflection of the checkered walls on the
+handle of the teapot lid in Figure 5.
+
+anisotropic one for the kettle material. We can see that the
+SHRC works well for a low BRDF lobe exponent. Importance sampling has no advantage compared with sampling
+the whole hemisphere. However, the bigger the exponent,
+the bigger the RMS error of SHRC. Spherical harmonics are
+not able to approximate a narrow BRDF lobe accurately. In
+this case, it is preferable to use the SDRC for the exponent
+higher than 16.
+Chess scene. Figure 6 shows the renderings of the chess
+scene. White chess pieces are represented using Ward’s
+BRDF model with the roughness of αx = 0.10 and αy =
+0.16. Black ones are represented using Phong’s BRDF
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+1195
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+(MC)
+
+(SHRC)
+
+(SDRC)
+
+(REF)
+
+Figure 5: Equal-time comparison of the rendering quality achieved using the MC, SHRC and SDRC algorithms. The images
+were rendered at a resolution of 800 × 800 in approximately the same time, 398 seconds. Indirect lighting computation on
+glossy surfaces up to the 4th bounce took approximately 171 seconds out of the total time. We can see that SDRC is able to
+faithfully simulate glossy BRDF on the kettle while the SHRC provides a blurrier image. The image rendered using MC exhibits
+a high noise level. Note that the walls of the Cornell Box are diffuse only. The irradiance cache was used to compute the indirect
+illumination term on them.
+Scene
+
+Method
+
+Teapot
+kettle
+
+MC
+SHRC
+SDRC
+MC
+SHRC
+SDRC
+MC
+SHRC
+SDRC
+
+Chess
+scene
+
+Flamingos
+
+#Sec rays/
+pixel
+62.6
+47.7
+12.8
+90.7
+54.0
+22.2
+41.6
+26.5
+11.0
+
+#Records
+2.53k
+4.67k
+16.0k
+26.1k
+14.7k
+22.2k
+
+#Rays/
+record
+4608
+512
+2244
+512
+1986
+512
+
+#Additional
+rays
+101k
+306k
+638k
+
+Memory
+
+RMS
+
+Time
+
+9.1M
+19.9M
+57.6M
+109.5M
+52.9M
+96.2M
+
+1.70
+2.13
+1.35
+6.56
+10.25
+5.50
+3.23
+4.98
+2.73
+
+168
+174
+171
+366
+369
+360
+416
+407
+410
+
+Total
+time
+385
+391
+388
+469
+472
+463
+625
+616
+619
+
+Table 1: Rendering settings and statistics for the example scenes. The columns list the number of secondary rays traced per
+pixel, the number of spatial records generated, the number of rays traced to create a new cache record, the number of rays
+traced to L-trees updation and the memory requirements. The rightmost section of the table shows the RMS error, the time spent
+on the indirect term computation on glossy surfaces and the total rendering time. The difference consists of building the photon
+map, primary ray casting, direct lighting computation and the irradiance caching.
+
+model with the lobe exponent of 30. The chessboard is represented using the same model with the lobe exponent of 14.
+The scene is lit by 5 spot lights and by an environment map
+of the sky.
+The chess scene presents a challenge for the SHRC because of a lot of glossy and curved surfaces. On such surfaces, cache records cannot be reused at many pixels. In addition, the interpolation of the cache record require the costly
+rotation. See table 1 for the rendering settings and the number of the records generated by the caching algorithms. Note
+that the rendering using the SDRC shows 1.86 times smaller
+the RMS error than SHRC and 1.19 times smaller than MC.
+Flamingos. Figure 7 shows renderings of a scene with
+glossy flamingos. The flamingos are represented using the
+Ward’s BRDF model with the roughness in the range of 0.08
+to 0.20. Other surfaces are purely diffuse. Table 2 shows the
+scalability of the rendering time to the number of directional
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+rays N used. The rendering time spent for indirect lighting
+computation on glossy surfaces is directly proportional to N.
+
+SDRC
+MC
+
+N
+Time
+RMS
+Time
+RMS
+
+32
+43
+5.48
+50
+8.71
+
+64
+75
+4.85
+77
+7.32
+
+128
+150
+3.88
+156
+5.00
+
+256
+273
+3.19
+266
+3.76
+
+512
+410
+2.81
+416
+3.23
+
+Table 2: Rendering time scalability. The rows list the number of directional samples used, rendering time spent for indirect lighting computation on glossy surfaces and the RMS
+error for both the SDRC and MC algorithms.
+
+6. Discussion and limitations
+View dependency. Unlike in the original radiance caching,
+the cache records generated by our algorithm contain use-
+
+1196
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+(MC)
+
+(SDRC)
+
+(MC)
+
+(SHRC)
+
+(SDRC)
+
+(REF)
+
+(SHRC)
+
+(REF)
+
+Figure 6: Renderings of the chess scene. Images were rendered at a resolution of 1024 × 768 in approximately the same time,
+468 seconds. The indirect term computation on glossy surfaces took 365 seconds. Note the sharper glossy reflection of black
+pieces on the white chess piece in the details. Chess pieces courtesy of T. Hachisuka.
+
+ful information only within some parts of the hemisphere—
+they are view-dependent. Hence, it may seem problematic to
+reuse them for rendering new views of the scene. However,
+since new radiance samples are added to the L-trees on the
+fly as needed, our algorithm behaves in a view-independent
+manner overall.
+Interpolation. The idea of sparse illumination computation
+and interpolation is based on the assumption that indirect
+illumination changes slowly on surfaces. However, as the
+shininess of the reflections goes up, this assumption is less
+valid. For sharp reflections, Monte Carlo importance sampling performs better than our algorithm.
+Gradients. In irradiance and radiance caching, the use of
+rotation and translation gradients of the incoming illumination significantly improves the interpolation quality. The rotation gradient is not necessary in our algorithm due to the
+way we access individual radiance samples. We have implemented the translation gradient according to [KGPB05].
+However, the gradient-based interpolation becomes fairly involved. In our scenes, the computational overhead did not
+pay for the image quality improvement, which is why we
+decided against the use of translation gradients. Instead, we
+generate the image in two passes. Increasing the allowed in-
+
+terpolation error a in the second pass generates a smoothed
+image even without the use of gradients.
+Supported Materials. The original radiance caching algorithm is difficult to use on spatially varying glossy surfaces
+since the scene BRDFs have to be projected onto the spherical harmonics basis. Our algorithm does not require any special BRDF representation, although many sudden changes in
+material properties may reduce its efficiency due to frequent
+L-tree updates. Furthermore, spatial directional caching relies on the availability of an efficient and effective sampling
+procedure for the BRDFs—it cannot be used directly with
+measured BRDF data without first fitting a model that can
+be sampled.
+
+7. Conclusion
+This paper proposes a new algorithm for indirect lighting
+computation on glossy surfaces. The algorithm adopts the
+lazy illumination evaluation scheme used in the irradiance
+and radiance caching algorithms and extends it from the spatial to the directional domain. Explicit storage of directional
+incoming radiance samples allows us to exploit BRDF importance sampling for noise reduction and still retain the
+overall view-independent nature of the algorithm.
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+1197
+
+Figure 7: Rendering time scalability. The images were rendered in at a resolution of 1024 × 768. Top images shows rendering
+quality of the SDRC for the value of N set to N = 64, 128 and 256. Bottom images were rendered using the MC in approximately
+the same time for the indirect term computation on glossy surfaces, as the top images, 76, 153 and 269 seconds respectively.
+
+Our new caching algorithm outperforms the original radiance caching for scenes with shiny surfaces, where radiance
+caching produces blurring of reflections or banding artifacts.
+Compared to Monte Carlo importance sampling, our algorithm produces less noisy images in the same time. The main
+disadvantages of our algorithm are higher memory demands
+and potentially difficult parallelization due to the continual
+updates of cache records.
+In future work, we want to devise a more accurate interpolation criterion for glossy surfaces. Not only should such a
+criterion adapt to the rate of change of the indirect illumination but also to the surface reflectance properties. In addition
+we would like to investigate the correlation of illumination
+coherence in the spatial and directional domains and address
+flickering in animation rendering.
+
+References
+[AFO05] A RIKAN O., F ORSYTH D. A., O’B RIEN J. F.: Fast
+and detailed approximate global illumination by irradiance decomposition. ACM Transactions on Graphics 24, 3 (Aug. 2005),
+1108–1114.
+[BGB08] B ROUILLAT J., G AUTRON P., B OUATOUCH K.:
+Photon-driven irradiance cache. Computer Graphics Forum
+(Proc. of Pacific Graphics) 27, 7 (2008), 1971–1978.
+[BSH02] B EKAERT P., S BERT M., H ALTON J.: Accelerating path tracing by re-using paths. In Rendering Techniques
+2002: 13th Eurographics Workshop on Rendering (June 2002),
+pp. 125–134.
+[CAE08] C LINE D., A DAMS D., E GBERT P.: Table-driven adaptive importance sampling. Computer Graphics Forum (Proc. of
+Eurographics Symposium on Rendering) 27, 4 (2008).
+[CAM08] C LARBERG P., A KENINE -M ÖLLER T.: Practical product importance sampling for direct illumination. Computer
+Graphics Forum (Proc. of Eurographics) 27, 2 (2008), 681–690.
+[CSH08] C ASTRO F., S BERT M., H ALTON J. H.: Efficient reuse
+of paths for random walk radiosity. Computers & Graphics 32, 1
+(Feb. 2008), 65–81.
+
+Acknowledgements
+This work was supported by the Ministry of Education,
+Youth and Sports of the Czech Republic under the research
+program LC-06008 (Center for Computer Graphics), the Internal grant No. CTU0807013 of the Czech Technical University, and the Marie Curie grant number PIOF-GA-2008221716. Thanks to Jiˇrí Bittner for valuable discussions.
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+[GBP07] G AUTRON P., B OUATOUCH K., PATTANAIK S.: Temporal radiance caching. IEEE Transactions on Visualization and
+Computer Graphics 13, 5 (2007).
+ˇ
+J., B OUATOUCH K., PATG AUTRON P., K RIVÁNEK
+S. N.: Radiance cache splatting: A GPU-friendly global
+illumination algorithm. In Rendering Techniques (Proc. of Eurographics Symposium on Rendering) (2005), pp. 55–64.
+
+[GKBP05]
+
+TANAIK
+
+[HDMS03] H AVRAN V., DAMEZ C., M YSZKOWSKI K., S EIDEL
+H.-P.: An efficient spatio-temporal architecture for animation
+
+1198
+
+V. Gassenbauer, J. Kˇrivánek & K. Boatouch / Spatial Directional Radiance Caching
+
+rendering. In Eurographics Symposium on Rendering: 14th Eurographics Workshop on Rendering (June 2003), pp. 106–117.
+[HPB07] H AŠAN M., P ELLACINI F., BALA K.: Matrix rowcolumn sampling for the many-light problem. ACM Trans.
+Graph. (Proc. of SIGGRAPH) 26, 3 (2007).
+[HS98] H EIDRICH W., S EIDEL H.-P.: View-independent environment maps. In Proc. of Graphics Hardware (1998).
+[JDZJ08] JAROSZ W., D ONNER C., Z WICKER M., J ENSEN
+H. W.: Radiance caching for participating media. ACM Trans.
+Graph. 27, 1 (2008).
+[Jen01] J ENSEN H. W.: Realistic Image Synthesis Using Photon
+Mapping. AK Peters, Ltd., July 2001.
+[JZJ08] JAROSZ W., Z WICKER M., J ENSEN H. W.: Irradiance
+gradients in the presence of participating media and occlusions.
+Computer Graphics Forum (Proc. of Eurographics Symposium
+on Rendering) 27, 4 (2008).
+ˇ
+[KBPv06] K RIVÁNEK
+J., B OUATOUCH K., PATTANAIK S.,
+Ž ÁRA J.: Making radiance and irradiance caching practical:
+Adaptive caching and neighbor clamping. In Rendering Techniques 2006 (Proc. of Eurographics Symposium on Rendering)
+(2006), pp. 127–138.
+
+[Kel97] K ELLER A.: Instant radiosity. In SIGGRAPH ’97: Proceedings of the 24th annual conference on Computer graphics
+and interactive techniques (New York, NY, USA, 1997), ACM
+Press/Addison-Wesley Publishing Co., pp. 49–56.
+ˇ
+[KG09] K RIVÁNEK
+J., G AUTRON P.: Practical Global Illumination with Irradiance Caching. Morgan-Claypool, 2009.
+ˇ
+K RIVÁNEK
+J., G AUTRON P., PATTANAIK S., B OUA K.: Radiance caching for efficient global illumination
+computation. IEEE Transactions on Visualization and Computer
+Graphics 11, 5 (2005).
+
+[KGPB05]
+TOUCH
+
+[LW95] L AFORTUNE E. P., W ILLEMS Y. D.: A 5D tree to reduce
+the variance of Monte Carlo ray tracing. In Rendering Techniques
+(Proc. of the Sixth Eurographics Workshop on Rendering) (1995),
+pp. 11–20.
+[PBSP08] P EGORARO V., B ROWNLEE C., S HIRLEY P. S.,
+PARKER S. G.: Towards interactive global illumination effects
+via sequential Monte Carlo adaptation. In Proc. of the 3rd IEEE
+Symposium on Interactive Ray Tracing (2008), pp. 107–114.
+[PH04] P HARR M., H UMPHREYS G.: Physically Based Rendering: From Theory to Implementation. Morgan Kaufmann, 2004.
+[PWP08] P EGORARO V., WALD I., PARKER S. G.: Sequential
+Monte Carlo adaptation in low-anisotropy participating media.
+Computer Graphics Forum (Proc. of Eurographics Symposium
+on Rendering) 27, 4 (2008).
+[TL04] TABELLION E., L AMORLETTE A.: An approximate
+global illumination system for computer generated films. ACM
+Trans. Graph. (Proc. of SIGGRAPH) 23, 3 (2004), 469–476.
+[WABG06] WALTER B., A RBREE A., BALA K., G REENBERG
+D. P.: Multidimensional lightcuts. ACM Trans. Graph. (Proc. of
+SIGGRAPH) 25, 3 (2006), 1081–1088.
+[WH92] WARD G. J., H ECKBERT P. S.: Irradiance gradients. In
+Eurographics Workshop on Rendering (1992).
+[WNLH06] WANG R., N G R., L UEBKE D., H UMPHREYS G.:
+Efficient wavelet rotation for environment map rendering. In
+Rendering Techniques (Proc. of Eurographics Symposium on
+Rendering) (2006), pp. 173–182.
+[WRC88] WARD G. J., RUBINSTEIN F. M., C LEAR R. D.: A
+ray tracing solution for diffuse interreflection. In Proc. of SIGGRAPH (1988).
+
+c 2009 The Author(s)
+Journal compilation c 2009 The Eurographics Association and Blackwell Publishing Ltd.
+
+

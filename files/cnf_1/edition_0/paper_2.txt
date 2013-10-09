@@ -1,0 +1,1119 @@
+An Adaptive Parameter Space-Filling Algorithm
+for Highly Interactive Cluster Exploration
+Zafar Ahmed∗
+
+Chris Weaver†
+
+School of Computer Science and Center for Spatial Analysis
+The University of Oklahoma
+
+A BSTRACT
+For a user to perceive continuous interactive response time in a visualization tool, the rule of thumb is that it must process, deliver, and
+display rendered results for any given interaction in under 100 milliseconds. In many visualization systems, successive interactions
+trigger independent queries and caching of results. Consequently,
+computationally expensive queries like multidimensional clustering
+cannot keep up with rapid sequences of interactions, precluding visual benefits such as motion parallax. In this paper, we describe a
+heuristic prefetching technique to improve the interactive response
+time of KMeans clustering in dynamic query visualizations of multidimensional data. We address the tradeoff between high interaction and intense query computation by observing how related interactions on overlapping data subsets produce similar clustering results, and characterizing these similarities within a parameter space
+of interaction. We focus on the two-dimensional parameter space
+defined by the minimum and maximum values of a time range manipulated by dragging and stretching a one-dimensional filtering
+lens over a plot of time series data. Using calculation of nearest
+neighbors of interaction points in parameter space, we reuse partial
+query results from prior interaction sequences to calculate both an
+immediate best-effort clustering result and to schedule calculation
+of an exact result. The method adapts to user interaction patterns
+in the parameter space by reprioritizing the interaction neighbors
+of visited points in the parameter space. A performance study on
+Mesonet meteorological data demonstrates that the method is a significant improvement over the baseline scheme in which interaction
+triggers on-demand, exact-range clustering with LRU caching. We
+also present initial evidence that approximate, temporary clustering
+results are sufficiently accurate (compared to exact results) to convey useful cluster structure during rapid and protracted interaction.
+Index Terms:
+D.2.2 [Software Engineering]: Design Tools
+and Techniques—[User Interfaces]; H.2.3 [Information Systems]:
+Database Management—[Languages]; H.5.2 [Information Systems]: Information Interfaces and Presentation—[User Interfaces]
+1 I NTRODUCTION
+Interactive cluster exploration is a topic of rapidly increasing interest in visual analytics and data mining. A wide variety of application domains require analysis of high dimensional data sets involving measurements spread across space and time. Techniques
+to facilitate highly interactive visualization clustering hold great
+promise to substantially increase the utility of analysis tools in such
+domains. For instance, ecologists often deal with tens to hundreds
+of data measurements in the development and validation of complex ecological models. Variation at different time scales is of central interest. Three kinds of rapid dynamic control over clustering
+∗ e-mail:
+† e-mail:
+
+ahmed.zafar@ou.edu
+weaver@cs.ou.edu
+
+IEEE Symposium on Visual Analytics Science and Technology 2012
+October 14 - 19, Seattle, WA, USA
+978-1-4673-4753-2/12/$31.00 ©2012 IEEE
+
+are particularly desirable during interactive analysis of ecological
+data sets: selecting which variables to cluster and which to encode
+in displays; choosing and finely adjusting the time scale, typically
+days, seasons, or years; and moving a chosen time window forward
+or backward in time to observe changes at a given time scale [2].
+Interaction plays a prominent role in visual analysis tools [27].
+There are many kinds of interaction in information visualization [31]. Particularly common and useful patterns of interaction
+for multidimensional analysis include overview, zoom-and-filter,
+details-on-demand, and dynamic projection [26, 19]. When tools
+support continuous interaction through dynamic queries [1], they
+facilitate perceptual comparison of data cross-sections in the hunt
+for interesting patterns. However, providing such support is difficult
+when query execution time exceeds limits for perception of visual
+continuity, commonly accepted to be around 100 milliseconds [26].
+Providing effectively immediate query response to rapid interaction is a general problem. We focus here on the more specific
+problem of supporting highly interactive clustering of time-varying
+multidimensional data. Our goal is to reduce the effective response
+time of clustering so that every interaction triggers a temporally
+continuous and spatially seamless response. Rather than simply
+computing each cluster independently on demand, as in many cluster visualization tools, we support highly interactive cluster exploration by adapting repeated execution of the clustering algorithm
+to expected and actual interaction patterns. For continuous modes
+of interaction, particularly those for navigating views of quantitative data, it is common to have long sequences of interactions in
+the same mode. For example, users may drag (or stretch) a lens in
+a time series plot while exploring the effect of changing the position (or extent) of a time range of interest. The visualization system
+must filter the data set on the time range, run the clustering algorithm, render the results, and display them. Successive ranges, and
+the data subsets left after filtering on those ranges, often overlap to
+various extents. The amount of overlap depends upon the speed and
+direction of the interaction (in screen and data space coordinates).
+In this paper, we present an interaction-adaptive algorithm for
+cluster computation with best-effort immediate results. The algorithm indexes into a cache of prefetched clustering results to find
+the nearest clustering of the query point in an interaction parameter
+space. For time ranges, the set of all non-redundant data-containing
+ranges defines a two-dimensional parameter space of possible range
+values. For any given time range in the parameter space and a particular interaction type, we define the set of reachable time ranges as
+interaction neighbors, for instance all ranges that can be reached by
+dragging a lens in a time series plot to larger values of time. To provide best-effort immediate results without blocking or exhaustive
+precomputation, the algorithm prioritizes prefetching of clustering
+results by populating a finite-depth space filling tree of points in the
+parameter space. Any given range is either in the tree or is a space
+filling neighbor within a stack of progressively smaller triangular
+regions defined by the tree. The algorithm reprioritizes prefetching based on the relationships between the most recently requested
+clustering range, its interaction neighbors, and its membership in
+regions of the space filling tree. Background threads continuously
+
+13
+
+Figure 1: Mesomorph, a highly interactive tool for visual analysis of Mesonet [11] measurements over time. Lists and sliders allow selection of
+one or more clustering variables (A), the number of clusters (B), and two variables (C) to display in a scatter plot (D), two time series plots (E),
+and in other views. Sliders allow manual adjustment of the size of plotted points (F). A categorical color scheme represents cluster membership.
+Interaction with lenses in the time series plots triggers dynamic recomputation of clusters.
+
+compute and cache clustering results for ranges popped off of the
+front of a queue of prioritized ranges.
+For our first exploration of interaction-adaptive algorithms that
+we describe in this paper, we chose the KMeans algorithm. KMeans
+is well-established and well-understood, allowing us to focus on
+assessing our approach rather than the particulars of the clustering algorithm. We chose to apply our approach to similarly wellknown data from meteorology, namely that collected from Mesonet
+sites, for the same reason. We visualized the exhaustive clustering
+results to characterize typical patterns of clustering in time range
+parameter spaces. For Mesonet data, we observed large basins of
+attraction with relatively soft, noisy edges between them. Based on
+this observation, the best-effort character of our algorithm comes
+from assuming that an exact clustering result can be temporarily
+substituted with the clustering result of an “interactively nearby”
+neighbor in the parameter space if both points fall into a common
+region of similarity. We assume—admittedly based on limited evidence from a single case—that proximity/locality correlates with
+similarity, as in so many other phenomena. The approach thus decreases the time cost of the visualization interaction processing loop
+by reusing nearby previously computed clustering results.
+We start by describing one of several example tools that we have
+built for visual analysis of ecological data, focusing on key analysis
+tasks that our ecologist collaborators perform when using interactive querying to explore clusters. After summarizing related work
+on prefetching and interactive clustering, we discuss challenges and
+state assumptions made in the design of our interaction-adaptive
+prefetching algorithm. We then formally describe the algorithm, de-
+
+14
+
+rive its computational complexity, and present a performance analysis for various practical and boundary test cases. We also discuss
+limitations of our algorithm and discuss the practicability of the assumptions that we made in our algorithm design. We conclude by
+considering utility and usability in terms of perceptual and interactive characteristics of cluster exploration, and future directions.
+2
+
+E XAMPLE : M ESOMORPH
+
+Ecologists work with large data sets to develop and validate complex mathematical models of ecological systems. Analysis of timevarying dependencies between variables—such as temperature, humidity, and transpiration rate—helps them to develop new hypotheses about which relationships to incorporate into their models. Mesomorph (Figure 1) allows ecologists to explore the highdimensional space of relationships by interactively observing the
+evolution of pertinant multivariate clusters over time [2]. Mesomorph was originally designed for use with Mesonet meteorological data [11], but has been adapted to similar time-varying
+data sources such as Terrestrial ECOsystem (TECO) data from
+FLUXNET tower sites [5]. To pose a question about the evolution of relationships over time in Mesomorph, an ecologist drags or
+stretches a time range and observes clustering results. For example,
+the ecologist might want to analyze the shape dynamics of a particular number of clusters based on a set of selected attributes over
+various (often irregular) scales of time, such as years, seasons, or
+the durations of expected or observed phenomena. To do this, they
+stretch a time range lens to the desired extent and then drag it back
+and forth while looking at the scatter plot, observing how the shapes
+
+of clusters change. Interactions can be repeated and interleaved.
+Even this simple scenario of data exploration reveals two challenges in developing highly interactive clustering approaches. First,
+effectively discerning patterns of cluster evolution during rapid interaction requires querying to be quick enough to produce perceptually immediate results. Second, genuine data-driven exploration
+over the space of possible time ranges is by definition a priori unpredictable, and anticipating future interaction behaviors precisely
+is hard. Interaction-adaptive algorithms address these challenges.
+3
+
+R ELATED W ORK
+
+Prefetching is a broad topic and has been considered in interactive
+visualization from a variety of perspectives. We draw from longestablished foundations of caching and prefetching approaches used
+in intensive input/output systems [24, 18, 20]. Wu [30] describes a
+bitmap index to access large data sets efficiently. Godiva [22] provides a general-purpose API for prefetching data from a database
+for use in visual data exploration applications. Lipsa [21] uses dynamic chunking to prefetch data using knowledge about the behavior of previous accesses. Correa, et al. [10] describe the use of
+prefetching to render images at interactive frame rates. Interactionadaptive techniques differ from these by considering specific patterns of interaction and allowing display of approximate results.
+Doshi, et al. [12] describe one of the earliest techniques (implemented in XMDVtool [28]) to use prefetching to achieve quick response during interactive visual exploration. The technique exploits
+the idea that a user’s pattern of exploration exhibits regularity, but
+does not consider specific patterns of interaction or transient display
+of approximate results. It is primarily useful in cases in which the
+query results for a interaction can be constructed from the results of
+multiple previously cached results. Of the five prefetching strategies that they describe, the closest to ours assumes that the user is
+most likely to continue in the current interaction mode. Two other
+relevant strategies are hot regions, which performs poorly when the
+navigation space is large, and vectors, which predicts the direction
+of a movement based on previous movements’ direction. As strategies designed for single interaction modes, all three are insufficient
+for integrating the results of multiple partial queries into a single
+query result during realistic interactive cluster exploration.
+Gerndt, et. al. [13] describe a parallelized caching and prefetching approach for visualization of fluid dynamics. Their prefetching scheme is based on externally specified ordering. A Markov
+prefetcher of Nth order predicts the most likely next block of data
+to be used based on stored information about the previous N blocks.
+The approach works poorly when the parameter space is extremely
+large; visually exploring users can switch between and revisit farflung locations in a sparse and seemingly haphazard fashion.
+ATLAS visualizes temporal data using a predictive caching and
+prefetching technique [7]. The direction-based prefetching strategy
+is similar to that in [12], but handles six “directions” of interaction
+based on scrolling, zooming, and panning. Four of the six “directions” in our approach are stretches to a range extremum rather than
+a scroll or a uniform zoom. Although ATLAS prefetches only exact results, in principle our interaction-adaptive approach could be
+applied equally well to its particular modes of interaction.
+Jeong, et al. [16] describe data prefetching for interactive visualization of time-varying data. Isosurface extraction and rendering
+use a combination of CPU and GPU memory. A span space lattice
+maps minimum and maximum values of each calculated meta cell
+to a point on the lattice for prefetching. This data structure is similar to the space filling tree defined by mimima and maxima of time
+ranges. Intervals in the span space lattice are similarly uniform.
+Whereas the space scan lattice considers only active cell neighbors,
+interaction-adaptive prefetching uses interaction neighbors to exploit interaction-specific locality.
+There has also been substantial progress in the specific area of
+
+interactive cluster exploration. Jeong, et al. [17] combine visualization with clustering to create tools for visual analysis of gene expression data, although sans support for rapid interaction in multiple views. Andrienko, et al. [3] and Guo, et al. [14] combine clustering with visual interaction for data with both geospatial and temporal attributes (making them attractive targets for application of our
+approach to other parameter spaces). DICON uses icon-based techniques to visualize multidimensional clusters [6]. Ankherst’s [4]
+technique uses heuristic optimization to group dimensions of data.
+Choo’s [9] dimensionality reduction technique preserves clustering. ClusterSculptor [23] and iVibrate [8] are integrated clustering frameworks in which users interact with entirely pre-computed
+cluster results. Users can validate and label clusters but cannot perform multidimensional drill-down to look for and analyze patterns
+and trends. In contrast, our approach offers the ability to select and
+change clustering dimensions and to interact with rich visualizations of clustering results, promising greater analysis utility overall.
+4
+
+I NTERACTION PARAMETER S PACES
+
+During interactive cluster exploration, the user performs several
+types of interactions. Our interaction-adaptive algorithm is designed specifically for interaction with a single range of time using a typical 1-D “lens” control. Figure 2 summarizes the allowed
+types of interaction. The user can drag the lens backward or forward, keeping the extent (length) of the time range constant. They
+can also stretch it backward or shrink it forward, thereby including or excluding temporal data points from the minimum side of the
+range. Similarly, they can stretch the lens forward or shrink it backward to include or exclude data points from the maximum side of the
+range. (In the lens control that we used, shrinking turns into stretching when the dragged edge passes through the undragged edge, and
+vice versa. We do not account for these cases explicitly.)
+Over the course of interaction with a lens, the user translates
+
+Interaction
+drag forward
+
+Operation
+
+Effect
+
+translate
+
+(t+)
+
+drag backward
+
+translate
+
+(t-)
+
+stretch forward
+
+stretch backward
+
+expand
+
+(x+)
+
+expand
+
+(x-)
+
+shrink forward
+
+contract
+
+(c+)
+
+shrink backward
+
+contract
+
+(c-)
+
+Figure 2: Interactions on range ri . Changes are constrained to a finite
+regular grid of resolution ρ corresponding to recorded time points.
+
+15
+
+tmax
+
+tmax
+
+Range
+
+Range
+tmin
+
+t+
+
+t-
+
+x+
+
+c-
+
+c+
+
+x-
+
+tmin
+
+Interaction Time
+
+D
+
+x+
+t+
+
+t-
+
+0
+
+s
+c+
+
+c-
+
+center = (rmax - rmin) / 2
+
+tmax
+
+and scales the range repeatedly, generating subsequences of the six
+interaction types. For example, our ecologist collaborators often
+first stretch each side of the lens in succession to specify a time
+range covering a (variably long) season’s worth of data. They then
+drag the lens back and forth to observe the effect of end-of-season
+variation on clustering. They then stretch the range to cover a full
+year, followed by a drag to position the lens over a single calendar
+year. The interactive visualization system invokes a query whenever
+there is a change in position or extent of the range, i.e., whenever
+the lens moves. Each interaction triggers an invocation of the clustering algorithm. Figure 3 shows an example of a typical series of
+subsequences of range interactions in a simple analysis session.
+We model a user’s interaction with a set of adjustable visualization parameters as an interaction parameter space. A parameter
+space is defined by the dimensions of interaction; for instance, a
+slider and a pair of checkboxes defines a parameter space having
+one integer dimension, two boolean dimensions, and Nx2x2 points.
+In our case, the parameter space is a simple, two-dimensional cartesian coordinate system constrained to the minimum and maximum
+values of a time range. Valid points in the parameter space are the
+ranges that can be constructed using any two distinct times in the
+data. The X and Y coordinates of a point in the parameter space are
+the minimum and maximum values of the corresponding time range,
+respectively. For sake of mathematical symmetry—and to make visualizations of the parameter space easier to read—we transform
+the parameter space and contained points to a coordinate system
+in which the X-axis denotes the center of ranges and the Y-axis
+denotes the extent of ranges. As a result, the interaction neighborhoods of the six stretching and dragging modes of a given range
+radiate out from the range’s point in a hexagonal pattern (Figure 4).
+The notion of interaction neighborhood is based on the observation that, during protracted visual analysis of temporal data using
+the lens control, users tend to interact in a given mode for a relatively long period of time, producing long subsequences of the
+same interaction type. We define interaction neighborhood as the
+
+A
+
+B
+
+E
+
+F
+
+Interaction Time
+
+extent = (rmax - rmin)
+
+extent = (rmax - rmin)
+
+x-
+
+Figure 4: Interaction parameter space of a one-dimensional time
+range. From current range ri (point s), six sets of interaction neighbors are reachable using the six allowed time range lens interactions.
+
+16
+
+C
+
+E
+
+tmax - tmin
+
+tmin
+
+B
+
+tmax - tmin
+
+Figure 3: Subsequences of interactions in a simple analysis session.
+
+0
+
+A
+
+F
+B
+
+A
+
+tmin
+
+C
+
+D
+center = (rmax - rmin) / 2
+
+tmax
+
+Figure 5: Navigation in the interaction parameter space for a moderately complex session involving replay of subsequences A and B.
+
+set of points in the parameter space where a user might visit next
+if they continue to perform that same type of interaction. Thus, if
+a user is currently dragging the time range, then drag forward and
+drag backward are two of only three kinds of interaction that are
+possible in the interaction state space; stopping the drag (such as by
+releasing a mouse button) is the third.
+Figure 5 shows a typical sequence of range interactions and the
+corresponding points in the parameter space. Each subsequence
+of interactions happens along a straight line through the parameter
+space. The distribution of points suggests two important characteristics of range interaction. First, a user visits the parameter space
+sparsely. Second, a user generally interacts in long subsequences.
+Each subsequence start point shows that many interaction neighbors
+are visited regardless of interaction type. Each time an interaction
+at a point invokes a query, the interaction neighbors of that point are
+more likely to be visited in the near future than other points in the
+parameter space. This suggests that interaction neighbors should be
+given high priority for computation. However, the user might stop
+the current subsequence of interactions and move to another region
+at any time. When that happens, the interaction neighbors should
+no longer be considered as high a priority. Balance is crucial.
+5
+
+A DAPTIVELY F ILLING PARAMETER S PACES
+
+In general, the objective of interaction adaptation is to deliver besteffort query results to the analyst as soon as possible. In the case
+of time ranges, symmetry allows us to use a finite-depth triangular
+space filling tree [25] overlaid on the (transformed) triangular parameter space. The triangular space filling tree is incrementally
+constructed by repeatedly subdividing the triangular region into
+smaller triangular regions. Figure 6 shows a triangular space filling
+tree that has four levels; the points in successive levels are represented as increasingly smaller and lighter circles. The tree fills up
+the triangular space more densely as levels are added.
+The algorithm combines two complementary sources of cluster
+results: (1) a set of interaction neighbors that adapt to interaction
+patterns to prefetch and deliver exact cluster results, and (2) a set of
+space filling neighbors that deliver best-effort clustering results at
+increasingly high resolution across the parameter space. Both sets
+of neighbors start to populate as soon as the user starts a sequence
+
+Term
+D
+G
+N
+k
+i
+αi
+ri
+λ
+γ
+δ
+h
+ρh
+Ph
+
+Definition
+Data set with time+multidimensional attributes
+Regular grid of time points in D
+Set of integer indexes into G
+Number of clusters (and minimum extent of ranges)
+Interaction counter
+Interaction type at i
+Range visited as a result of interaction i, where ri =
+(ri,min , ri,max ) : 0 ≤ ri,min ≤ |D|−k and 0 ≤ ri,max ≤ |D|
+Distance threshold for space filling neighbors
+Distance threshold for nearest neighbors
+Priority adjustment to ri , where δ ∈ (0, 1)
+Level in the space filling tree
+Parameter space resolution at level h
+Interactive parameter space at level h, where Ph =
+N x × N y : N x , N y ∈ N, 0 ≤ N x ≤ |D| − k, k ≤ N y ≤ |D|
+N x < N y , N y − k = N x mod(ρh ), x ≡ rmin , y ≡ rmax
+
+Fh
+
+Figure 6: Triangular space filling tree for a one-dimensional range.
+
+Phα (r)
+Fhα (r)
+d(r, ri )
+
+Set of triangular space filling points down to level h
+(those within γ of any point in Ph for some ρh >= γ)
+Neighbors of r in Ph for interaction α at resolution ρ
+Neighbors of r in Fh for interaction α at resolution ρ
+Euclidian distance between two ranges r and ri
+Table 1: Algorithm terms with definitions.
+
+of interactions to filter a subset of data to cluster, select a set of
+variables to cluster upon, or change the number of clusters.
+To deliver best-effort clustering results as quickly as possible, we
+prioritize and cache results for the set of points in the space filling
+tree nearest to the interaction neighborhood of the currently visited
+point in the parameter space. The set is constructed by considering
+the space filling tree point at each level closest to the current interaction neighbors, doing so successively up to a threshold level. The
+resulting set of space filling neighbors ensures that the user will be
+able to visualize best-effort clustering results as soon as the clusters
+for the root of the space filling tree have been computed.
+To address the problem of sparse but highly structured interaction patterns, we maintain an additive priority scheme with multiple
+factors. First, the priority of a point in the parameter space increases
+if any of its interaction neighbors have been visited. Second, the priorities of interaction neighbors increase with more and more visits.
+Together, these mean that if the user continues in the same subsequence of interactions, eventually the priority of all the interaction
+neighbors will be high enough to move them to the front of the
+priority queue. The resulting immediate (or nearly immediate) calculation will provide exact clustering results that can be delivered
+the next time the user visits any of those points.
+During interaction, a user often ends a subsequence of interactions to move to a distant region in the parameter space. Interaction neighbors from previous subsequences start at the front of the
+queue. Many interactions might need to take place before interaction neighbors of newly visited points advance sufficiently in the
+queue. The result can be that only poorly representative clustering
+results are available to the visualization for an unacceptably long
+time. This is a limitation of simple additive prioritization.
+6
+
+I NTERACTION -A DAPTIVE Q UERYING
+
+In this section, we describe our interaction-adaptive querying algorithm for the particular case of range selection of regularly gridded
+temporal data. We then describe how caching of query results and
+handling of interaction queries proceed in parallel. Table 1 summarizes the symbols and definitions used.
+The current visit point is the point in the parameter space that
+corresponds to the most recently selected time range. The interaction neighborhood is the set of all points in the parameter space that
+can be reached, up to the boundary of the parameter space, from the
+current visit point in the current interaction mode. For example, if
+
+the current interaction mode is dragging, the interaction neighborhood is the set of all points that can be reached by dragging forward
+or dragging backward. For a current range ri and interaction type
+α, the interaction neighbors at level h of the space filling tree are:
+Phα (r) = {p ∈ Ph : px = ri,min , py = ri,max , α(ri ) = α(r)}
+In the parameter space, the space filling neighborhood is the set
+of all points that occupy the same triangular region as the current
+visit point at some level in the space filling tree. Each triangular
+region has a space filling tree point located at its centroid. Figure 6
+depicts the space filling tree points in a four-level space filling tree.
+If L is the diagonal length of the triangular parameter space, the
+maximum distance between a space filling tree point
+√ at level h and
+5L
+any point within its triangular region is at most 3∗2(h−1)
+. The space
+filling neighbors distance threshold, λ , determines the number of
+levels that need to be constructed in order for any point in Ph to
+have a space filling neighbor within a distance of at most λ :
+λ=
+
+√
+5L
+3∗2(h−1)
+
+√
+
+⇒ h = log2 ( 2 3λ5L )
+
+For a current range ri and interaction type α, the space filling
+neighbors at level h of the space filling tree are:
+Fhα (r) = {p ∈ Ph : px = ri,min , py = ri,max , λ ≤ d(r, ri ) ≤ |D|}
+Our algorithm maintains two data structures: a priority queue
+of queries and a cache of query results. The queue prioritizes all
+points in the parameter space for which results are not yet cached.
+Upon initialization of the algorithm/visualization, the queue is populated with all points of the parameter space using an initial priority
+calculated for each point (see Algorithm 1). A pool of background
+threads is then started to populate the cache over time; each thread
+repeatedly removes the highest priority query from the queue, computes the results of that query, then inserts the results into the cache
+using the queried range as a lookup key.
+Whenever an interaction results in a change of range, the queue
+is searched to find the interaction neighbors and the space filling
+neighbors of the corresponding point in the parameter space. The
+new range and its neighbors are reprioritized to reflect their increased relevance, then the cache is searched for a nearest neighbor
+
+17
+
+Algorithm 1 Initialize priority queue Q
+1: L ⇐ |D|
+√
+2: levels ⇐ log2 ( 2 3λ5L )
+3: for h = 1 → levels do
+4:
+for each p ∈ F(Ph ) do
+5:
+insert p into Q at priority levels−i
+levels
+6:
+end for
+7: end for
+8: for each p ∈
+/ F(Ph ) do
+9:
+insert p into Q at priority 0
+10: end for
+
+result within a threshold distance, γ (see Algorithm 2). If there is
+such a result, it is returned (with its corresponding range) to the visualization for rendering as a best-effort result. The quality of the
+result depends on the locality of the query relative to the set of results that have been already computed by the background threads.
+The nearest neighbor result can be the exact query point, if results
+for that point have already been computed, or any other nearest
+neighbor in terms of Euclidian distance within the nearest neighbor
+distance threshold set by the user or system.
+Reprioritization of ranges follows an additive scheme in which,
+for each interaction, a small constant δ is added to the current priority of pertinant interaction neighbors and space filling neighbors.
+Consequently, both kinds of neighbors move towards the front in
+the queue. If interaction occurs for a long enough time in that region of the parameter space, the exact clustering results will be calculated for these two sets of points and thus exact clustering results
+will be available to visualize. Without interaction adaptation, the
+background routine would typically be executed for each interaction query, forcing the user to wait for the exact computation to finish and to be rendered in the visualization. With interaction adaptation, the user is immediately returned a best-effort result from
+the cache for each interaction’s query. At the beginning of interaction, when too few nearest neighbors have been calculated for a
+desired region of interaction in the parameter space to have a neighbor within γ, the user must still wait for a result. But within a short
+period of interaction, interaction neighbors and the nearest space
+filling neighbors begin to populate the cache. The user starts to
+receive either at least approximate results if not exact ones. This repeats (with an increasingly warm cache) each time the user changes
+interaction type and moves to a new region in the parameter space.
+Regardless of whether the search query can find a result from the
+cache (whether exact or nearest neighbor), it reprioritizes the space
+filling neighbors and the interaction neighbors that correspond to
+the current visit point. The current visit point gets the highest priority of all. The interaction neighbors and the space filling neighbors
+
+Algorithm 2 Reprioritize queue Q and search cache for neighbor
+√
+
+1:
+2:
+3:
+4:
+5:
+6:
+7:
+8:
+9:
+10:
+11:
+12:
+13:
+
+18
+
+levels ⇐ log2 ( 2 3λ5L )
+for each p ∈ Phα (r) do
+pValue ⇐ current priority of p
+pValue ⇐ pValue + δ
+insert p into Q with priority pValue
+end for
+for h = 1 → levels do
+for each p ∈ Fhα (r) do
+K∗l
+insert p into Q with priority levels
+end for
+end for
+Search Cache for r such that d(r, r ) < γ
+return r
+
+get the next highest priority. This reprioritization is simple and elegant in that the more the user interacts in a particular region of
+the parameter space using a particular type of interaction, the more
+that priority accumulates for the corresponding space filling neighbors and interaction neighbors, and thus the more quickly they get
+calculated to provide exact or nearby results to the user.
+The parameter space contains O(n2 ) points. The implementation
+currently takes a modestly long time to initialize—several minutes
+for the Mesonet data—because building the priority queue involves
+calculating the priority of every point. (Straightforward parallelization of the initial priority calculation would mitigate this problem.)
+If n is the number of points in parameter space, searching the k < n
+elements of the tree-based cache is O(logk). Reprioritization is
+O(p · log(n − k)) in which n − k is the number of elements in the
+priority queue and p is the size of either the set of interaction neighbors or the set of space filling neighbors. The overall search query
+thus returns results in amortized O(logn) time.
+7
+
+I NTERACTION A DAPTATION
+
+WITH
+
+KM EANS C LUSTERING
+
+Interaction adaptation allows one to temporarily sacrifice exactness
+to gain immediacy of query computation. Up to this point, we have
+presented it as a specific approach in terms of the form(s) of interaction supported, but general in terms of the vast universe of queries
+that are too slow to compute on demand on current hardware but
+that one may nevertheless desire to drive interactively. We do not
+attempt to take on the full question of generalizability in this paper.
+Instead, we proceed under the expectation that there is a large and
+interesting subset of analytically useful queries that exist in a “sweet
+range” of not-quite-interactive performance (of more than 100ms
+but less than many seconds) and that behave with locality (by producing similar results given similar data and parameter inputs), but
+that also may have idiosyncratic characteristics that require special
+handling to use with interaction adaptation. Here we consider one
+of many possible choices of query: KMeans clustering.
+KMeans has been the clustering method of choice in our recent
+collaborations with ecologists and meteorologists to develop new
+visual analysis tools like Mesomorph. It is easy to implement and
+well understood in application, allowing us to focus on broader issues of visualization design and application. For the same reasons,
+KMeans is an appropriate choice for an initial assessment of the
+technical practicality, analytic utility, and general usability of interaction adaptation approaches. Moreover, for the amounts of data
+and the time patterns of user interaction that we encounter in tools
+like Mesomorph, our black-box KMeans implementation on current hardware is neither too fast nor too slow, but rather “just right”
+for assessing the general applicability of interaction adaptation in
+terms of performance requirements. Each query takes more than
+the 100ms that would be tolerable to compute on demand, but less
+than the second-plus times that would start to make the rate of cache
+warming intolerably slow even for not-so-nearby clustering results.
+One wrinkle is that common flavors of KMeans (including our
+implementation) are not deterministic. Even for two identical consecutive clusterings of a data set, cluster membership is likely to
+change. In our visualization tools, we use color to encode cluster
+membership. This results in unpredictable and distracting changes
+of cluster color during interaction, degrading usability of continuous interaction and threatening to make any benefits of interaction
+adaptation irrelevant. For effective visual analysis using interactive
+cluster exploration, an analyst must be able to visually follow the
+size-shape changes of clusters during interaction. To mitigate this
+problem, we implemented cluster number reassignment by remembering cluster membership for each data item. In subsequent clusterings, we take the intersection of the sets of data points between
+previous and current clusterings, and reassign the cluster membership number by identifying cluster number changes between previous and current clusterings. Reassignment produces more consis-
+
+tent coloring of cluster membership across interactions.
+We used Improvise [29] to implement and test our interaction
+adaptation approach on KMeans. Improvise has an flexible architecture for parameterizing dynamic queries in terms of interaction, a functional language for designing visualizations interactively, and an extensible library of views, simple data transformations, and more complex data queries. Improvise and our
+KMeans library are written in Java, and we use the JSI RTree library
+(http://sourceforge.net/projects/jsi/) to index the cache of nearest
+neighbors. This made it straightforward to add interaction adaptation for KMeans to Improvise and from there to design ecological
+data visualizations around multidimensional clustering, of which
+Mesomorph is the first (but not only) example. Mesomorph visualizes a sampling of Oklahoma Mesonet [11] mesoscale network
+data. Our data set consists of around 90 daily environmental variable measurements (such as maximum air temperature and wind
+speed) at 120 sensor towers in the state of Oklahoma from 1990–
+2010. The temporal focus, multidimensional richness, and significant size of this data set (over 500K records) makes it well suited
+to KMeans and to analysis of interaction adaptation of clustering.
+We did find it necessary to reconfigure Improvise to generate
+and issue cluster queries to its data processing engine in regular
+intervals. For the sake of consistency in testing across interaction
+sessions—as well as for simpler quantitative analysis—we made
+the simplifying assumption that the user interactions themselves occur in a regular manner. Our idealized user performs 20 range interactions per second, giving an interval between interactions of 50
+milliseconds. In practice, Improvise query handling lazily chases
+after the user’s particular rhythms of interaction, which can involve
+significant variations in speed and even lengthy pauses to peruse a
+visually interesting state. While regular intervals certainly do not
+reflect actual interaction rhythms, our approach does not depend on
+any particular cadence of interaction (or lack of one), suggesting
+that the assumption of interaction regularity—not to be confused
+with data time regularity—is one that can be made without loss of
+generality and hence without significant impact on test results.
+The main goal of our testing is to characterize how adaptive
+KMeans computation varies as a function of the progression of interaction and the corresponding pattern of range changes. We first
+observed how our ecologist collaborators manipulate the time series
+ranges in Mesomorph to perform specific analysis tasks involving
+different time scales. We also collected actual interaction traces
+as they worked, and hope to use these (and additional) traces in
+future work. As an initial foray, however, we decided to analyze
+a more controlled space of variation in interaction patterns in the
+hopes of understanding the exemplar and edge cases of adaptation.
+For the former, we collected our own interaction traces during tasks
+similar to what our ecologist collaborators perform. For the latter, we synthesized both mode-constrained and pathological interaction sequences. We also concatenated traces to simulate repetitive and revisiting behaviors. Figure 7 shows the traces we used;
+each covers a different proportion and distribution of points in the
+parameter space. We replayed interaction traces with interaction
+adaptation on, varying either the number of background threads
+(n ∈ {1, 2, 5, 10, 20}) or distance threshold for nearest neighbors
+(γ ∈ {1, 3, 9, 27, 81, 243, 729, 2187}) and recording the number of
+cache hits over time. We applied convolution with a window size
+of 80 to remove “noise” and obtain a smoother curve of cache hits.
+Figure 8 plots cache hits for interaction sequence S4 as a function of the number of background threads. The sequence is a repeated pattern of shrinking the range backward from full down to
+zero width. For all thread counts, early interactions produce many
+misses and later ones produce mostly hits, as one might expect.
+Interestingly, the 20 thread curve does not show cache hits until
+later than for other thread counts (Figure 8, A); larger relative contention for shared queue and cache structures at the onset appears to
+
+S1
+S2
+S3
+S4
+S5
+C1
+C1
+C3
+C4
+N1
+N2
+N3
+N4
+R1
+R2
+Figure 7: Examples of synthetic, constrained, natural, and repetitive
+interaction sequences used to test KMeans interaction adaptation.
+
+cause an initial performance inversion. Shortly after the user starts
+to repeat the pattern, adaptation for all thread counts sufficiently
+populates the cache so as to produce 100% cache hits (figure 8, B).
+Figure 9 shows how cache hits vary with thread count for a
+more authentic interaction sequence, R2. Changes in interaction
+type result in navigation to different regions of the parameter space.
+While the first visit to a new region initially produces primarily
+cache misses even for many threads (Figure 9, A), subsequent visits
+take advantage of earlier caching of results in that region (Figure 9,
+B). Visiting an entirely new region can produce cache misses even
+when many threads have been populating the overall parameter
+space for awhile (Figure 9, C). More threads lead to increased cache
+hits sooner, as expected. However, a modest number of threads may
+be sufficient; in this case, ten and 20 threads have essentially the
+same cache hit pattern for the last two thirds of the sequence. In
+
+1
+2
+5
+10
+A
+
+B
+
+15
+20
+
+Figure 8: Cache hits for sequence S4, varying thread count.
+
+19
+
+A
+
+B
+
+tmax - tmin
+
+C
+
+extent = (rmax - rmin)
+
+2
+5
+10
+15
+20
+
+Figure 9: Cache hits for sequence R2, varying thread count.
+A
+
+B
+
+C
+
+D
+
+A
+
+B
+
+E
+
+F
+
+0
+
+1
+3
+
+tmin
+
+center = (rmax - rmin) / 2
+
+tmax
+
+Figure 12: Parameter space visits for sequence S5.
+
+9
+27
+
+1
+
+81
+
+A
+
+2
+
+Figure 10: Cache hits for sequence R2, varying γ.
+
+5
+10
+
+1
+3
+9
+27
+81
+
+1
+2
+
+Figure 13: Cache hits for sequence S5, varying thread count.
+
+5
+10
+15
+20
+
+Figure 11: Cache hits for sequence S3, two threads with variable γ
+(left) and γ of 3 with variable thread count (right).
+
+Figure 10, we see how increasing the threshold distance γ increases
+cache hit performance for R2. Repeated sequences A and B revisit
+previously visited regions of the parameter space, which benefits
+from the earlier population of the cache at higher resolution that occurs using a larger γ. The single background thread is insufficient to
+produce cache hits during subsequence C and D, probably because
+the priorities of points in their region of the parameter space remain
+dominated by those still being computed for A and B. This suggests
+the need to reconsider our simple additive prioritization model.
+Using the simpler interaction sequence S4, Figure 11 shows
+more clearly how performance varies for different values of γ compared to different numbers of threads. On the left, we can see that
+the algorithm produces cache hits more quickly as we increase the
+threshold; on the right, we can see that performance increases from
+one to ten threads then decreases for 15 and 20 threads. That there
+is such an obvious knee in scalability of parallelization is a surprising result. It suggests that it would be worth considering ways to
+allocate points in the parameter space to threads using a spatiotemporal model based on more than a loose notion of relative locality
+and first-come-first-served consumption off of a simple queue.
+Domination of the priority queue by stale regions in the parameter space appears to be a potentially substantial shortcoming of our
+current approach to interaction adaptation. Despite being extreme
+
+20
+
+20
+
+edge cases, sequences such as S5 serve to readily reveal this shortcoming. Navigation through the parameter space (Figure 12) occurs
+in a row-by-row pattern that minimizes locality. This pathological
+pattern systematically clogs the priority queue with an increasing
+number of exactly those queries least likely to be useful later, resulting in steadily worsening performance that is only forstalled
+by parallelization (Figure 13). Identifying and characterizing such
+pathologies for simple geometries of parameter space navigation
+might help to address similar kinds of poor performance in their
+less virulent forms in natural interaction patterns like R2.
+8 D ISCUSSION AND F UTURE W ORK
+Although a poor substitute for analysis of a large corpus of actual
+interaction traces of ecologists doing genuine analysis using our visualization tools, the results of our limited testing provide a general
+sense of the performance characteristics of the interaction adaptation approach, and hence also provide a general expectation of
+interactivity. Utility and other aspects of usability are an entirely
+different matter, and need to be addressed in a future user-centered
+evaluation. The analytic utility of approximate cluster results is of
+central concern. One of our key assumptions is that a clustering
+result of a nearby set of data points is a suitable temporary analytic
+proxy for an exact result. We hypothesize that the immediacy of
+nearby query results can allow an analyst to perform useful tasks
+that entail visual scanning of paths in a parameter space to identify
+regions of interest, even if those results are too different from exact results to be useful for tasks that analyze details. Such a strong
+hypothesis calls for rigorous validation through usability evaluation and performance analysis. Moreover, such validation may be
+necessary for each new combination of interactive parameter space
+and interactively parameterized query. The space of potential combinations that might be of substantial use in visual exploration and
+analysis is likely to be enormous.
+
+D
+
+= 243
+= 1, 3, 9, 27, 81, 243
+
+drill-down
+and
+transitions
+
+C
+
+A
+
+overview
+
+B
+
+= 81
+= 1, 3, 9, 27, 81
+
+data points
+
+= 2187
+= 1, 3, 9, 27, 81, 243, 729, 2187
+
+detail
+A
+
+Jaccard index
+Figure 14: Meta-clustering of cluster centers in the parameter space.
+
+One way to better understand any given combination is to examine patterns of query results in the parameter space in terms of the
+general categories of exploration and analysis tasks that the interactions within that space aim to support. To better understand our
+own combination of time ranges and KMeans queries, we calculated a data set consisting of the KMeans clustering results for all
+points within the triangular range parameter space. Each record in
+the data set contains the coordinates of the centers of each cluster by
+number, rather than full cluster membership. We then visualize the
+“meta-clusters” calculated by performing KMeans clustering of the
+centers themselves (Figure 14). The pattern of meta-clusters suggests that the parameter space can be divided vertically into three
+regimes of short, medium, and long ranges. The long range regime
+typically consists of the major portion of a single meta-cluster that
+dominates the parameter space. The short range regimes typically
+consists of a set of localized clusters that overlap along the time
+axis. The medium range typically consists of noisy areas of transition between coherent meta-clusters. Strikingly, these patterns of
+coherence and transition seem to correspond directly to high-level
+visualization activities of overview, drill-down, and details [26].
+Meta-clusters are coherent in the short and long regimes, suggesting that our assumption of similar query results for related parameters holds well at the time scales (range extents) that ecologists
+tend to look at. However, the existence of seemingly coherent metaclusters says relatively little about clusters themselves. The nearby
+clusters used in interactive adaptive clustering may not produce the
+same visual result as exact clusterings would. For example, the user
+might not experience the same shape dynamics during interactive
+cluster exploration. We compared best-effort clusters to the corresponding exact clusters using the Jaccard coefficient, a measure
+of similarity between sets based on common membership of subsets [15]. We split the Jaccard coefficient of cache hits into ten bins
+and assigned cache misses a Jaccard coefficient of 0. The highest
+bin (0.9–1.0) reflects high similarity of the best-effort cluster to the
+exact cluster. Figure 15 shows that the lowest bin (0.0–0.1) consists
+mostly of cache misses and that a high percentage of nearby clusters
+are similar to the exact cluster. We also see that outside the lowest
+bin, the distribution of Jaccard coefficients is largely insensitive to
+both λ and γ. This makes sense; in ecological data, most measurements vary smoothly over time (e.g., with the seasons). We can
+safely assume that nearby data points give clustering results which
+are close to the exact clustering result. User-centered evaluation is
+still needed for domain experts to validate the exact clusterings.
+The meta-clustering approach identifies potential areas of relative invariance in a parameter space. Knowledge of such invariances can inform both prioritization of queries and caching of re-
+
+Figure 15: Jaccard coefficient distribution for different distance
+threshold values for pattern R2 (1956 data points).
+
+sults. In Figure 14, for example, we can see that meta-clusters can
+be characterized as segmented (A), unitary (B), noisy (C), and dispersed (D). When a meta-cluster is sufficiently spatially coherent,
+one cluster result might serve to represent all points in the metacluster. Prioritization could focus on computing queries in the noisier (and hence more approximate) regions, and caching might minimize effective duplication by storing only representative cluster results where possible. An experimental extension of our KMeans
+adaptation algorithm performs progressive meta-clustering of accumulating cluster results as a means to explore these possibilities.
+In particular, our algorithm does not take into account finite storage. Query results for every point in the parameter space remain in
+the cache once added, but it would be impractical and often impossible to cache all results for larger data sets and higher dimensional
+parameter spaces. Another direction of future work is to develop a
+limited memory cache that works with the queue to determine the
+evolving priority of both cached and uncached results.
+9
+
+C ONCLUSION
+
+Interaction-adaptive prefetching is a generalizable approach that
+can serve best-effort results of slow queries to a visualization at
+interactive rates. In this paper, we describe the approach and its
+application to the particular case of KMeans clustering of multivariate data filtered on a time range. We analyze performance on a
+usefully large amount of data within an implemented visualization
+tool. A possible future extension of our work can be the exploration of higher dimensional and heterogeneous interaction parameter spaces. For example, a direct extension of our work can be a
+highly interactive system for geospatial cluster exploration in which
+the N vertices of a polygonal lasso define an N-dimensional parameter space. We also plan to explore the performance and effectiveness of prefetching using different types of prioritization functions
+to better anticipate the interaction patterns of users in particular parameter spaces.
+ACKNOWLEDGEMENTS
+This work is supported by National Science Foundation Award
+#0919466 and the State of Oklahoma Regents for Higher Education. We wish to express our gratitude to our collaborators on the
+EPSCoR Track-II cyberCommons project. We give special thanks
+to Jeff Basara for access to Mesonet data. Oklahoma Mesonet data
+are provided courtesy of the Oklahoma Mesonet, a cooperative venture between Oklahoma State University and The University of Oklahoma and supported by the taxpayers of Oklahoma.
+
+21
+
+R EFERENCES
+[1] C. Ahlberg, C. Williamson, and B. Shneiderman. Dynamic queries for
+information exploration: An implementation and evaluation. In Proceedings of the Conference on Human Factors in Computing Systems
+(CHI), pages 619–626, Monterey, CA, May 1992. ACM.
+[2] Z. Ahmed, P. Yost, A. McGovern, and C. Weaver. Steerable clustering
+for visual analysis of ecosystems. In S. Miksch and G. Santucci, editors, Proceedings of the International Workshop on Visual Analytics
+(EuroVA), pages 49–52, Bergen, Norway, June 2011. The Eurographics Association.
+[3] G. Andrienko and N. Andrienko. Interactive cluster analysis of diverse types of spatiotemporal data. SIGKDD Explorations Newsletter,
+11(2):19–28, 2009.
+[4] M. Ankerst, S. Berchtold, and D. A. Keim. Similarity clustering of
+dimensions for an enhanced visualization of multidimensional data.
+In Proceedings of the IEEE Symposium on Information Visualization
+(InfoVis), page 52, Research Triangle Park, NC, 1998. IEEE Computer
+Society.
+[5] D. Baldocchi, E. Falge, L. Gu, R. Olson, D. Hollinger, S. Running,
+P. Anthoni, C. Bernhofer, K. Davis, R. Evans, J. Fuentes, A. Goldstein, G. Katul, B. Law, X. Lee, Y. Malhi, T. Meyers, W. Munger,
+W. Oechel, K. T. Paw, K. Pilegaard, H. P. Schmid, R. Valentini,
+S. Verma, T. Vesala, K. Wilson, and S. Wofsy. FLUXNET: A new
+tool to study the temporal and spatial variability of ecosystem–scale
+carbon dioxide, water vapor, and energy flux densities. Bulletin of the
+American Meteorological Society, 82(11):2415–2434, 2001.
+[6] N. Cao, D. Gotz, J. Sun, and H. Qu. DICON: Interactive visual analysis of multidimensional clusters. IEEE Transactions on Visualization
+and Computer Graphics, 17(12):2581–2590, December 2011.
+[7] S.-M. Chan, L. Xiao, J. Gerth, and P. Hanrahan. Maintaining interactivity while exploring massive time series. In Proceedings of the IEEE
+Symposium on Visual Analytics Science and Technology (VAST), pages
+59–66, Columbus, OH, October 2008. IEEE.
+[8] K. Chen and L. Liu. iVIBRATE: Interactive visualization-based
+framework for clustering large datasets. ACM Transactions on Information Systems, 24(2):245–294, April 2006.
+[9] J. Choo, S. Bohn, and H. Park. Two-stage framework for visualization of clustered high dimensional data. In Proceedings of the IEEE
+Symposium on Visual Analytics Science and Technology (VAST), pages
+67–74, Atlantic City, NJ, October 2009. IEEE.
+[10] W. T. Correa, J. T. Klosowski, and C. T. Silva. Visibility-based
+prefetching for interactive out-of-core rendering. In Proceedings of
+the IEEE Symposium on Parallel and Large-Data Visualization and
+Graphics, Seattle, WA, October 2003. IEEE Computer Society.
+[11] K. C. Crawford, F. V. Brock, R. L. Elliott, G. W. Cuperus, S. J. Stadler,
+H. L. Johnson, and C. A. Doswell. The Oklahoma mesonetwork —
+a 21st century project. In Proceedings of the 8th International Conference on Interactive Information and Processing Systems for Meteorology, Oceanography, and Hydrology, pages 27–33, Atlanta, GA,
+January 1992. American Meteorological Society.
+[12] P. R. Doshi, E. A. Rundensteiner, and M. O. Ward. Prefetching for
+visual data exploration. In Proceedings of the Eighth International
+Conference on Database Systems for Advanced Applications (DASFAA), Washington, DC, USA, 2003. IEEE Computer Society.
+[13] A. Gerndt, B. Hentschel, M. Wolter, T. Kuhlen, and C. Bischof.
+VIRACOCHA: An efficient parallelization framework for large-scale
+CFD post-processing in virtual environments. In Proceedings of
+the 2004 ACM/IEEE Conference on Supercomputing, Pittsburgh, PA,
+2004. IEEE Computer Society.
+[14] D. Guo, J. Chen, A. M. MacEachren, and K. Liao. A visualization
+system for space-time and multivariate patterns (VIS-STAMP). IEEE
+Transactions on Visualization and Computer Graphics, 12(6):1461–
+1474, November/December 2006.
+[15] P. Jaccard. Distribution de la florine alpine dans la bassin de dranses et
+dans quelques regiones voisines. Bulletin de la Societe Vaudoise des
+Sciences Naturelles, 37:241–272, 1901.
+[16] B. Jeong, P. A. Navr´atil, K. P. Gaither, G. Abram, and G. P. Johnson.
+Configurable data prefetching scheme for interactive visualization of
+large-scale volume data. In Proceedings of SPIE (Visualization and
+
+22
+
+Data Analysis), volume 8294, January 2012.
+[17] D. H. Jeong, A. Darvish, K. Najarian, J. Yang, and W. Ribarsky. Interactive visual analysis of time-series microarray data. The Visual
+Computer, 24(12):1053–1066, October 2008.
+[18] D. Joseph and D. Grunwald. Prefetching using Markov predictors.
+In Proceedings of the 24th Annual International Symposium on Computer Architecture (ISCA), pages 252–263, Denver, Colorado, 1997.
+ACM.
+[19] D. A. Keim. Information visualization and visual data mining. IEEE
+Transactions on Visualization and Computer Graphics, 8(1):100–107,
+2002.
+[20] P. Krishnan and J. S. Vitter. Optimal prediction for prefetching in the
+worst case. SIAM Journal on Computing, 27(6):1617–1636, 1998.
+[21] D. R. Lipsa, R. D. Bergeron, T. M. Sparr, and R. S. Laramee. Dynamic chunking for out-of-core volume visualization applications. In
+Proceedings of the 5th International Symposium on Advances in Visual Computing: Part II (ISVC), pages 117–128, Las Vegas, Nevada,
+2009. Springer-Verlag.
+[22] X. Ma, M. Winslett, J. Norris, X. Jiao, and R. Fiedler. Godiva:
+Lightweight data management for scientific visualization. In Proceedings of the 20th International Conference on Data Engineering
+(ICDE), pages 434–447. IEEE Computer Society, 2004.
+[23] E. J. Nam, Y. Han, K. Mueller, A. Zelenyuk, and D. Imre. Clustersculptor: A visual analytics tool for high-dimensional data. In
+Proceedings of the IEEE Symposium on Visual Analytics Science
+and Technology (VAST), pages 75–82, Sacramento, CA, October 30–
+November 1 2007. IEEE.
+[24] R. H. Patterson, G. A. Gibson, E. Ginting, D. Stodolsky, and J. Zelenka. Informed prefetching and caching. In Proceedings of the Fifteenth ACM Symposium on Operating Systems Principles (SIGOPS),
+pages 79–95, Copper Mountain, Colorado, 1995. ACM.
+[25] G. Peano. Sur une courbe, qui remplit toute une aire plane. Mathamatische Annalen, 36(1):157–160, 1890.
+[26] B. Shneiderman. The eyes have it: A task by data type taxonomy for
+information visualizations. In Proceedings of the IEEE Symposium
+on Visual Languages, pages 336–343, Boulder, CO, September 1996.
+IEEE.
+[27] J. J. Thomas and K. A. Cook, editors. Illuminating the Path: The Research and Development Agenda for Visual Analytics. IEEE Computer
+Society, August 2005.
+[28] M. O. Ward. XmdvTool: Integrating multiple methods for visualizing
+multivariate data. In Proceedings of the IEEE Conference on Visualization (VIS), pages 326–333. IEEE Computer Society Press, 1994.
+[29] C. Weaver. Building highly-coordinated visualizations in Improvise.
+In Proceedings of the IEEE Symposium on Information Visualization
+(InfoVis), pages 159–166, Austin, TX, October 2004. IEEE Computer
+Society.
+[30] K. Wu, W. Koegler, J. Chen, and A. Shoshani. Using bitmap index for
+interactive exploration of large datasets. In Proceedings of the 15th
+International Conference on Scientific and Statistical Database Management (SSDBM), pages 65–74, Cambridge, MA, July 2003. IEEE
+Computer Society.
+[31] J. S. Yi, Y. ah Kang, J. T. Stasko, and J. A. Jacko. Toward a
+deeper understanding of the role of interaction in information visualization. IEEE Transactions on Visualization and Computer Graphics,
+13(6):1224–1231, November/December 2007.
+
+

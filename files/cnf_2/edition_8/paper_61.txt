@@ -1,0 +1,606 @@
+Volume 27 (2008), Number 2
+
+EUROGRAPHICS 2008 / G. Drettakis and R. Scopigno
+(Guest Editors)
+
+Image-based Shaving
+Minh Hoai Nguyen, Jean-Francois Lalonde, Alexei A. Efros and Fernando De la Torre
+Robotics Institute, Carnegie Mellon University, Pittsburgh, PA 15213, USA.
+
+Abstract
+Many categories of objects, such as human faces, can be naturally viewed as a composition of several different
+layers. For example, a bearded face with glasses can be decomposed into three layers: a layer for glasses, a
+layer for the beard and a layer for other permanent facial features. While modeling such a face with a linear
+subspace model could be very difficult, layer separation allows for easy modeling and modification of some certain
+structures while leaving others unchanged. In this paper, we present a method for automatic layer extraction and its
+applications to face synthesis and editing. Layers are automatically extracted by utilizing the differences between
+subspaces and modeled separately. We show that our method can be used for tasks such beard removal (virtual
+shaving), beard synthesis, and beard transfer, among others.
+Categories and Subject Descriptors (according to ACM CCS): I.3.3 [Computer Graphics]: Picture/Image Generation
+
+1. Introduction
+
+a
+
+d
+
+“But how would I look without a beard?” – this agonizing
+question must be familiar to any long-term beard wearer
+considering the momentous decision of shaving it all off. Indeed, unlike other, more continuous facial transformations,
+such as change in expression or aging, the presence or absence of a beard changes a person’s appearance dramatically
+and has a huge effect on our ability to recognize him. No
+wonder than that growing or shaving a beard is a favorite
+form of disguise. One of the goals of this paper is to help indecisive bearded men by showing what they might look like
+clean-shaven (Figure 1).
+Of course, predicting the appearance of a person without
+a beard given only a photograph of that person with a beard
+is an ill-posed problem. Particular individual characteristics,
+moles, scars, a double chin, would be impossible to reconstruct if they are not visible in the photograph. Therefore,
+our aim is only to synthesize a plausible version of what the
+occluded parts of a person’s face might look like. The idea is
+to exploit the statistical redundancies in facial appearance:
+just as the left half of a face is an extremely good predictor for what the right half might look like, we believe that
+the upper part of the face should provide enough information to generate a good guess for the appearance of the lower
+part. One way to approach this problem is with a pure machine learning solution: given enough beard/no beard training image pairs, it should be possible to learn a regressor
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+b
+
+c
+
+Figure 1: Beard removal process. (a): a bearded face; (b):
+canonical face obtained from (a); (c): canonical face with
+the beard removed; (d): final result of beard removal.
+that estimates one given the other. However, this approach
+requires a large amount of training data - pairs of beard/no
+beard images of the same person, in similar pose, under similar lighting, etc. This is something that would be very hard
+
+628
+
+Nguyen et al / Image-based Shaving
+
+to obtain in large quantities. Instead, we would like our approach to work given just a large labeled collection of photographs of faces, some with beards, some not. The set of
+non-beard photographs together would provide a face model
+while bearded images would serve as the structural deviation
+from that model.
+So, how can we model faces from a set of photographs? Appearance Models (AMs) such as Morphable
+Models or Active Appearance Models (AAMs) have been
+extensively used for parameterizing the space of human
+faces [BV99,CET98,Pig99,BSVS04,dlTB03b,VP97,TP91,
+PV07, WLS∗ 04]. AMs are very appealing modeling tools
+because they are based on a well-understood mathematical
+framework and because of their ability to produce photorealistic images. However, direct application of standard
+AMs to the problem of beard removal is not likely to produce satisfactory results due to several reasons. First, a single holistic AM is unlikely to capture the differences between bearded and non-bearded faces. Second, AMs do not
+allow modification of some structures while leaving others unchanged. To alleviate such problems, part-based and
+modular AMs have been proposed. Pentland et. al. [PMS94,
+MP97] used modular eigenspaces and showed an increase in
+recognition performance. Pighin [Pig99] manually selected
+regions of the face and showed improvements in tracking
+and synthesis. Recently, Jones & Soatto [JS05] presented
+a framework to build layered subspaces using PCA with
+missing data. However, previous work requires manually
+defining/labeling parts or layers which are tedious and timeconsuming.
+In this paper, we propose a method for automatic layer
+extraction and modeling from a set of images. Our method
+is generic and should be applicable not just to beards but to
+other problems where a layer presentation might be helpful
+(e.g. faces with glasses). For the sake of simple explanation,
+however, we will describe our method using the beard removal example throughout this paper.
+Our algorithm can be summarized as follows. We start
+by constructing two subspaces, a beard subspace from a set
+of bearded faces, and a non-beard subspace from a set of
+non-bearded faces. For each bearded face, we compute a
+rough estimate for the corresponding non-bearded face by
+finding the robust reconstruction in the non-beard subspace.
+We then build a subspace for the differences between the
+bearded faces and their corresponding reconstructed nonbearded versions. The resulting subspace is the beard layer
+subspace that characterizes the differences between beard
+and non-beard. Now, every face can be decomposed into
+three parts. One part can be explained by the non-beard
+subspace, another can be explained by the beard layer subspace, and the last part is the “noise” which cannot be explained by either beard or non-beard subspaces. Given the
+decomposition, one can synthesize images by editing the
+part contributed by the beard layer subspace. To generate
+
+a
+
+b
+
+c
+
+Figure 2: Subspace fitting, (a): original image, (b): fitting using linear projection, (c): fitting using iteratively
+reweighted least squares.
+final renderings, we perform a post-processing step for refinement. The post-processing step does beard segmentation
+via Graph Cut [BVZ01] exploiting the spatial relationships
+among beard pixels.
+The rest of the paper is structured as follows. Section 2
+describes how robust statistics can be used for rough estimation of non-bearded faces from bearded ones. The next section explains how to model the differences between two subspaces. Section 4 discusses the use of Graph Cut for beard
+segmentation. Section 5 shows another application of our
+method: beard addition. Information about the database and
+other implementation details are provided in Section 6.
+2. Removing Beards with Robust Statistics
+In this section, we show how robust statistics on subspaces
+can be used to detect and remove beards in faces. Let us first
+describe some notations used in this paper. Bold upper-case
+letters denote matrices; bold lower-case letters denote column vectors; non-bold letters represent scalar variables. ai
+and a˜ Ti are the ith column and row of matrix A respectively,
+ai j is the entry in ith row and jth column of A; ui is the ith
+element of column vector u. ||u||22 denotes the squared L2
+norm of u, ||u||22 = uT u.
+Let V ∈ ℜd×n be a matrix of which each column is a vectorized image of a face without a beard . d denotes the number of pixels of each image and n the number of samples (in
+our experiments, d = 92 ∗ 94 = 8648, and n = 738; see Section 6 for more details). Let x be a face image with a beard
+and x∗ the same image with the beard removed. A naïve approach to remove the beard would be to reconstruct the face
+x in the non-beard subspace V. That is,
+x∗ = Vˆc
+with
+
+cˆ = arg min ||x − Vc||22 = (VT V)−1 VT x
+c
+
+Unfortunately, the beard typically is a significant part of the
+face and can strongly bias the estimate of the coefficients
+c. Figure 2a shows a bearded face, Figure 2b is the projection of Figure 2a into the non-beard subspace. The projection
+makes the beard regions lighter while darkening the other regions, but it does not effectively remove the beard.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+629
+
+Nguyen et al / Image-based Shaving
+
+To address this problem, the beards can be treated
+as outliers of the non-beard subspace V. Using an Mestimator [Hub81], we can remove the influence of the outliers from the projection [BJ98, dlTB03a]. The M-estimator
+uses a robust function (e.g. Geman-McClure [GM87]) rather
+than a quadratic one and minimizes:
+d
+
+cˆ = arg min ∑ ρ(xi − v˜ Ti c, σ)
+c
+
+x2
+x2 +σ2
+th
+
+Here, ρ(x, σ) =
+v˜ Ti
+
+(1)
+
+i=1
+
+is the Geman-McClure function, and
+
+denotes the i row of V. The above optimization function
+can be solved approximately using Iteratively Re-weighted
+Least Square (IRLS) method [BT74, HW77, dlTB03a]. We
+review the IRLS procedure, an approximate and iterative algorithm to solve an M-estimation problem, originally proposed by Beaton and Turkey [BT74] and extended
+by [HW77, Li85]. An algorithm to solve Equation 1 with
+fixed σ is equivalent to minimizing a weighted least squares
+problem iteratively [Li85]. At the kth iteration, we solve a
+weighted least squares problem in which the importance of
+pixels are weighted differently using a diagonal weight matrix W ∈ ℜd×d :
+c(k) = arg min ||W(x − Vc)||22
+c
+
+= (V WT WV)−1 VT WT Wx
+T
+
+The matrix W is calculated at each iteration as a function
+of the previous residual e = x − Vc(k−1) and is related to
+the “influence” [HRRS86] of pixels on the solution. Each
+element, wii , of W will be equal to
+wii =
+
+1 ∂ρ(ei , σ)
+σ2
+= 2
+2ei ∂ei
+(ei + σ2 )2
+
+The parameter σ of the robust function is also updated
+at every iteration: σ := 1.4826 ∗ median({|xi − xi∗ | : i =
+1, d}) [Hub81]. Pixels that belong to beard regions would
+not be reconstructed well by the non-beard subspace. The
+weights of those pixels and their influence on the fitting process will decrease as more and more iterations are run. The
+non-bearded face x∗ is taken to be Vˆc with cˆ is the limit of
+the sequence c(k) , k = 1, 2, ....
+Figure 2c is the non-bearded reconstruction of Figure 2a
+after convergence. As can be seen, this method produces
+substantially better result than the result of naïve approach
+given Figure 2b.
+
+Figure 3: The first six principal components of B, the subspace for the beard layer. The principal components are
+scaled (for visibility) and imposed on the mean image of nonbeard subspace.
+this section, we propose an algorithm to factorize layers
+of spatial support given two training sets U ∈ ℜd×n1 and
+V ∈ ℜd×n2 into common and non-common layer subspaces
+(e.g. beard region and non-beard region). That is, given U
+and V, we will factorize the spaces into a common (face)
+and non-common subspace (beard). Although our method is
+generic, we will illustrate the procedure by continuing working with beard and non-beard subspaces.
+To obtain the non-common subspace between the subspaces of faces with and without beards, we first need to
+compute the difference between every bearded face and its
+corresponding non-bearded version. In other words, using
+the procedure from the previous section, for every bearded
+face ui , we compute u∗i , the robust reconstruction in the nonbeard subspace. Let D denote [(u1 − u∗1 )...(un − u∗n )], D defines the outlier subspace of the non-beard subspace. Beards
+are considered outliers of the non-beard subspace, but they
+are not outliers of the beard subspace. As a result, we can
+perform Principal Component Analysis (PCA) [Jol02] on D
+to filter out the outliers that are common to both subspaces,
+retaining only the components for the beard layer. Let B denote the principal components obtained using PCA retaining
+95% energy. B defines a beard layer subspace that characterizes the differences between beard and non-beard subspaces.
+Figure 3 shows the first six principal components of B superimposed on the mean image of the non-beard subspace.
+Now given any face d (d could be a bearded or nonbearded face, and it is not necessary part of the training data),
+ˆ βˆ such that:
+we can find coefficients α,
+
+3. Factorizing Layered Spaces
+While beards are outliers of the non-beard subspace, the converse is not necessary true. In other words, not all outliers of
+the non-beard subspace are beards. In general, robust statistical methods discussed in the previous section often do not
+provide visually satisfactory results as characteristic moles
+and scars are also removed. To overcome this problem, in
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+ˆ βˆ = arg min ||d − Vα − Bβ||22
+α,
+α,β
+
+ˆ βˆ can be found by solving a system of linear
+Note that α,
+equations:
+αˆ
+βˆ
+
+=
+
+VT
+BT
+
+−1
+
+V
+
+B
+
+VT
+BT
+
+d.
+
+630
+
+Nguyen et al / Image-based Shaving
+a
+
+c
+
+b
+
+d
+
+Figure 4: Synthesis faces generated by manipulating the
+contribution of subspace B. (a): an original face, (b): the
+same face with the beard removed, (c): the face with the
+beard part is reduced by half, (d): the face with the beard
+part is enhanced 50%.
+Here
+
+VT
+BT
+
+inverse of [ V
+
+−1
+
+[V B]
+B ] if
+
+VT
+BT
+
+VT
+BT
+
+can be replaced by the pseudo−1
+
+[V B]
+
+does not exist.
+
+ˆ we have:
+Now let d¯ denote d − Vαˆ − Bβ,
+d = Vαˆ + Bβˆ + d¯
+
+(2)
+
+Thus any face can be decomposed into three parts, the nonˆ the difference between beard and non-beard
+beard part Vα,
+¯ The residual is the part that cannot
+Bβˆ and the residual d.
+be explained by either the non-beard subspace nor the beard
+subspace. The residual exists due to several reasons such as
+insufficiency of training data, existence of noise in the input
+image d, or existence of characteristic moles or scars.
+Given the above decomposition, we can create synthetic
+faces. For example, consider a family of new faces d(λ) gen¯ where λ is a scalar variable.
+erated by d(λ) = Vαˆ + λBβˆ + d,
+We can remove the beard, reduce the beard or enhance the
+beard by setting λ to appropriate values. Figure 4a shows an
+original image and Figure 4b, 4c, 4d are generated faces with
+λ are set to 0, 0.5, and 1.5 respectively.
+Figure 5 shows some results of beard removal using this
+approach for beard removal (λ = 0). The results are surprisingly good considering the limited amount of training
+data and the wide variability of illumination. However, this
+method is not perfect (see Figure 6); it often fails if the
+amount of beard exceeds some certain threshold which is
+the break-down point of robust fitting. Another reason is the
+insufficiency of training data. We believe the results will be
+significantly better if more data is provided.
+4. Beard Mask Segmentation Using Graph Cuts
+So far, our method for layer extraction has been generic and
+did not rely on any spatial assumptions about the layers.
+However, for tasks such as beard removal, there are several
+spatial cues that can provide additional information. In this
+section, we propose a post-processing step that exploits one
+of such spatial cues: a pixel is likely to be a beard pixel if
+most of its neighbors are beard pixels, and vise versa. What
+this post-processing step does is to segment out the contiguous beard regions.
+
+To understand the benefits of beard segmentation, let us
+reconsider the current beard removal method. Recall that an
+¯ where dB
+image d can be decomposed into Vαˆ + dB + d,
+ˆ
+denotes Bβ which is the contribution of the beard layer. Currently, the corresponding non-bearded face d∗ of d is taken
+to be d − dB . Ideally, one would like the entries of dB that
+correspond to non-beard pixels to vanish. In practice, however, this is not usually the case because we are working
+with real world data. Entries of dB corresponding to nonbeard pixels usually have small magnitudes but not exactly
+zero. Performing beard segmentation using the aforementioned spatial constraint will help to reduce the effect of this
+problem.
+We formulate the beard segmentation task as a graph
+labeling problem. For a face image d, construct a graph
+G = V, E , where V is the set of nodes corresponding to the pixels of d and E is the set of edges representing the 4-connectivity neighboring relationships of
+the pixels. The labeling problem is to assign a label li (∈
+{1(beard) , 0(non-beard)}) for each node i ∈ V. We would
+like to find a labeling L = {li |i ∈ V} that minimizes a Gibbs
+energy function E(L):
+E(L) =
+
+∑ Ei1 (li ) + ∑
+i∈V
+
+Ei2j (li , l j )
+
+(3)
+
+(i, j)∈E
+
+Here Ei1 (li ) is the unary potential function for node i to receive label li and Ei2j (li , l j ) is the binary potential function
+for labels of adjacent nodes. In our experiment, we define
+E 1 (.), E 2 (., .) based on dB , the contribution of the beard
+layer. Let dBi denote the entry of dB that corresponds to node
+i. Define E 1 (.), E 2 (., .) as follows:
+
+0
+if li = 1
+
+
+ |dB | − a if l = 0 & ||dB | − a| ≤ b
+i
+i
+i
+Ei1 (li ) =
+b
+if li = 0 & |dBi | − a > b
+
+
+
+−b
+if li = 0 & |dBi | − a < −b
+Ei2j (li , l j ) =
+
+0
+b
+2
+
+if li = l j
+if li = l j
+
+The unary and binary potential functions are defined intuitively. A beard pixel is a pixel that can be explained well by
+the beard subspace but not by the non-beard subspace. As
+a result, one would expect |dBi | is large if pixel i is a beard
+pixel. The unary potential function is defined to favor the
+beard label if |dBi | is high (> a). Conversely, the unary potential favors the non-beard label if |dBi | is small (< a). To
+limit the influence of individual pixel, we limit the range of
+the unary potential function from −b to b. Beard is not necessary formed by one blob of connected pixels; however, a
+pixel is more likely to be beard if most of their neighbors are.
+We design the binary potential function to encode that preference. In our implementation, a, b are chosen empirically as
+8 and 4 respectively.
+The exact global optimum solution of the optimization problem in Eq.3 can be found efficiently using graph
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Nguyen et al / Image-based Shaving
+
+631
+
+Figure 5: Results of beard removal using layer subtraction. This figure displays 24 pairs of images. The right image of each
+pair is the result of beard removal of the left image.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+632
+
+Nguyen et al / Image-based Shaving
+
+Figure 6: Beard removal results: six failure cases. The right image of each pair is the beard removal result of the left image.
+
+Figure 7: Beard segmentation using Graph Cut. Row 1: original bearded faces; row 2: corresponding non-bearded faces; row
+3: difference between bearded and non-bearded faces, brighter pixel means higher magnitude; row 4: resulting beard masks
+are shown in green.
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Nguyen et al / Image-based Shaving
+
+Figure 8: Beard removal results after beard segmentation.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+633
+
+634
+
+Nguyen et al / Image-based Shaving
+
+cuts [BVZ01] (for binary partition problems, solutions produced by graph cuts are exact). Figure 7 shows the results of
+beard segmentation using this technique. The first row shows
+original bearded faces. The second row displays the corresponding non-bearded faces. The third row shows |dB |’s, the
+beard layers. The last row are the results of beard segmentation using the proposed method.
+Once the beard regions are determined, we can refine the
+beard layer by zeroing out the entries of dB that do not belong to the beard regions. Performing this refinement step together with unwarping the canonical non-bearded faces yield
+the resulting images shown in Figure 8.
+5. Beard Addition
+Another interesting question would be “How would I look
+with a beard?”. This question is much more ambiguous than
+the question in Section 1. This is because there is only one
+non-bearded face corresponding to a bearded face (at least
+theoretically). On the contrary, there can be many bearded
+faces that correspond to one non-bearded face. A less ambiguous question would be to predict the appearance of a
+face with a beard from another person. Unfortunately, because of differences in skin color and lighting conditions, a
+simple overlay of the beard regions onto another face will
+result in noticeable seams. In order to generate a seamless
+composite, we propose to transfer the beard layer instead
+and perform an additional blending step to remove the sharp
+transition.
+To remove the sharp transitions, we represent each pixel
+by the weighted sum of its corresponding foreground (beard)
+and background (face) values. The weight is proportional to
+the distance to the closest pixel outside the beard mask, determined by computing the distance transform. This technique is very fast and yields satisfying results such as the
+ones shown in Figure 9.
+6. Database and Other Implementation Details
+We use a set of images taken from CMU Multi-PIE
+database [GMC∗ 07] and from the web. There are 1140
+images of 336 unique subjects from the CMU Multi-PIE
+database and they are neutral, frontal faces. Among them,
+319 images have some facial hairs while the others come
+from female subjects or carefully-shaved male subjects. Because the number of hairy faces from the Multi-PIE database
+is small, we downloaded 100 additional beard faces of 100
+different subjects from the web. Thus we have 419 samples
+for the beard subspace in total and 738 samples for the nonbeard subspace. We make sure no subject has images in both
+subspaces.
+As in active appearance models [CET98], face alignment
+require a set of landmarks for each face. We use 68 handlabeled landmarks around the face, eyes, eyebrows, nose and
+
+Figure 9: Results of transferring beard layers. Beard layers
+of three images in the top row are extracted and transfered
+to the faces in the first column.
+lips. Unlike the Layered Active Appearance Models [JS05],
+we do not have landmarks for the beard regions. Faces are
+aligned using triangular warping which is a warping method
+that groups landmarks into triangles and warps triangles to
+canonical ones. The size of canonical faces (for e.g. see Figure 2) is 94×92.
+In our implementation, robust subspace fitting is done independently for three color channels Red, Green, and Blue.
+We only combine the three channels when computing the
+beard masks. In particular, the combined dB of three channels are taken as (|dBR | + |dBG | + |dBB |)/3 where dBR , dBG , dBB are
+dB of Red, Green, and Blue channels respectively.
+7. Discussion and Future Work
+In this paper, we have presented a method for automatic
+layer extraction and its applications to face synthesis and
+editing. Our method works by exploiting the differences between two subspaces. To the best of our knowledge, this is
+the first automatic method for constructing layers from sets
+of weakly labeled images. The results of our method are surprisingly good despite the limited amount of training data. It
+should also be noted that our method is generic and applicable not just for beards. Figure 10 shows some preliminary
+results on the removal of glasses.
+We are currently working on several directions that might
+lead to further improvements. First, we believe our method
+can perform significantly better by simply enlarging the set
+of training images. Second, a recursive algorithm utilizing
+interactive user feedback would probably result in a better
+layer subspace. For example, obtaining the users’ judgment
+on the robustly reconstructed non-bearded faces can help to
+filter out bad inputs for the creation of the beard layer. Obtaining such user feedback is definitely less tedious and timeconsuming than manually labeling the layers.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Nguyen et al / Image-based Shaving
+
+635
+
+Figure 10: Preliminary results for removal of glasses.
+References
+[BJ98] B LACK M., J EPSON A.: Eigen-tracking: Robust
+matching and tracking of articulated objects using a viewbased representation. International Journal of Computer
+Vision 36, 2 (1998), 101–130.
+[BSVS04] B LANZ V., S CHERBAUM K., V ETTER T., S EI DEL H.: Exchanging faces in images. In EUROGRAPHICS (2004).
+[BT74] B EATON A. E., T URKEY J. W.: The fitting of
+power series, meaning polynomials, illustrated on bandspectroscopic data. Technometrics 16, 2 (1974), 147–185.
+
+[Hub81] H UBER P. J.: Robust Statistics. New York ; Wiley, 1981.
+[HW77] H OLLAND P. W., W ELSCH R. E.: Robust regression using iteratively reweighted least-squares. Communications in Statistics, A6 (1977), 813–827.
+[Jol02] J OLLIFFE I.: Principal Component Analysis, 2 ed.
+Springer-Verlag, New York, 2002.
+[JS05] J ONES E., S OATTO S.: Layered active appearance
+models. In Proceedings of the IEEE International Conference on Computer Vision (2005), vol. 2, pp. 1097–1102.
+
+[BV99] B LANZ V., V ETTER T.: A morphable model for
+the synthesis of 3D faces. In SIGGRAPH (1999).
+
+[Li85] L I G.: Robust regression. In Exploring Data, Tables, Trends and Shapes (1985), Hoaglin D. C., Mosteller
+F., Tukey J. W., (Eds.), John Wiley & Sons.
+
+[BVZ01] B OYKOV Y., V EKSLER O., Z ABIH R.: Fast approximate energy minimization via graph cuts. Pattern
+Analysis and Machine Intelligence 23, 11 (2001), 1222–
+1239.
+
+[MP97] M OGHADDAM B., P ENTLAND A.: Probabilistic
+visual learning for object representation. Pattern Analysis
+and Machine Intelligence 19, 7 (July 1997), 137–143.
+
+[CET98] C OOTES T., E DWARDS G., TAYLOR C.: Active
+appearance models. In Proceedings of European Conference on Computer Vision (1998), vol. 2, pp. 484–498.
+
+[Pig99] P IGHIN F.: Modeling and Animating Realistic
+Faces from Images. PhD thesis, University of Washington, 1999.
+
+[dlTB03a] DE LA T ORRE F., B LACK M. J.: A framework for robust subspace learning. International Journal
+of Computer Vision. 54 (2003), 117–142.
+
+[PMS94] P ENTLAND A., M OGHADDAM B., S TARNER
+T.: View-based and modular eigenspaces for face recognition. In Proceedings of IEEE Conference on Computer
+Vision and Pattern Recognition (1994), pp. 84–91.
+
+[dlTB03b] DE LA T ORRE F., B LACK M. J.: Robust parameterized component analysis: theory and applications
+to 2D facial appearance models. Computer Vision and
+Image Understanding 91 (2003), 53 – 71.
+
+[PV07] P IERRARD J.-S., V ETTER T.: Skin detail analysis
+for face recognition. In Proceedings of IEEE Conference
+on Computer Vision and Pattern Recognition (2007).
+
+[GM87] G EMAN S., M C C LURE D.: Statistical methods
+for tomographic image reconstruction. Bulletin of the International Statistical Institute LII-4:5 (1987).
+[GMC∗ 07] G ROSS R., M ATTHEWS I., C OHN J.,
+K ANADE T., BAKER S.: The CMU Multi-pose, Illumination, and Expression (Multi-PIE) Face Database. Tech.
+rep., Robotics Institute, Carnegie Mellon University,
+2007. TR-07-08.
+[HRRS86] H AMPEL F., RONCHETTI E., ROUSSEEUW P.,
+S TAHEL W.: Robust Statistics: The Approach Based on
+Influence Functions. Wiley, New York., 1986.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+[TP91] T URK M., P ENTLAND A.: Eigenfaces for recognition. Journal Cognitive Neuroscience 3, 1 (1991), 71–
+86.
+[VP97] V ETTER T., P OGGIO T.: Linear object classes
+and image synthesis from a single example image. Pattern Analysis and Machine Intelligence 19, 7 (1997), 733–
+741.
+[WLS∗ 04] W U C., L IU C., S HUM H., X Y Y., Z HANG
+Z.: Automatic eyeglasses removal from face images. Pattern Analysis and Machine Intelligence 26, 3 (2004), 322–
+336.
+
+

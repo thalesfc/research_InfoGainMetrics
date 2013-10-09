@@ -1,0 +1,1520 @@
+DOI: 10.1111/j.1467-8659.2010.01721.x
+Eurographics Symposium on Rendering 2010
+Jason Lawrence and Marc Stamminger
+(Guest Editors)
+
+Volume 29 (2010), Number 4
+
+An Optimizing Compiler for Automatic Shader Bounding
+Petrik Clarberg1
+
+Robert Toth1
+1 Intel
+
+Jon Hasselgren1
+2 Lund
+
+Corporation
+
+Tomas Akenine-Möller1,2
+University
+
+Abstract
+Programmable shading provides artistic control over materials and geometry, but the black box nature of shaders
+makes some rendering optimizations difficult to apply. In many cases, it is desirable to compute bounds of shaders
+in order to speed up rendering. A bounding shader can be automatically derived from the original shader by
+a compiler using interval analysis, but creating optimized interval arithmetic code is non-trivial. A key insight
+in this paper is that shaders contain metadata that can be automatically extracted by the compiler using data
+flow analysis. We present a number of domain-specific optimizations that make the generated code faster, while
+computing the same bounds as before. This enables a wider use and opens up possibilities for more efficient
+rendering. Our results show that on average 42–44% of the shader instructions can be eliminated for a common
+use case: single-sided bounding shaders used in lightcuts and importance sampling.
+Categories and Subject Descriptors (according to ACM CCS): I.3.7 [Computer Graphics]: Three-Dimensional
+Graphics and Realism—Color, shading, shadowing, and texture; G.1.0 [Numerical Analysis]: General—Interval
+arithmetic
+
+1. Introduction
+The advent of highly realistic computer-generated graphics in feature films and games has largely been made possible by the separation of rendering algorithms and visual
+content. Programmable shading provides means for artists
+to create wonderful environments, without having to deal
+with much of the technicalities of the renderer. From the
+rendering system’s point of view, a shader is a black box,
+which can only be point-sampled. This presents a problem,
+as higher level information about a shader is often required
+to make use of more efficient rendering algorithms. For example, in global illumination where the light transport integrals are very complex, it is critical to be able to compute
+bounds of a shader in order to use algorithms such as lightcuts [WFA∗ 05, WABG06] and importance sampling. In a
+rasterization pipeline, shader bounds may be used to avoid
+computations that do not contribute to the image [HAM07].
+
+Figure 1: The bounding shader s computes bounds for the
+shaded result at a specific shading point, x, or cluster of
+ˆ i . This is
+points, xˆ , given bounds on the light directions, ω
+critical functionality in lightcuts and importance sampling.
+The right image shows a ray tracing application, where a
+bounding shader is used to find the closest intersection.
+
+vals rather than single values. The end result is a bounding
+shader, which given bounds on the shader inputs computes
+bounds on its outputs, i.e., a conservative range of possible
+outputs. Some examples are shown in Figure 1.
+
+A shader bounding function for an arbitrary shader can
+be carefully handcrafted, but this is tedious and error-prone
+for all but the simplest shaders. Alternatively, a compiler
+can be used to automatically derive a bounding function using interval analysis [HSS98,HAM07,VAZH∗ 09]. The compiler transforms the shader instructions to operate on interc 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+There are two factors directly affecting the efficiency of
+the rendering system: the execution time of the bounding
+shader, and the tightness of the computed bounds. In this paper, we focus on generating faster bounding shaders, with-
+
+1259
+
+1260
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+
+out changing the computed bounds. Naïve transformation
+from scalar to interval shader code is relatively straightforward for a compiler. Each arithmetic instruction is replaced
+by an instruction sequence that performs the same operation
+on intervals. However, by exploiting domain-specific knowledge and data flow analysis, we show that it is possible to
+achieve much better results. Although we focus on interval
+arithmetic (IA) [Moo66], where an interval is simply represented as a minimum and a maximum value, higher-order
+methods such as affine arithmetic [CS93], or Taylor model
+arithmetic [BH98] can also be used.
+One of our key contributions is a method we call static
+bounds analysis, in which bounds are propagated through
+the shader at compile time in order to determine the type
+and possible range of each variable. This information allows
+us to generate optimized interval arithmetic code. Similar results cannot be achieved using standard compiler techniques.
+We also propose an optional extension called valid range
+analysis, which exploits the fact that some instructions put
+strict limits on their inputs. Another important contribution
+is the use of dynamic bounds assumptions, which creates a
+fast path for the common case, but falls back on a more general bounding shader if the assumptions fail at runtime.
+2. Related Work
+Originally developed in the 1950s to compute bounds on
+rounding errors in numerical computations, interval analysis [Moo66] is now used in a wide range of scientific and
+engineering disciplines.
+Hardware/Software Support for Interval Analysis Specialized hardware architectures with support for interval
+analysis have been proposed, see, e.g., [SS00], but the extra area/power is hard to motivate for non-scientific workloads. Software implementations provide more flexibility
+and are currently the only alternative for graphics applications. There are, however, few compilers with support for interval analysis on existing hardware [SZAB99, ASS04], and
+most users are left to using publicly available libraries [Ž05]
+or GPU implementations [CFD08]. It should be noted that
+none of the existing implementations apply any intervalspecific compiler optimizations.
+Interval Analysis in Computer Graphics A full overview
+is beyond the scope of this paper, so we limit the discussion to a few selected applications. Snyder [Sny92] use interval analysis to robustly solve a wide range of problems
+related to parametric surfaces. Mitchell [Mit90] proposed
+to use interval arithmetic for robust ray tracing of implicit
+surfaces, which initiated a lot of work in this direction.
+See Hijazi et al.’s survey [HHHJ07] for an overview. Collision detection is another successful application of interval analysis, with methods for implicit surfaces [Duf92],
+rigid bodies [RKC02], and articulated models [ZRLK07].
+Some applications, especially with long interval computa-
+
+tion chains, benefit from using higher-order methods, such
+as affine arithmetic [CS93] and Taylor models [BH98].
+Programmable Shading Programmable shading has been
+a keystone in offline rendering for more than two decades.
+The RenderMan shading language [HL90] was one of the
+first languages for production-quality rendering, and it introduced many of the concepts used by today’s shading languages. Programmable shading is also critical for bringing
+flexibility to ray tracing systems [PBBR07]. GPUs capable of executing shaders first appeared in 2001, and recent
+graphics APIs define many types of shaders, each performing a specific task in the graphics pipeline.
+Interval Analysis of Programmable Shaders A variety of
+applications have used interval analysis to compute bounds
+of shaders. Greene and Kass [GK94] bound shaders that can
+be expressed in data flow form (i.e., shaders without intricate control flow) to achieve error-bounded antialiasing.
+They use a compiler to automatically generate interval arithmetic code [Kas92]. Standard compiler optimizations (e.g.,
+common-subexpression elimination) and mathematical simplifications are applied, but no interval-specific optimizations. Heidrich et al. [HSS98] compute bounds on procedural RenderMan shaders using affine arithmetic for sampling
+purposes. They note that affine arithmetic should not be used
+for expressions involving only non-affine values, and that it
+is important to use optimized approximations, e.g., square
+instead of general multiplication, where possible. A similar
+framework has been used for ray tracing of procedural displacement shaders [HS98].
+In real-time graphics, interval analysis has recently been
+used to compute conservative bounds for fragment programs
+over a tile of pixels in order to discard, or cull, shading
+computations [HAM07]. The authors propose a hardware
+architecture capable of interval arithmetic, thereby avoiding the problem of generating optimized scalar code from
+an interval-based shader. Later work has extended this concept to compute bounds on vertex programs and cull base
+primitives prior to tessellation in a DirectX 11-style pipeline
+using Taylor model arithmetic [HMAM09].
+Velázquez-Armendáriz et al. [VAZH∗ 09] present a basic
+compiler for automatic bounding shading generation, and
+showcase its utility on a wide range of photo-realistic rendering examples. We extend their work with a number of
+domain-specific optimizations for generating faster code.
+3. Interval Analysis Primer
+The goal of interval analysis is to compute conservative
+bounds for arbitrary computations. This is done by redefining all operations to operate on intervals rather than individual values. We limit ourselves to extended real numbers (i.e.,
+including ±∞), and define an interval as:
+aˆ = [a, a] = {x ∈ R | a ≤ x ≤ a}.
+
+(1)
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+1261
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+shader source code
+
+3.1. Arithmetic Operations
+The basic arithmetic operations are easily extended to operate on intervals. Addition and subtraction become:
+a+
+ˆ bˆ = a + b, a + b
+
+and a−
+ˆ bˆ = a − b, a − b .
+
+Scanner / Parser
+
+front end
+
+non-optimized IR
+
+middle end
+Optimizer
+(optionally incl. value-changing transforms)
+
+(2)
+
+optimized IR
+
+Multiplication is slightly more complicated due to the cases
+where one or both of the intervals overlap zero:
+aˆ · bˆ = min(ab, ab, ab, ab), max(ab, ab, ab, ab) .
+
+Lift to interval form
+
+(3)
+
+interval IR (BS)
+
+Optimizer
+(non value-changing)
+
+Some operations, such as division, are more complex:
+
+Bounds analysis
+interval IR + bounds (BS)
+
+optimized IR
+
+[a, a] / b, b = [a, a] · 1/ b, b , where
+1/ b, b =
+
+1/b, 1/b
+[−∞, ∞]
+
+if
+if
+
+0∈
+/ b, b ,
+0 ∈ b, b .
+
+Lower to scalar form
+optimized IR (BS)
+
+(4)
+
+In the last example, useful information is lost if the denominator interval contains zero. This problem is not limited to
+division, but applies to any function that is piecewise continuous, e.g., tan. By working with multi-intervals,
+aˆ =
+
+[ai , ai ],
+
+(5)
+
+i
+
+we can split b, b into [b, 0] ∪ 0, b and get:
+1/ b, b = [−∞, 1/b] ∪ 1/b, ∞
+
+if 0 ∈ b, b .
+
+(6)
+
+Such multi-intervals may be further split, or merged if overlapping, depending on the operations performed. We propose using multi-intervals for the compile-time analysis, but
+single intervals at runtime for efficiency reasons.
+3.2. General Functions
+A function, f : Rn → R, may be extended to interval form to
+compute bounds for the result based on bounds of the arguments. We define the interval extension, fˆ, of f as:
+fˆ(ˆx) ⊇ { f (x) | x ∈ xˆ }.
+
+(7)
+
+Using interval arithmetic, we treat xˆ = (xˆ1 , . . . , xˆn ) as individual intervals and compute intervals for each intermediate result independently. Tighter bounds may be achieved
+by keeping information on how the intermediate results depend on xˆ . These dependencies may be modeled as linear
+functions (affine arithmetic), or at a higher cost, as general
+polynomials (Taylor model arithmetic).
+
+Optimizer
+(non value-changing)
+
+middle end
+
+optimized IR (BS)
+
+back end
+Platform-specific analysis
+and code generation
+
+Platform-specific analysis
+and code generation
+
+machine code (shader)
+
+machine code (BS)
+
+Figure 2: The middle end of the compiler performs initial
+optimizations on the intermediate representation (IR) before
+lifting it to interval form (right) to get a bounding shader
+(BS). After bounds analysis and lowering to optimized scalar
+form, further non-value changing optimizations may be applied. The front and back ends are the same as in a traditional shader compiler (left).
+truth. Thus, it is sufficient to compute bounds that are conservative only up to machine precision. That is, a shader should
+never return a result outside the bounds computed by the
+corresponding bounding shader, but we need no guarantee
+that the bounds are mathematically conservative. This is ensured if there is a path through the bounding shader that executes the same sequence of floating-point operations, using
+the same rounding mode as in the original shader. Normally,
+this is always the case, as each interval operation performs
+the equivalent floating-point operation on all relevant combinations of extreme values, and then picks the outer bounds
+using min/max operations.
+3.4. Application to Shader Languages
+
+In practice, an application using interval arithmetic is forced
+to work with floating-point numbers of finite precision. Most
+general purpose implementations are designed to guarantee
+interval enclosure of real operations, i.e., produce mathematically conservative results. This requires outward rounding, where the computations of the upper/lower intervals are
+rounded up/down respectively.
+
+In addition to arithmetic operations, shader languages (e.g.,
+RenderMan, GLSL, and HLSL) support functionality such
+as conditionals, loops, and texture lookups, which must
+be handled. Many of these features have been extensively
+studied. Interval-based texture lookups can be done using mipmap hierarchies of minimum and maximum values [MM02]. The bounds on the texture coordinates are used
+to compute an appropriate mipmap level, from which a number of min/max samples are drawn. Cube map lookups can
+be handled similarly. Previous work has also explored how
+to handle noise functions and derivatives [HSS98].
+
+In computer graphics, most applications ignore round-off
+errors and view the result of a shader evaluation as ground
+
+Conditionals present a problem, as whenever overlapping
+intervals are compared, the condition is not unambiguously
+
+3.3. Rounding Considerations
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+1262
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+
+true or false. One solution is to use step functions and rewrite
+conditional expressions as arithmetic [HSS98]. A more general method, which we use, is to evaluate both execution
+paths and merge the results. This is most easily done by
+transforming the intermediate representation to static single assignment (SSA) form [CFR∗ 91], and treating the Φ
+functions that are inserted at joints in a non-standard way
+(they are normally replaced by copies) as selector functions [VAZH∗ 09] .
+4. An Optimizing Interval Compiler
+In this section, we will introduce a compiler infrastructure
+and a number of optimizations targeted at generating faster
+bounding shaders. There are two main steps involved. First,
+we lift the original shader to interval form, i.e., replace scalar
+instructions by their interval arithmetic equivalents. This lifting step is straightforward, and can be done trivially by a
+compiler with an intermediate representation (IR) supporting interval instructions.
+The second step is to lower the shader on interval form
+to efficient scalar code. The standard approach is to replace
+each interval instruction by a general sequence of scalar
+instructions performing the desired interval computation.
+However, better results can be obtained if we have prior
+knowledge about what range of values each instruction operates on. Much of this paper deals with automatic extraction
+of such information through bounds analysis.
+Figure 2 shows the proposed design of an optimizing compiler for automatic generation of bounding shaders (BS). We
+will focus on the algorithms enclosed in dashed red, and
+first look at some examples to highlight the types of optimized interval to scalar conversions that are possible. Then,
+we will discuss the lifting step and introduce several novel
+algorithms for compile-time bounds analysis.
+4.1. Lowering to Optimized Scalar Form
+Most interval operations can be implemented in a variety of
+ways depending on the generality of the computation. For
+example, multiplying two positive intervals is much easier
+than the case where the intervals may overlap zero. Our goal
+is to select the most compact implementation possible, exploiting bounds information determined at compile time.
+We define a table of implementation alternatives for each
+instruction, along with the necessary conditions. There is always a fully general implementatation, which works under
+any condition. This job is tedious, but fortunately has to be
+done only once. Note that the listed conditions are applied
+at compile time, so the implementation must be valid for all
+possible runtime intervals matching the condition. Next, we
+will look at a few illustrative examples.
+Multiplication The table below shows different possibilities for evaluating the multiplication operator with scalarscalar, scalar-interval, and interval-interval operands. In
+
+this case, knowing the signs of one or both of the operands
+enables significantly more efficient code (the cases where aˆ
+and bˆ are reordered have been left out for brevity):
+expr
+x·y
+x · aˆ
+
+condition
+any
+any
+x≥0
+x≤0
+any
+
+aˆ · bˆ
+
+aˆ ≥ 0
+aˆ ≤ 0
+a,
+ˆ bˆ ≥ 0
+aˆ ≤ 0 ≤ bˆ
+a,
+ˆ bˆ ≤ 0
+
+implementation
+x·y
+[min(xa, xa), max(xa, xa)]
+[xa, xa]
+[xa, xa]
+min(ab, ab, ab, ab),
+max(ab, ab, ab, ab)
+[min(ab, ab), max(ab, ab)]
+[min(ab, ab), max(ab, ab)]
+[ab, ab]
+[ab, ab]
+[ab, ab]
+
+#inst
+1
+4
+2
+2
+10
+6
+6
+2
+2
+2
+
+Square If the operands of a multiplication come from the
+same source, we can use a more efficient square operator:
+expr
+x2
+aˆ2
+
+condition
+any
+any
+aˆ ≥ 0
+aˆ ≤ 0
+
+implementation
+x·x
+[max(a,−a, 0)2, max(−a, a)2 ]
+[aa, aa]
+[aa, aa]
+
+#inst
+1
+7
+2
+2
+
+Absolute Value Some operations can be completely removed under special circumstances. An absolute value, for
+example, requires no evaluation for positive operands:
+expr
+|x|
+|a|
+ˆ
+
+condition
+any
+x≥0
+any
+aˆ ≥ 0
+aˆ ≤ 0
+
+implementation
+|x|
+x
+[max(a,−a, 0), max(−a, a)]
+[a, a]
+[−a,−a]
+
+#inst
+1
+0
+5
+0
+2
+
+Square Root Other instructions are valid only on a limited
+range, e.g., a square root requires a positive argument. If
+we at compile time can guarantee the result will be Not-aNumber (NaN), we generate a compiler warning (shown in
+red) as this condition likely indicates a programming error:
+expr
+√
+x
+√
+
+aˆ
+
+condition
+any
+x<0
+any
+aˆ < 0
+
+implementation
+√
+x
+NaN
+√ √
+[ a, a]
+[NaN, NaN]
+
+#inst
+1
+0
+2
+0
+
+Additional Notes It is often the sign of operands that differentiate between implementation alternatives, but there are
+ˆ function, for example, is
+exceptions. The interval pow(a,
+ˆ b)
+monotonically increasing if aˆ ≥ 1, and decreasing if aˆ ≤ 1.
+The general case requires 4 pow and 6 min/max instructions,
+but it can be reduced to only 2 pow in some cases.
+In these examples, we have counted each basic instruction (add, mul, neg etc) as a single instruction for simplicity.
+Assuming the bounding shader is executed on a throughputoriented architecture, this should be a rough approximation
+of its execution cost. Naturally, the cost depends on the hardware and the exact implementations chosen.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+1263
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+
+4.2. Lifting to Interval Form
+In the lifting step, we analyze the dependency graph to determine which instructions are operating on interval data.
+Those instructions are replaced by their equivalents operating on intervals rather than scalar values, e.g., an add instruction is replaced by an interval-add and so on. We assume the
+user or application specifies which inputs are given as intervals. This can be accomplished by annotating selected inputs
+with an interval keyword [SZAB99], or by designing the
+compiler API to allow sufficient control. Next, we will look
+at a simple example. Consider the function:
+float f(interval float a, interval float b) {
+float c = abs(a);
+return sqrt(c * b);
+}
+
+After lifting this to interval form and converting to threeaddress code on SSA form [CFR∗ 91], we get:
+expression
+aˆ0 ← aˆ
+bˆ 0 ← bˆ
+cˆ0 ← |aˆ0 |
+tˆ1 ← cˆ0 · bˆ 0
+
+#inst
+
+Shader languages usually also support a number of predefined state variables with basic information about the point
+being shaded. In HLSL, these are accessed using shader input semantics, e.g., SV_Position (D3D10), and in GLSL
+there are built-in variables, such as gl_FragCoord. Some
+state variables have strict limits set by the rendering system. For example, SV_Position in the pixel shader specifies the sample position in screen space coordinates (x, y),
+and the depth z in normalized device coordinates. Hence we
+know that z ∈ [0, 1] and x, y ∈ [0, N], where N is the size of
+the largest supported render target.
+To be fully general, we represent a variable’s compiletime bounds as a union of zero or more discrete values and
+zero or more disjoint intervals. Given a variable, x, we define
+its bounds, Bx , as:
+Bix ,
+
+Bx =
+
+xi ,
+[xi , xi ] .
+
+where Bix =
+
+i
+
+5
+10
+2
+
+tˆ2 ← tˆ1
+return tˆ2
+
+sum: 17
+
+The cost of each interval operation is measured in terms
+of scalar instructions, assuming the most general implementation of each instruction, as defined in Section 4.1. This is
+what a compiler not using our optimizations would generate.
+4.3. Static Bounds Analysis
+As we have seen in Section 4.1, there is a lot to gain from
+using optimized implementations of the interval operations.
+We propose to use data flow analysis to determine conservative bounds on each shader variable at compile time. First,
+initial bounds are assigned to each shader input. The bounds
+are then propagated through the shader using a generalized
+form of interval arithmetic. The method is related to constant propagation [WZ91], but instead of compile-time constants, we track bounds for the runtime range of each variable. These are then used to pick the most efficient implementation of each instruction when lowering the code to
+scalar form. Next, we will go over the details.
+Initial Bounds The data type of a variable is the first source
+of loose conservative bounds, simply due to the range of representable numbers the variable can hold. Most shading languages support at least a subset of the following basic types:
+data type
+half, float, double
+integer (n bits)
+unsigned integer (n bits)
+boolean
+signed normalized
+unsigned normalized
+
+For aggregate types, such as vectors and matrices, we assign
+bounds to each element individually based on its basic type.
+
+possible range
+{x ∈ R | −∞ ≤ x ≤ ∞, NaN}
+{x ∈ Z | −2n−1 ≤ x ≤ 2n−1−1}
+{x ∈ Z | 0 ≤ x ≤ 2n−1}
+{true, false}
+{x ∈ R | − 1 ≤ x ≤ 1}
+{x ∈ R | 0 ≤ x ≤ 1}
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+or
+
+(8)
+
+Additionally, we have found it useful to store flags indicating
+whether a variable can be NaN, and whether both positive
+and/or negative zeros are possible. The latter is particularly
+useful to optimize division so that 1/[0, x] = [1/x, ∞] rather
+than [−∞, ∞] if the denominator is known to exclude −0.
+Bounds Propagation In the compile-time propagation of
+bounds information, we use a generalized form of interval
+arithmetic, which handles bounds on the form in Equation 8.
+For binary operations, z ← x op y, we evaluate all combinations of discrete values and/or intervals in x and y:
+j
+
+(Bix op By ).
+
+Bz =
+
+(9)
+
+i, j
+
+Any overlapping bounds are merged to create a new disjoint
+set of bounds representing the possible values of z. Unary
+operations, y ← op x, are handled by applying the operator to
+each Bix . Type casts retain bounds as far as possible and may
+be a source of additional bounds information. For instance, a
+bool cast to float in GLSL/HLSL will be a variable in {0, 1}
+rather than [−∞, ∞].
+In practice, a variable rarely has more than a single interval bound or a few discrete values, but there are cases that
+give rise to more complex bounds information. For example,
+branches can introduce different assignments to a variable,
+and divisions may introduce multi-intervals (Equation 6).
+Functions that introduce discontinuities, e.g., the step funcˆ will
+tion, is another example. For instance, cˆ ← aˆ · step(x, b)
+ˆ Note that if 0 ∈ a,
+be in the range {0} ∪ [a, a] if x ∈ b.
+ˆ we
+would merge the result and only propagate [a, a].
+Many shader instructions grow the bounds, and as we start
+with often very loose compile-time bounds, it appears there
+would be little to gain from static bounds analysis. Fortunately, there is a long list of shader instructions with strict
+limits on their output:
+
+1264
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+
+instruction
+sign(x), step(c, x)
+fract(x), smoothstep(c1 , c2 , x)
+clamp(x, c1 , c2 )
+abs(x), exp(x), pow(x, y), sqrt(x),
+rsqrt(x), length(x), acosh(x)
+cosh(x)
+sin(x), cos(x), tanh(x), noise(x)
+arcsin(x), arctan(x)
+arccos(x)
+atan2(y, x)
+mod(x, y)
+
+max output range
+{0, 1}
+[0, 1]
+[c1 , c2 ]
+
+Here the values in the bounds column have been determined using static bounds analysis in a first pass. We note
+that the square root puts a limit on its argument, tˆ1 ≥ 0, for
+the result to be valid. Tracking this backwards, we find that
+bˆ 0 must be positive for the result of tˆ1 ← cˆ0 · bˆ 0 to be positive
+(as cˆ0 is known to be positive). Hence, the interval multiplication can be replaced by an efficient 2 instruction version
+for positive · positive interval (Section 4.1).
+
+[0, ∞]
+[1, ∞]
+[−1, 1]
+[− π2 , π2 ]
+[0, π]
+[−π, π]
+[min(y, 0), max(y, 0)]
+
+This shows that even with unbounded shader inputs, we are
+likely to introduce useful bounds information during bounds
+propagation. Other examples of when an unbounded input
+can result in reduced bounds is division, e.g., 1/[1, ∞] ∈
+[0, 1], and squares, [−∞, ∞]2 = [0, ∞].
+
+expression
+aˆ0 ← aˆ
+bˆ 0 ← bˆ
+cˆ0 ← |aˆ0 |
+tˆ1 ← cˆ0 · bˆ 0
+tˆ2 ← tˆ1
+return tˆ2
+
+←−−−−−−−−
+
+Example The algorithm is best illustrated by an example.
+Applying the method to the program in Section 4.2 gives:
+bounds
+aˆ0 ∈ [−∞, ∞]
+bˆ 0 ∈ [−∞, ∞]
+cˆ0 ∈ [0, ∞]
+tˆ1 ∈ [−∞, ∞]
+tˆ2 ∈ [0, ∞]
+
+#inst
+
+5
+6
+2
+sum: 13
+
+In this case, the inputs aˆ and bˆ can lie anywhere in [−∞, ∞],
+as we have no additional metadata. At the | · | instruction, cˆ0
+is limited to positive numbers, which means the multiplication cˆ0 · bˆ 0 can be done using an optimized positive·unknown
+interval multiplication (6 vs. 10 instructions).
+4.4. Valid Range Analysis
+Some operations put restrictions on the range of valid arguments. For example, the argument to a square root must be
+positive, otherwise NaN is returned. Other examples are:
+instruction
+log(a),
+ˆ sqrt(a),
+ˆ rsqrt(a),
+ˆ pow(a,
+ˆ x)
+arcsin(a),
+ˆ arccos(a),
+ˆ atanh(a)
+ˆ
+acosh(a)
+ˆ
+
+valid input range
+aˆ ∈ [0, ∞]
+aˆ ∈ [−1, 1]
+aˆ ∈ [1, ∞]
+
+−−−−−−−−→
+
+tˆ2 ← tˆ1
+return tˆ2
+
+bounds
+aˆ0 ∈ [−∞, ∞]
+bˆ 0 ∈ [−∞, ∞]
+cˆ0 ∈ [0, ∞]
+tˆ1 ∈ [−∞, ∞]
+tˆ2 ∈ [0, ∞]
+
+valid range
+aˆ ∈ [−∞, ∞]
+bˆ ∈ [0, ∞]
+aˆ0 ∈ [−∞, ∞]
+bˆ 0 ∈ [0, ∞]
+tˆ1 ∈ [0, ∞]
+
+4.5. Dynamic Bounds Assumptions
+In general, if an input parameter’s bounds are limited, the
+generated code will be more efficient. Several versions of a
+bounding shader can be generated with varying extents of input bounds assumptions. At runtime, we dynamically select
+the most restrictive (fastest) version that is valid for the current input. For instance, a restrictive version of the bounding
+shader may assume a texture access returns a value in [0, 1],
+and more general versions [0, ∞] (e.g., for HDR textures)
+and [−∞, ∞]. The appropriate version is then determined
+at runtime when a specific texture is bound to the shader.
+An alternative approach is to reactively compile specialized
+bounding shaders when an assumption is met. This is a more
+viable approach if the input parameter space is large.
+4.6. Complex Control Flow
+
+We can generate more efficient code if we at compile time
+make the assumption that all such instructions will receive
+valid input at runtime. This puts bounds on the valid range
+of variables, which can be propagated backwards through
+the code to put stricter bounds on the possible runtime range
+of variables. Applied to the same example as before:
+expression
+aˆ0 ← aˆ
+bˆ 0 ← bˆ
+cˆ0 ← |aˆ0 |
+tˆ1 ← cˆ0 · bˆ 0
+
+It is important to point out that since we assume each instruction will produce valid results, the generated bounding
+shader will be undefined if executed for bounds violating this
+assumption. There is no way to detect this solely based on its
+output, so valid range analysis must only be used when the
+application knows it is safe for a given input. This can be
+ensured by first executing a bounding shader with this optimization disabled (i.e., using NaN checks). Also note that
+several iterations of static bounds analysis and valid range
+analysis may be necessary for the best results. After an initial pass, the refined bounds may be propagated further using
+static bounds analysis. This may in turn introduce possibilities for further improvements in a backwards pass. We iterate
+until convergence, which in our experience occurs within a
+few iterations, although pathological cases may exist.
+
+#inst
+
+5
+2
+2
+sum: 9
+
+With interval arithmetic, whenever the control flow graph
+diverges, we must potentially execute both paths and at joints
+merge the results. This is easy for if-then-else branches (see
+Section 3.4), but more complex situations may lead to a tree
+of possible execution paths, where the result is the union of
+all possible outcomes. Previous work has thus been limited
+to statically unrollable loops [VAZH∗ 09].
+We handle dynamic loops with interval conditions by,
+at runtime, accumulating the outcome of each iteration
+where the loop potentially terminates. Consider, for example, a loop on the form do xˆ = . . . while(xˆ < c). When
+the condition is unambiguously true, i.e., x < c, we loop
+as expected. Otherwise, we accumulate the result, xˆ∪ =
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+
+[min(x, x∪ ), max(x, x∪ )], where xˆ∪ is initially empty, and
+continue looping until the branch condition is unambiguously false, i.e., x ≥ c. At that point, xˆ∪ holds conservative bounds for the union of all outcomes. At compile-time,
+the same technique is hard to apply due to often very wide
+compile-time bounds, and we resort to assuming that variables coming from back edges in the graph are unbounded.
+In some cases, it may help to iterate through loops a few
+times to refine the compile-time bounds.
+Recursive functions, yˆ = f (x),
+ˆ can be handled similarly
+in the bounds analysis by first assuming xˆ and yˆ are unbounded, and by replacing all recursive calls to f by the
+return value y.
+ˆ This will give possibly refined compile-time
+bounds on y,
+ˆ and the analysis can be iterated. Finally, the refined bounds are used to generate an optimized version of f,
+which includes real recursive calls. In practice, as noted previously [HAM07], it is hard to guarantee runtime termination of interval code with complex control flow. One way is
+to manually add explicit termination criteria, e.g., maximum
+loop iterations or recursion depth, but how to do this automatically is an unsolved problem.
+4.7. NaN and Infinity Issues
+To guarantee correct results, a rigorous approach to detect
+and handle floating-point exceptions in the bounding shader
+must be used. The IEEE 754 standard specifies that all operations that produce a floating-point output must propagate
+NaNs, except for minimum and maximum operations (e.g.,
+minps in SSE returns the source operand if one operand is
+NaN). This presents a problem, as we can construct bounding functions that give erroneous bounds [Pop96]. Another
+way NaNs can be suppressed is through conditionals involving operands with NaN values.
+We have identified three main approaches in the context
+of bounding shaders (sorted from strict to relaxed):
+1. Propagate NaNs. If we make sure that NaNs are always
+propagated, we will get an indication that an invalid operation has occured. This requires explicit NaN detection for each min/max operation (at an overhead of 3
+SSE instructions). We also have to ensure NaN values in
+branches are propagated.
+2. Suppress NaNs. Assume the original shader never returns
+NaNs for any input generated by the rendering system –
+this is not unreasonable, as there is little point trying to
+bound a shader resulting in NaNs. Under this assumption, we may clamp the inputs to any instruction in the
+bounding shader that could generate NaNs, as we know
+the inputs will never fall outside the valid range in the
+original shader. It also requires us to redefine multiplication, so that 0 · ±∞ = 0.
+3. Do not care about NaNs. This may be the most reasonable approach in certain situations, as some applications
+can tolerate errors or do not depend on the bounds being
+strictly conservative for correctness.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+Shader
+Diffuse
+Phong
+IsoWard
+Ward
+Ashikhmin
+Fractal
+Average
+Shader
+Diffuse
+Phong
+IsoWard
+Ward
+Ashikhmin
+Fractal
+Average
+
+1265
+
+s(x, ωi )
+#instr
+20
+149
+151
+174
+486
+447
+
+ˆ i)
+s(x, ω
+before
+after
+2.8×
+1.6×
+2.1×
+1.2×
+3.3×
+1.6×
+3.4×
+1.8×
+2.8×
+1.9×
+4.1×
+2.6×
+3.1×
+1.8×
+
+ˆ i)
+s(ˆx, ω
+before
+after
+5.8×
+3.2×
+4.5×
+2.7×
+4.7×
+2.2×
+5.3×
+2.7×
+3.8×
+2.3×
+4.5×
+3.0×
+4.8×
+2.7×
+
+s(x, ωi )
+#cycles
+20
+182
+192
+218
+514
+1297
+
+ˆ i)
+s(x, ω
+before
+after
+32
+26
+311
+205
+445
+273
+495
+325
+1289
+813
+4546
+3155
+2.3×
+1.6×
+
+ˆ i)
+s(ˆx, ω
+before
+after
+58
+36
+559
+330
+510
+317
+623
+420
+1535
+898
+4323
+3036
+3.0×
+1.9×
+
+Table 1: Instruction count (top) and execution time (bottom)
+compared to the original shaders using SSE for the two types
+of single-sided bounding shaders needed for lightcuts, before and after our optimizations are applied. The number of
+instructions is reduced by on average 41.8% and 43.9%, respectively. This saves 32.8–36.7% in clock cycles. All numbers exclude the overhead of NaN handling.
+In all these cases, if a bounding shader returns a NaN, it
+should be interpreted as “bounds could not be computed”.
+This may trigger further subdivision of the input bounds or
+a fallback on a more general technique.
+4.8. Influence on Standard Compiler Optimizations
+Some standard compiler optimizations are relatively more
+important for bounding shaders than for conventional
+shaders. For example, common-subexpression elimination is
+highly useful, as similar computations often are performed
+for the lower and upper bounds (see, e.g., Equation 3). In
+many cases only one of the shader outputs needs to bounded,
+or only the lower or upper bound of an interval computed.
+An example is depth culling [HAM07], where only zmin is
+used. Hence, executable backward static slicing [XQZ∗ 05]
+(cf., dead code elimination) is very important.
+As outlined in Section 3.3, we have to be careful not to
+introduce different rounding errors compared to the original shader in order to guarantee conservative results (up
+to machine precision). Therefore, we do not allow valuechanging compiler transformations (i.e., optimizations that
+may change the floating-point precision) to be applied after
+the shader has been lifted to interval form. However, before
+the lifting step, such optimizations are allowed with respect
+to the bounding code, as shown in Figure 2. It is theoretically
+possible to perform value-changing optimizations also after
+separating the intermediate representations, but these would
+have to be performed in tandem on both IRs. We have left
+this possibility for future work.
+
+1266
+1200
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+3000
+
+NaN propagation
+
+Isotropic Ward
+
+Arithmetic
+
+1000
+
+Math approx.
+
+Function overhead
+
+Function overhead
+
+712
+
+2000
+
+186
+
+400
+
+213
+
+110
+
+373
+
+200
+101
+
+0
+interval
+(before)
+
+109
+
+581
+56
+
+61
+31
+
+254
+
+254
+
+49
+
+49
+
+bounds
+
+#instructions
+
+800
+#instructions
+
+Arithmetic
+
+2500
+
+Math approx.
+370
+
+600
+
+NaN propagation
+
+Ashikhmin
+
+381
+
+36
+
+36
+
+190
+34
+
+bounds + bounds +
+NaN
+NaN + div
+
+ˆ i)
+s(x, ω
+
+381
+
+111
+interval
+(before)
+
+bounds
+
+267
+42
+
+bounds + bounds +
+NaN
+NaN + div
+
+ˆ i)
+s(ˆx, ω
+
+1500
+
+1000
+
+494
+
+429
+282
+
+187
+
+513
+
+513
+
+636
+
+557
+
+557
+
+interval
+(before)
+
+bounds
+
+685
+
+362
+
+1063
+115
+
+238
+746
+
+746
+577
+
+387
+
+500
+503
+
+753
+
+562
+
+562
+
+498
+
+0
+bounds + bounds +
+NaN
+NaN + div
+
+ˆ i)
+s(x, ω
+
+interval
+(before)
+
+bounds
+
+bounds + bounds +
+NaN
+NaN + div
+
+ˆ i)
+s(ˆx, ω
+
+Figure 3: The effect of our various compiler optimizations on two representative single-sided BRDF bounding shaders using
+SSE. The baseline is single-sided bounding shaders compiled using standard compiler optimizations (interval). Bounds analysis
+(bounds) significantly reduces the code size by tracking compile-time bounds and choosing optimized implementations of the
+interval operations. The overhead of robust NaN propagation is marked with a dashed box. This decreases when compile-time
+analysis of NaNs is enabled (NaN). Our optimizations targeted at optimizing divisions (div), shrink the compile-time bounds by
+tracking the signs of zeros (see Section 4.3), which further reduces the total instruction count.
+5. Implementation
+We have implemented a compiler prototype in C++, which
+uses metaprogramming to build a program graph; our implementation is based around a class Var, which implements all
+necessary shader functionality in overloaded operators and
+friend functions. Rather than computing a result, each function inserts a corresponding node in the program graph. Each
+assignment allocates a new temporary, which directly gives
+us an intermediate representation in SSA form. Macros are
+used to insert appropriate constructs for loops and conditionals. The graph nodes implement Equation 9, which is used
+to propagate bounds information through the graph. The type
+of each variable, i.e., scalar or interval, is also determined in
+this step. Last, each node outputs an optimized sequence of
+scalar instructions. To compile a shader, all variables are replaced by Var (or a wrapper to handle vectors); all inputs
+are assigned a type and initial bounds (default ±∞), and the
+shader is executed to generate the bounding shader.
+Currently, two back ends have been implemented: one for
+SSE, which uses auto-vectorization to generate 4-wide data
+parallel bounding shaders, and one for HLSL. In our prototype, the back ends output C++/HLSL source code, which is
+finally passed through standard optimizing compilers. This
+setup has enabled us to quickly prototype and debug various optimizations, as it builds on existing compiler infrastructures to provide input parsing and optimized code generation. A production-quality bounding shader compiler is
+under development, but that is a much larger project.
+6. Results
+Here, we present results for a variety of bounding shaders.
+The effect of our optimizations are measured in terms of instruction count and execution speed for the generated kernels. All SSE/SSE2 code was compiled with Microsoft Vi-
+
+sual Studio 2008 using /O2 /fp:precise (to ensure
+floating-point consistency), and executed on an Intel Core 2
+Extreme QX9650. We will first look at BRDF bounding
+shaders for lightcuts and importance sampling purposes. Finally, we will show some GPU results.
+6.1. Lightcuts
+It has recently been demonstrated [VAZH∗ 09] that interval arithmetic is a viable solution to generate the bounding
+functions required by lightcuts [WFA∗ 05, WABG06]. Let
+s(x, ωi ) = fr (x, ωo , ωi ) cos ωi be a cosine-weighted BRDF,
+where x denotes a single shading point including all associated attributes. The upper bound at a single gather point for
+ˆ i ), i.e., only the light dia cluster of lights, is given by s(x, ω
+rection, ωi , is an interval. Correspondingly, the upper bound
+for multiple gather points, e.g., to support depth-of-field and
+ˆ i ). Here all inputs are intervals.
+motion blur, is s(ˆx, ω
+Table 1 shows instruction counts and execution times using Intel SSE for the two types of bounding shaders, compared to the original point-sampled shaders, s(x, ωi ), for a
+range of physically-based BRDFs. Fractal iteratively evaluates a fractal and interpolates between multiple CookTorrance lobes, and contains dynamic loops with both interval and scalar loop conditions. The other shaders do not
+contain complex control flow. With previous techniques, the
+average instruction counts are 3.1× (single) and 4.8× (multiple gather points) those of the original shaders. With our
+optimizations, 41.8–43.9% fewer instructions are generated,
+which translates to a 32.8–36.7% saving in execution time.
+Note that the optimized bounding shaders compute the exact same bounds as before. It is also interesting to note that
+bounding shaders are in general faster than would be expected based on instruction count. This is likely due to more
+opportunities for register renaming and latency hiding.
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+1267
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+Shader
+Diffuse
+Phong
+IsoWard
+Ward
+Ashikhmin
+Fractal
+Average
+
+s(x, ωi )
+#instr
+20
+149
+151
+174
+486
+447
+
+ˆ i)
+s(x,
+ˆ ω
+before
+after
+3.4×
+2.8×
+2.2×
+2.1×
+3.4×
+2.4×
+3.5×
+2.5×
+2.8×
+2.3×
+4.2×
+2.8×
+3.2×
+2.5×
+
+ˆ i)
+s(ˆ
+ˆ x, ω
+before
+after
+6.7×
+4.9×
+4.8×
+4.0×
+4.9×
+3.2×
+5.4×
+3.7×
+3.8×
+3.0×
+4.6×
+3.1×
+5.0×
+3.7×
+
+Table 2: Instruction count compared to the original shaders
+using SSE for double-sided bounding shaders, before and
+after optimization. A prime application is importance sampling. The number of instructions is reduced by on average 23.8% and 27.1%, respectively. All numbers exclude the
+overhead of NaN propagation.
+The effect of different optimizations are shown in Figure 3
+for two representative shaders: an isotropic version (αx =αy )
+of the Ward BRDF [War92], and the complex anisotropic
+Ashikhmin model [AS00]. To get these results, we specified loose compile-time bounds on each shader’s inputs; all
+values were assumed to be finite, and all material parameters such as diffuse and specular color, and shininess, were
+assumed to be non-negative. These values are fetched from
+the respective material channels (e.g., textures) in the shader
+setup, but the cost of this has not been included. Note that the
+use of textures instead of runtime shader constants, has no
+impact on our optimizations, as we only work with compiletime bounds.
+6.2. Importance Sampling
+Importance sampling of arbitrary programmable shaders has
+traditionally been a difficult problem, and specialized methods have been developed for various reflectance models.
+ˆ i ) over the hemisphere,
+By hierarchically evaluating s(x, ω
+a piecewise constant upper bound is created, which can
+be used as an importance function [VAZH∗ 09]. Note that
+ˆ i ) is the same shader as in lightcuts (see Table 1 and
+s(x, ω
+Figure 3 for results).
+A natural extension would be to use both bounds of s, i.e.,
+lower and upper, in order to create a more accurate importance function. A step in this direction was taken by Rousselle et al. [RCL∗ 08], although they used precomputed max
+and average trees rather than a min/max hierarchy. The funcˆ i ) can be used to build an importance function for
+tion s(x,
+ˆ ω
+ˆ i ) for a cluster of shading points.
+a single point, and s(ˆ
+ˆ x, ω
+When both bounds are computed, it is harder for the compiler to remove entire computation chains, and we are mainly
+limited to detect cases where faster implementations of specific operations can be used, e.g., positive instead of general
+multiplication. Despite this, our optimizations reduce the instruction count by around 25% (see Table 2).
+It is interesting to compare the instruction counts for single vs double-sided intervals in Tables 1 and 2. With standard compiler optimizations, going from double-sided to
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+Steiner
+
+Mitchell
+
+Kummer
+
+Figure 4: Examples of implicit surfaces evaluated using interval arithmetic to find the first intersection along each ray.
+code specialized for single-sided intervals, only saves on average 5%. With our optimizations, the savings are ∼27%.
+For Fractal, the difference is smaller due to control flow
+making it harder to eliminate long computations chains, but
+there is still plenty of optimization potential locally.
+6.3. Implicit Surfaces
+To measure the performance of optimized bounding code on
+the GPU, we have implemented a simple ray tracer for implicit surfaces, f (x, y, z) = 0, that runs in the pixel shader.
+The algorithm hierarchically evaluates the surface equation
+using interval arithmetic to compute its minimum, in order
+to locate the first intersection along each ray using an existing algorithm [Mit90]. Figure 4 shows renderings of three
+well-known implicit surfaces. The table below summarizes
+the number of generated shader instructions for the bounding
+kernels, and their execution times on an NVIDIA GTX285
+GPU. The instructions are counted per-component in the
+case of vector operations. As can be seen, the reduction in
+instruction count is 20–35%, and in clock cycles 15–31%.
+#instructions
+original
+interval (before)
+interval (after)
+
+Steiner
+13
+74
+48 (-35.1%)
+
+Mitchell
+16
+51
+41 (-19.6%)
+
+Kummer
+20
+64
+44 (-31.3%)
+
+#cycles
+original
+interval (before)
+interval (after)
+
+Steiner
+11.5
+62.7
+43.6 (-30.5%)
+
+Mitchell
+14.9
+44.8
+38.3 (-14.6%)
+
+Kummer
+17.5
+55.9
+41.4 (-25.8%)
+
+7. Conclusions and Future Work
+We believe techniques for automatically extracting shader
+bounds will be increasingly important to close the gap between artistic control and fast rendering. In this paper, we
+have showed that bounding shaders based on interval arithmetic can be significantly optimized by performing bounds
+analysis and case selection at compile time. To the best of
+our knowledge, this is the first time data flow analysis has
+been used to optimize interval code generation. Although
+we have focused on computer graphics applications, many
+of the techniques would be directly applicable in many other
+fields. It is important to remember that our focus is entirely
+on compiler optimizations, and that the generated code computes the exact same bounds as before, only faster.
+
+1268
+
+Clarberg et al. / An Optimizing Compiler for Automatic Shader Bounding
+
+All of our results assume bounds are tracked individually,
+with no knowledge about the relationship between, e.g., the
+components of vectors. With higher-level information, e.g.,
+specifying that vectors are normalized, it is possible to further optimize the code. The effect of this can be simulated
+by inserting clamps after dot products of normalized vectors,
+which saves an additional 13.3%–28.4% for the Ashikhmin
+shaders. It would be interesting to explore these kinds of optimizations and generalizations to higher-order arithmetics.
+Acknowledgements We acknowledge support from the Swedish
+Foundation for Strategic Research. In addition, Tomas AkenineMöller is a Royal Swedish Academy of Sciences Research Fellow
+supported by a grant from the Knut and Alice Wallenberg Foundation. We are grateful to all reviewers for their valuable feedback.
+
+References
+[AS00] A SHIKHMIN M., S HIRLEY P.: An Anisotropic Phong
+BRDF Model. Journal of Graphics Tools, 5, 2 (2000), 25–32.
+9
+[ASS04] A KKA S¸ A., S CHULTE M. J., S TINE J. E.: Intrinsic
+Compiler Support for Interval Arithmetic. Numerical Algorithms
+37, 1–4 (2004), 13–20. 2
+[BH98] B ERZ M., H OFFSTÄTTER G.: Computation and Application of Taylor Polynomials with Interval Remainder Bounds.
+Reliable Computing, 4 (1998), 83–97. 2
+[CFD08] C OLLANGE S., F LÓRES J., D EFOUR D.: A GPU interval library based on Boost interval. In RNC9, Real Numbers and
+Computers (2008), pp. 61–72. 2
+[CFR∗ 91] C YTRON R., F ERRANTE J., ROSEN B. K., W EGMAN
+M. N., Z ADECK F. K.: Efficiently Computing Static Single Assignment Form and the Control Dependence Graph. ACM Transactions on Programming Languages and Systems, 13, 4 (1991),
+451–490. 4, 5
+[CS93] C OMBA J. L. D., S TOLFI J.: Affine Arithmetic and its
+applications to Computer Graphics. In Proceedings of VI SIBGRAPI 1993 (1993), pp. 9–18. 2
+[Duf92] D UFF T.: Interval Arithmetic and Recursive Subdivision
+for Implicit Functions and Constructive Solid Geometry. In Computer Graphics (Proceedings of SIGGRAPH 92) (1992), vol. 26,
+pp. 131–138. 2
+[GK94] G REENE N., K ASS M.: Error-Bounded Antialiased Rendering of Complex Environments. In Proceedings of SIGGRAPH
+1994 (1994), ACM, pp. 59–66. 2
+[HAM07] H ASSELGREN J., A KENINE -M ÖLLER T.: PCU: The
+Programmable Culling Unit. ACM Transactions on Graphics,
+26, 3 (2007), 92:1–10. 1, 2, 7
+[HHHJ07] H IJAZI Y., H AGEN H., H ANSEN C. D., J OY K. I.:
+Why Interval Arithmetic is so Useful. In Visualization of Large
+and Unstructured Data Sets (2007), pp. 148–163. 2
+[HL90] H ANRAHAN P., L AWSON J.: A Language for Shading
+and Lighting Calculations. In Computer Graphics (Proceedings
+of SIGGRAPH 90) (1990), vol. 24, pp. 289–298. 2
+[HMAM09] H ASSELGREN J., M UNKBERG J., A KENINE M ÖLLER T.: Automatic Pre-Tessellation Culling. ACM Transactions on Graphics, 28, 2 (2009), 19:1–10. 2
+[HS98] H EIDRICH W., S EIDEL H.-P.: Ray-Tracing Procedural
+Displacement Shaders. In Graphics Interface (1998), pp. 8–16.
+2
+[HSS98] H EIDRICH W., S LUSALLEK P., S EIDEL H.-P.: Sampling Procedural Shaders using Affine Arithmetic. In Proceed-
+
+ings of SIGGRAPH 1998 (1998), vol. 17, ACM, pp. 158–176. 1,
+2, 3, 4
+[Kas92] K ASS M.: CONDOR: Constraint-Based Dataflow. In
+Computer Graphics (Proceedings of SIGGRAPH 92) (1992),
+vol. 26, pp. 321–330. 2
+[Mit90] M ITCHELL D. P.: Robust Ray Intersection with Interval
+Arithmetic. In Proceedings on Graphics interface ’90 (1990),
+pp. 68–74. 2, 9
+[MM02] M OULE K., M C C OOL M. D.: Efficient Bounded Adaptive Tessellation of Displacement Maps. In Graphics Interface
+(2002), pp. 171–180. 3
+[Moo66] M OORE R. E.: Interval Analysis. Prentice-Hall, 1966.
+2
+[PBBR07] PARKER S. G., B OULOS S., B IGLER J., ROBISON
+A.: RTSL: a Ray Tracing Shading Language. In Proceedings
+of IEEE Symposium on Interactive Ray Tracing (2007), pp. 149–
+160. 2
+[Pop96] P OPOVA E. D.: Interval operations involving NaNs. Reliable Computing, 2, 2 (1996), 161–165. 7
+[RCL∗ 08] ROUSSELLE F., C LARBERG P., L EBLANC L., O S TROMOUKHOV V., P OULIN P.: Efficient Product Sampling using
+Hierarchical Thresholding. The Visual Computer (Proceedings of
+CGI 2008), 24, 7-9 (2008), 465–474. 9
+[RKC02] R EDON S., K HEDDAR A., C OQUILLART S.: Fast Continuous Collision Detection between Rigid Bodies. Computer
+Graphics Forum (Proceedings of Eurographics), 21, 3 (2002),
+279–288. 2
+[Sny92] S NYDER J. M.: Interval Analysis for Computer Graphics. In Computer Graphics (Proceedings of SIGGRAPH 92)
+(1992), vol. 26, pp. 121–130. 2
+[SS00] S CHULTE M. J., S WARTZLANDER J R . E. E.: A Family of Variable-Precision Interval Arithmetic Processors. IEEE
+Transactions on Computers, 49, 5 (2000), 387–397. 2
+[SZAB99] S CHULTE M. J., Z ELOV V., A KKAS A., B URLEY
+J. C.: The Interval-Enhanced GNU Fortran Compiler. Reliable
+Computing 5, 3 (1999), 311–322. 2, 5
+[VAZH∗ 09] V ELÁZQUEZ -A RMENDÁRIZ E., Z HAO S., H AŠAN
+M., WALTER B., BALA K.: Automatic Bounding of Programmable Shaders for Efficient Global Illumination. ACM
+Transactions on Graphics, 28, 5 (2009), 142:1–9. 1, 2, 4, 6, 8, 9
+[Ž05] Ž ILINSKAS J.: Comparison of Packages for Interval Arithmetic. Informatica 16, 1 (2005), 145–154. 2
+[WABG06] WALTER B., A RBREE A., BALA K., G REENBERG
+D. P.: Multidimensional Lightcuts. ACM Transactions on
+Graphics, 25, 3 (2006), 1081–1088. 1, 8
+[War92] WARD G. J.: Measuring and Modeling Anisotropic Reflection. Computer Graphics (Proceedings of ACM SIGGRAPH),
+26, 2 (1992), 265–272. 9
+[WFA∗ 05] WALTER B., F ERNANDEZ S., A RBREE A., BALA
+K., D ONIKIAN M., G REENBERG D. P.: Lightcuts: A Scalable
+Approach to Illumination. ACM Transactions on Graphics, 24, 3
+(2005), 1098–1107. 1, 8
+[WZ91] W EGMAN M. N., Z ADECK F. K.: Constant Propagation
+with Conditional Branches. ACM Transactions on Programming
+Languages and Systems, 13, 2 (1991), 181–210. 5
+[XQZ∗ 05] X U B., Q IAN J., Z HANG X., W U Z., C HEN L.: A
+Brief Survey of Program Slicing. SIGSOFT Software Engineering Notes, 30, 2 (2005), 1–36. 7
+[ZRLK07] Z HANG X., R EDON S., L EE M., K IM Y. J.: Continuous Collision Detection for Articulated Models using Taylor
+Models and Temporal Culling. ACM Transactions on Graphics,
+26, 3 (2007), 15:1–10. 2
+
+c 2010 The Author(s)
+Journal compilation c 2010 The Eurographics Association and Blackwell Publishing Ltd.
+
+

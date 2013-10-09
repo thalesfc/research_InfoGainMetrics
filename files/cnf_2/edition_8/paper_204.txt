@@ -1,0 +1,912 @@
+Pacific Graphics 2008
+T. Igarashi, N. Max, and F. Sillion
+(Guest Editors)
+
+Volume 27 (2008), Number 7
+
+Gradient-based Interpolation and Sampling for Real-time
+Rendering of Inhomogeneous, Single-scattering Media
+Zhong Ren
+
+Kun Zhou
+
+Stephen Lin
+
+Baining Guo
+
+Microsoft Research Asia
+
+Abstract
+We present a real-time rendering algorithm for inhomogeneous, single scattering media, where all-frequency shading effects such as glows, light shafts, and volumetric shadows can all be captured. The algorithm first computes
+source radiance at a small number of sample points in the medium, then interpolates these values at other points
+in the volume using a gradient-based scheme that is efficiently applied by sample splatting. The sample points are
+dynamically determined based on a recursive sample splitting procedure that adapts the number and locations of
+sample points for accurate and efficient reproduction of shading variations in the medium. The entire pipeline can
+be easily implemented on the GPU to achieve real-time performance for dynamic lighting and scenes. Rendering
+results of our method are shown to be comparable to those from ray tracing.
+Categories and Subject Descriptors (according to ACM CCS): I.3.7 [Computer Graphics]: Three-Dimensional
+Graphics and Realism
+
+1. Introduction
+The transport of light within an inhomogeneous participating
+medium produces a number of volumetric shading effects essential to realistic rendering. Effects such as glows around a
+light source and shafts of directional light reveal the density
+variations of the medium and the structure of the illumination. Mutually cast shadows between scene objects and the
+medium provide further cues for perceiving the organization
+and properties of the scene.
+These shading effects can be accurately reconstructed by
+a full Monte Carlo simulation, but at an enormous expense in
+computation. Kajiya and von Herzen [KH84] reduce computation by separating the rendering procedure into two steps.
+The first step computes the source radiance at each voxel
+center in the volume, and the second step then marches along
+view rays to gather the source radiance. Because of the dense
+sampling of source radiance, the first step requires substantial computation and offline processing.
+To reduce sampling of source radiance, subsequent techniques have assumed shading to be smooth within the
+medium, such that the source radiance throughout the volume can be well approximated by interpolation from a small
+number of samples. Specifically, they first sample radiance
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+Published by Blackwell Publishing, 9600 Garsington Road, Oxford OX4 2DQ, UK and
+350 Main Street, Malden, MA 02148, USA.
+
+Figure 1: Real-time rendering of single-scattering media
+that captures fast shading variations and generates complex
+volumetric shadows. The scene is rendered at 23.4 fps, with
+dynamic lighting, medium and scene object.
+at only a small number of points according to the density
+distribution of the medium. Then these sampled radiances
+are smoothly interpolated by radial basis functions (RBFs)
+to determine the source radiance at other points in the volume [DKY∗ 00,ZRL∗ 08]. This optimization works well with
+distant, low-frequency lighting for which the assumption of
+
+1946 Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media
+shading smoothness generally holds. However, sharp shading variations often exist with local, directional, or highfrequency illumination. This variability in shading arises not
+only from profiles of light paths (e.g., light shafts from spot
+lights), but also from volumetric shadows cast by scene objects. In such cases, these RBF-based interpolation methods
+cannot accurately compute shading in the medium, and may
+produce severe rendering artifacts.
+In this paper, we propose a real-time rendering algorithm
+for inhomogeneous, single scattering media that accounts for
+sharp variations of shading in the volume. In contrast to previous works which determine sample points based on density distributions, our method dynamically distributes sample points in the medium in a manner that allows for more
+accurate reconstruction of source radiance by interpolation
+and reduces shading errors in the rendered result. Areas in
+the medium whose reconstructed source radiance results in
+significant shading errors are assigned more samples to improve rendering accuracy, while other areas are lightly sampled to save computation. At each of the sample points, we
+numerically compute the source radiance and its gradient,
+which is used to heighten the accuracy of source radiance
+interpolation at other points in the volume. The computation
+of source radiances is followed by a ray march to composite
+the final radiance along view rays.
+This approach yields the first real-time rendering algorithm that captures all-frequency shading effects in scattering media, including glows in inhomogeneous media,
+volumetric shadows, and shafts of light. Furthermore, no
+precomputation of light transport is needed, and dynamic
+changes in lighting, media and scene configurations are supported. As in many real-time volumetric rendering algorithms, we assume the medium to be single scattering and
+to have a volume representation. With this technique, results
+comparable to ray tracing can be achieved for challenging
+illumination and scene conditions, as illustrated in Fig. 1.
+
+2. Related Work
+Numerous methods have been proposed for rendering of
+scattering media [CPP∗ 05]. Here, we review representative
+works that are most closely related to ours.
+Offline Algorithms Starting from Kajiya and von Herzen’s
+two pass algorithm [KH84], researchers have been seeking numerical solutions to the radiative transfer equation [Cha60] by ray tracing [KH84, Lev90, LW96] or by finite element methods [RT87]. Photorealistic images can be
+produced with such methods, but at the cost of hours of simulation. Although several acceleration techniques have been
+proposed [Sak90, Sta95, Max94, JC98], their performance
+nevertheless remains far from real-time.
+Real-time Algorithms Most real-time rendering algorithms for scattering media exploit the power of graphics
+
+hardware. Ebert and Parent [EP90] combine volume rendering and the A-buffer technique to render animations of both
+scene objects and gaseous phenomena. A reduced resolution
+shadow table is constructed on the fly for volume rendering, but the construction of this table remains too expensive
+for real-time rendering. Real-time performance with volumetric shading can be achieved with precomputation of radiance data, either for sky and clouds [HL01, REK∗ 04], or for
+shafts of light in foggy scenes [DYN02,HAP05], or for scattering media under distant, low-frequency lighting [SKS02].
+However, with precomputed radiance quantities, interactive
+changes cannot be made to media properties and scene configuration, nor to lighting in some cases.
+Kniss et al. [KPH∗ 03] propose a hardware-accelerated algorithm based on half-angle slicing that achieves interactive
+frame rates for general inhomogeneous media. But the need
+for explicit shading of each voxel makes it unsuitable for
+real-time applications, especially when dealing with multiple light sources. Schpok et al. [SSEH03] model clouds by
+combining implicit ellipsoids and octave noise. Shading is
+computed at vertices that are uniformly distributed on slice
+planes generated at runtime. The method focuses on rendering of clouds under directional lighting; sharper shading
+variations would require more vertices than can be handled
+at real-time rates. Zhou et al. [ZRL∗ 08] render inhomogeneous smoke animations with both single and multiple scattering by applying a low-frequency shading model and assuming low-frequency environment lighting.
+Analytic models that are efficient to compute have been
+derived for single scattering, homogeneous media. An early
+model was proposed by Blinn [Bli82] for homogeneous
+media illuminated by an infinitely distant light source.
+Other analytic models have been presented for a point light
+source immersed in a homogeneous medium [Max86,NN03,
+BAM06, SRNN05]. An approximate, analytic expression of
+radiance was recently derived for smooth, inhomogeneous
+media modeled as a sum of Gaussians [ZHG∗ 07]. This
+method, however, cannot handle media with fine-scale density variations and cannot generate sharp lighting effects
+such as shafts of light.
+Gradient-based Interpolation and Sampling Gradientbased interpolation and sampling has been used in several
+offline rendering applications. Ward and Heckbert [WH92]
+compute gradients for interpolation of global illumination
+on object surfaces. Ramamoorthi et al. [RMB07] give a first
+order analysis of lighting, shading and shadows, and show
+how visibility gradients can be efficiently evaluated by sampling along discontinuities. Gradient-based interpolation and
+sampling methods for soft shadows on surfaces are also discussed. Jarosz et al. [JDZJ08] compute gradients of the radiative transport equation, under the assumption of constant
+visibility, to estimate the local variation of scattered radiance
+and to improve the accuracy of interpolation.
+In a real-time application, Gautron et al. [GKBP05] perc 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media 1947
+
+where the first term describes direct transmission of radiance from the source to the viewer, and the second term accounts for single scattered radiance in the medium, which is
+the cause of glows around a light source. We note that for a
+point light source, the first term in Eq. (2) contributes to at
+most a single point on the screen. In the second term, source
+radiances are modulated by media density and transmittance
+before being integrated along view rays.
+
+Point Source, s
+I0
+dsv
+
+L
+Viewer, v
+
+Lx
+x in
+
+dsx
+
+Density Volume
+D(x), σt, Ω
+
+x
+xout
+
+An extension of Eq. (2) to volumes containing scene objects will later be presented in Section 6.
+
+Figure 2: Light transport in a single scattering medium from
+a point light source to the viewer.
+
+3.2. Density Field Representation
+
+form radiance splatting on the GPU for gradient-based interpolation of indirect illumination on surfaces. In our work,
+we also employ splatting for gradient-based interpolation,
+but formulate it instead for shading in participating media.
+
+To compactly represent the density field D, we employ
+the Gaussian model with residuals, as done in Zhou et
+al. [ZRL∗ 08]. Density is represented by a weighted sum
+of Gaussians and a hashed residual field F:
+n
+
+˜
+D(x) = D(x)
++ F(x) =
+
+3. Overview
+
+∑ w je
+
+− x−c j 2
+r2j
+
++ F(x),
+
+(3)
+
+j=1
+
+In this section, we describe basic concepts of our algorithm,
+namely the lighting model and density field representation,
+and provide a brief overview of the rendering algorithm.
+3.1. Lighting Model
+Our work addresses light transport within an inhomogeneous
+medium represented by a density field D defined in a volume
+V. The volume is considered to contain a single medium,
+whose parameters include the extinction cross section σt , the
+scattering cross section σs and the scattering albedo Ω =
+σs /σt . We assume the medium to be single scattering, such
+that radiance reaching the viewer has undergone at most one
+scattering interaction in the medium, and that the scattering
+is isotropic, i.e., uniform in all directions.
+For simplicity, let us consider here the scenario of a point
+light source as shown in Fig. 2. Lighting for other source
+types can be straightforwardly derived.
+Source radiance describes the local production of radiance that is directed towards the viewer at a point x. For a
+point source s and an isotropic, single scattering medium,
+source radiance is computed as
+Lx =
+
+I0
+τ ,
+2 sx
+4πdsx
+
+(1)
+
+where I0 is the point source intensity, dab denotes the distance from a to b, and the transmittance τab models the reduction of radiance due to extinction from point a to b, comb
+puted as e−σt a D(x)dx .
+In terms of source radiance, the radiance L seen at the
+viewer can be computed as
+Ω
+I
+L = 02 τsv +
+4π
+dsv
+
+xin
+xout
+
+D(x)Lx τxv dx,
+
+(2)
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+where each Gaussian is defined by its center c j , radius r j and
+weight w j . A media animation is then modeled as a sequence
+of Gaussians and residual fields, computed in a preprocess.
+We note that preprocessing is used here only for representation of the density field, and it does not prevent runtime changes to media properties, lighting, or scene configuration. This representation was chosen for its efficient
+modeling of fine density field details, but our rendering algorithm can accommodate any representation that can be
+rapidly reconstructed at runtime, e.g., the Gaussian+noise
+representation [ZHG∗ 07] or the advected RBF representation [PCS04]. With these alternative representations, no preprocessing would be needed.
+3.3. Algorithm Overview
+For each frame in an animated sequence, our algorithm first
+generates a set of sample points {x j } at which to evaluate
+source radiance. This set is selected using a dynamic sampling strategy that aims to minimize shading error in the rendered image by accurately reconstructing the distribution of
+source radiance. Details of this sampling procedure will be
+described in Section 5.
+Then at each x j , a volume ray tracer numerically evaluates the source radiance Lx j and its gradient ∇Lx j . The
+source radiance Lx at other points x in the volume are reconstructed using a gradient-based interpolation scheme, which
+we present in Section 4. This interpolation is shown to yield
+significant improvements in quality even without the use of
+dynamic sampling.
+Finally, a ray march is performed for discrete computation of the integral in Eq. (2). Implementation details of the
+algorithm will be given in Section 6.
+
+1948 Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media
+4. Gradient Based Interpolation
+In this section, we present a real-time interpolation algorithm
+that reconstructs the source radiance throughout the volume
+from a small set of samples. For heightened accuracy in interpolation, the source radiance at an arbitrary point is evaluated using both the radiance values and radiance gradients of
+the sample points. We utilize the GPU to expedite this computation by calculating sampled radiance quantities in multiple threads and by splatting the samples into the volume in a
+manner analogous to surface radiance splatting [GKBP05].
+
+(a) RBF Interp.
+with 500 samples
+
+(b) Gradient Interp.
+with 500 samples
+
+(c) Reference
+
+Figure 3: Comparison of gradient-based interpolation,
+RBF-based interpolation, and the ray tracing reference.
+
+Radiance Samples For gradient-based interpolation, we
+define a sample j by a point x j in the media volume, the
+source radiance Lx j at that point, and the radiance gradient
+∇Lx j . In addition, we associate with each sample a valid radius R j that describes the range from x j within which a sample j may be used for interpolation. The sphere determined
+by point x j and valid radius R j is referred to as the valid
+sphere of sample j.
+
+Gradient-based Interpolation by Sample Splatting With
+the computed values of Lx j and ∇Lx j at each sample point
+x j , the radiance Lx at an arbitrary point x is computed as
+a weighted average of the first-order Taylor approximations
+evaluated from each contributing sample to x,
+
+In our algorithm, the set of sample points is determined
+using the dynamic sampling method in Section 5. However,
+to allow comparison of our gradient-based interpolation to
+RBF-based interpolation, we will instead in this section construct the sample set from the Gaussian centers c j of the density representation in Eq. (3), such that x j = c j . The valid
+radius of each valid sphere is set to the culling radius of the
+corresponding Gaussian: R j = 3r j .
+
+In interpolating the source radiance of a point x, rather
+than directly retrieve samples whose valid sphere covers
+x, we utilize the GPU to splat the samples into the volume. First, the valid sphere of each sample is intersected
+with each X − Y slice of the volume, with +Z aligned to
+the viewing axis. The bounding quads of the intersection
+circles are found and grouped by slices. Then, for each
+slice, these bounding quads are rendered with alpha blending enabled. For each pixel, the weighted approximate radiance W j (x) Lx j + (x j − x) · ∇Lx j and the weighting function W j (x) are evaluated and accumulated. Rendering all
+bounding quads for a slice yields the numerator and denominator of Eq. (4), from which we compute Lx . The bounding
+quad of all intersection circles in the slice is then rendered,
+with Lx evaluated at each pixel. The result is rendered into a
+3D volume texture.
+
+Lx = ∑S W j (x) Lx j + (x − x j ) · ∇Lx j / ∑S W j (x),
+S = { j : x − x j < R j }, W j (x) = R j / x − x j .
+
+Evaluation of Source Radiance and Gradient At each
+sample point x, we use Eq. (1) to evaluate its source radiance. In computing Eq. (1), we use volume tracing for discrete integration along the ray from x to the light source s at
+intervals of ∆1 :
+Lx =
+
+I0 (−σt ∆1 ∑u∈U D(u))
+e
+,
+2
+4πdsv
+
+Result In Fig. 3, we compare the result of gradient-based interpolation, RBF-based interpolation [ZRL∗ 08] and a reference ray tracer. The RBF-based interpolation in (a) (relative
+error of 14.7%) does not adequately capture the fast variation of source radiance near the point source because of its
+coarse interpolation of the sparse samples. Set to a comparable performance level, the gradient-based interpolation in
+(b) (relative error of 4.3%) more faithfully approximates the
+reference solution in (c). Note that all the reference images
+in this paper is obtained by double-precision ray tracing on
+the CPU at each voxel, followed by standard ray marching.
+
+U = {uk : uk = x + vk∆1 , k = 0, 1, . . . ⌊ s − x /∆1 ⌋, uk ∈ V},
+where v = (s − x)/ s − x represents the ray direction. At
+each volume tracing step, the density is obtained from the
+density field and accumulated into the running sum until u
+exits the volume V. The transmittance is then evaluated and
+2
+) to yield Lx .
+multiplied by I0 /(4πdsv
+The gradient is determined numerically from the source
+radiance values at six points surrounding x along the three
+axis directions X,Y, Z:
+∇Lx =
+
+Lx+∆2 X − Lx−∆2 X Lx+∆2Y − Lx−∆2Y Lx+∆2 Z − Lx−∆2 Z
+,
+,
+2∆2
+2∆2
+2∆2
+
+We note that the source radiance at the various sample points
+are computed in parallel on the GPU. Also, the precision of
+this numerical evaluation is controlled by the user defined
+intervals ∆1 and ∆2 . The tracing step ∆1 is in inverse proportion to the performance of volume tracing. In our implementation, we use ∆/2 for ∆1 and ∆ for ∆2 , where ∆ is the
+distance between neighboring grid points in the volume.
+
+(4)
+
+.
+
+5. Dynamic Sampling
+With gradient-based interpolation, source radiance throughout the medium can be better reconstructed from a sparse
+set of samples. However, sharp shading variations tend not
+to be well modeled without denser sampling. We illustrate
+this problem with the simple case of a light shaft piercing a medium of uniform density, shown in Fig. 4. With
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media 1949
+
+this metric measures local shading error with respect to a
+given sample, we determine Lxi j by computing Eq. (4) using
+only that sample point:
+Lxi j ≈ Lx j + (xi j − x j )∇Lx j .
+(a) Original sampling
+with 500 samples
+
+(b) Reference
+
+(c) Dyn. sampling
+with 2,732 samples
+
+Figure 4: Dynamic sampling for accurate and efficient generation of fast shading variations in a medium. A uniformdensity volume is illuminated by a spot light, creating a shaft
+of light. Sufficient sampling is needed by gradient-based interpolation to capture the shape of the shaft. Sample distributions are shown as insets.
+gradient-based interpolation and radiance samples taken at
+only Gaussian centers, the shape of the shaft is seen to be indistinct in Fig. 4(a). Moreover, in animation sequences, jittering of shading boundaries often appears due to location
+shifts of sparse samples. For accurate and efficient reconstruction, our method dynamically places additional samples
+in areas with greater shading error according to the current
+sampling configuration and the gradient-based interpolation.
+The dynamic sampling algorithm consists of two components. One is a metric for local shading error within the valid
+sphere of a sample. We formulate this metric to account for
+discrepancies in interpolated source radiance and the resulting errors in viewed shading. In addition, this measure is designed for rapid evaluation. The second component is a recursive procedure that splits samples into multiple parts that
+more finely sample the area within a valid sphere if the original sample has a large local shading error. With this adaptive resampling scheme, our method can accurately and efficiently generate high-frequency lighting effects (Fig. 4(c)).
+Local Shading Error The shading error of a given media
+point due to an approximation Lx of its source radiance can
+be derived from Eq. (2) as
+δLx =
+
+xin
+
+Ω
+4π
+
+xout
+
+D(x)(Lx − Lx )τxv dx.
+
+(5)
+
+For the local shading error within a valid sphere, we seek
+an efficiently computable metric that represents the total error over all the points in the sphere. We measure the local
+shading error of a sample j as
+n
+
+|Lxi j − Lxi j |
+D(xi j )τx j v
+n
+i=1
+
+E j = R3j ∑
+
+(6)
+
+where {xi j } is a set of n sampled points within the valid
+sphere, taken in our implementation as {x j ± R j X, x j ±
+R jY, x j ± R j Z}. The factor |Lxi j − Lxi j |/n represents the average approximation error of source radiance among the sampled points. For computational efficiency, the transmittance
+from each point to the viewer is approximated as that from
+the sphere center, τx j v . In shading, rays are marched through
+the volume of the sphere, which is proportional to R3j . Since
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+(7)
+
+Volume tracing is used to sample source radiance values at
+x j and the sampled points, and density values are determined
+by sampling the density field.
+Recursive Sample Splitting Starting with a sample set
+Q0 = {c j } that contains only the Gaussian centers, we compute the local shading error E j according to Eq. (6) for each
+valid sphere, and compare it to a given threshold, ε. Within
+each valid sphere for which E j > ε, additional samples are
+added for more accurate modeling of the source radiance distribution in the medium.
+The set of added samples Q1j = {q : q ∈ G1 ∧ q − x j <
+Rx j } is composed of vertices of a grid G1 that lie within
+the valid sphere to be resampled. The vertices from all the
+split samples are collected into a set Q1 = j Q1j , with each
+vertex assigned a valid radius equal to the grid interval of
+G1 . The sample j that was split is then removed from Q0 .
+This process proceeds by iteratively computing the local
+shading errors for samples in Qk , and splitting those with errors greater than ε using an increasingly finer grid Gk+1 . After reaching a specified grid resolution, the final sample set
+is computed as the union of the sample sets at each grid resolution, k Qk . The corresponding set of valid spheres covers
+the volume of the original spheres, such that all points in the
+volume with significant density will be shaded.
+One possible optimization would be to start generating the
+samples from that of the previous frame, since the consecutive frames are often temporally coherent. However, this may
+involve collapsing operations, for which we have yet to find
+an efficient GPU implementation.
+GPU Implementation This algorithm for dynamic sampling can be implemented on the GPU by combining
+CUDA [NVI04] and Cg shaders. The core data structure is a
+renderable 3D grid information buffer that records for each
+vertex in the corresponding regular grid Gk an indicator for
+whether it is currently in the set Qk . It additionally records
+the local shading error for the corresponding sample. This
+data structure can be passed between the CUDA kernel and
+OpenGL using the pixel buffer object (PBO) extension.
+For each iteration, three basic operations are performed:
+sampling, filtering and splitting. First, the sampling step
+calls the volume ray tracer and density sampler to compute
+Lx j , Lxi j , ∇Lx j , D(xi j ) and τx j v , which are used in computing
+the local shading error (Eq. (6)). Then, a CUDA kernel is
+invoked to compute the shading error and filter the samples.
+The scan primitive [HSO07] is used to identify samples with
+errors greater than ε. Finally, we split these samples using a
+standard voxelization of their valid spheres. We implement
+this splitting using the render-to-3D-texture operation. After
+
+1950 Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media
+splitting, the scan primitive is invoked again to generate the
+sample points for the next iteration, or to output all the samples if the maximum resolution level is reached. Note that a
+pure OpenGL+CG implementation of the algorithm would
+also be possible, and the filtering CUDA kernel can be replaced with one implemented in OpenGL [Hor05]. However,
+this may involve many more rendering passes and redundant
+computations due to the absence of shared memory in a traditional graphics pipeline.
+In our implementation, the maximum resolution for the
+regular grid is set to half that of the density field, which is
+128 × 128 × 128 for all data used in this paper. Specifically,
+the grid resolutions in our examples are set as follows: G1 as
+16 × 16 × 16, G2 as 32 × 32 × 32, and G3 as 64 × 64 × 64.
+For efficiency in evaluating local shading errors, the value
+of τx j v for each original valid sphere defined by the Gaussian centers is used for all of its descendant valid spheres in
+computing Eq. (6).
+Result In Fig. 5, a medium is illuminated by a spot light.
+Our dynamic sampling captures the sharp shading variations
+well. Starting from the original set of 541 samples, the recursive sample splitting procedure produces a total of 2705 samples, as shown in (a), resulting in a much more faithful capture of the sharp shading variation shown in (b) (root mean
+square (RMS) error: 0.4%). A reference image obtained by
+ray tracing is provided in (c). Please see the accompanying
+video for a comparison between the original sampling and
+dynamic sampling.
+6. Implementation
+In this section, we discuss some implementation details of
+our rendering pipeline.
+Density Field Construction For each frame, the density
+field is constructed by splatting, with a process similar to
+the radiance splatting described in Section 4. Here, we splat
+the weight w j of each Gaussian instead of the sampled radiance. Unlike for the gradient-based interpolation, no weight
+normalization is needed. If a residual field hash table exists, we perform splatting with it as well, by retrieving R(x)
+˜
+from the hash table, multiplying it by D(x),
+and saving it
+˜
+in another color channel. Thus after splatting we have D(x)
+˜
+and R(x)D(x) in different color channels. Dividing the lat˜
+ter by the former gives R(x), and adding R(x) to D(x)
+yields
+D(x). Note that we cannot obtain R(x) directly in the first
+pass since the alpha blending is set to (GL_ONE, GL_ONE)
+during the splatting.
+Volume Ray Tracing We conduct volume ray tracing for all
+sample points in a single call. This is done by first packing
+all the sample points into a 2D texture. A quad of the same
+size is drawn to trigger the pixel shader, in which volume
+ray tracing is performed as described in Section 4. To further
+improve performance, we terminate the tracing of a ray if it
+exits the volume.
+
+Ray Marching Given the density field and the source radiance field, a ray march is conducted. The RBFs of the density representation are intersected with slices of thickness
+∆x that are perpendicular to the view direction (The thickness of each slice is set to the distance between neighboring grid points in the volume). Then the slices are rendered
+from far to near, with alpha blending set to GL_ONE and
+GL_SRC_ALPHA. The bounding quad of all intersections
+with the RBFs in each slice is rendered. For each pixel, D(x)
+and Lx are retrieved from 3D textures, and the RGB channels of the output are set to D(x)Lx . The alpha channel is
+set to the differential transmittance of the slice, computed as
+e−σt D(x)∆x . After all slices are rendered, we obtain a discrete
+version of the integration in Eq. (1).
+Scene Objects In scenarios where scene objects are present
+in the medium, we modify Eq. (2) to
+L = LsVsv + L pVsp +
+
+xin
+p
+
+σt D(x)LxVsx τxv dx,
+
+(8)
+
+where p is the first intersection of the view ray with a scene
+object, and L p is the reflected radiance from the surface,
+→ 2 †
+−−→ −
+computed as I0 τsp ρ(s − p, N )/dsp
+. The visibility term Vab
+is a binary function that evaluates to 1 if there exists no scene
+object blocking a from b, and is equal to 0 otherwise. If the
+view ray does not intersect a scene object, then p is set to
+infinity and L p is zero.
+Scene objects affect the computation of L in three ways.
+First, visibility terms must be incorporated, and can lead to
+volumetric and cast shadows. Second, they give rise to a new
+background radiance term L p . And finally, they determine
+the starting point of the integration in Eq. (8).
+To account for the visibility term, we use shadow mapping with a small modification made to the volume tracer.
+We add a comparison of s − x to the depth recorded in
+the shadow map, and exit tracing if s − x is larger, i.e.,
+x is occluded from s. Note that this modification works for
+both the dynamic sampling algorithm and the interpolation
+algorithm. In our implementation, we use variance shadow
+mapping [DL06] to reduce aliasing.
+To compute L p on the object surface, the same volume
+tracer is used. For this, we could use surface radiance splatting [GKBP05]. However, since we compute direct but not
+indirect illumination, much denser sampling would be required. High curvature regions on the object can also be
+problematic. Thus, in our implementation we simply assume
+that all scene objects are triangulated to a proper scale, and
+let the graphics hardware linearly interpolate the sampled reflected radiance at vertices. We note that it is possible to interpolate the transmission τsp and apply arbitrary per-pixel
+shading when computing L p .
+† ρ is the reflectance function and N is the normal of p. The cosine
+term is merged into ρ for notational simplicity.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media 1951
+
+(a) Sampling points
+
+(b) Rendering result
+
+(c) Reference image
+
+Figure 5: Capture of sharp shading variations by dynamic sampling.
+Scene
+Fig. 6
+Fig. 1
+Fig. 7
+
+# Vertices
+24,180
+16,885
+16,885
+
+# Lights
+1
+1
+1-30
+
+# Samples
+3.7k-6.9k
+1.4k-3.9k
+0.4k-0.8k
+
+FPS
+19.2
+23.2
+28.7
+
+Table 1: Statistics for the three test scenes. The values for
+Fig. 1 represent rendering for both daytime and night, using
+different configurations.
+To account for scene objects in ray marching, we first
+draw the objects before ray marching, and then leverage the
+depth culling built into the GPU to correctly attenuate the
+reflected radiance L p and exclude slices behind p.
+7. Results and Discussion
+We implemented our algorithm on a 3.7 GHz PC with 2 GB
+of memory and an NVidia 8800 GTX graphics card. Images
+are generated at a 800 × 600 resolution.
+We summarize the statistics of the test scenes in Table 1.
+For animated versions of the figures, please refer to the supplemental video, which was recorded in real time. In Fig. 1
+and Fig. 7, the media animation is generated by simulation,
+and approximated by a sequence of Gaussian sets and residual fields [ZRL∗ 08]. For the scene in Fig. 6, the media data
+is generated analytically by simply interpolating the density
+from the floor (D(x) = 0.6) to the ceiling (D(x) = 0.3). Dynamic details are introduced as Perlin noise [Per02]. Note
+that for this example, no preprocessing is required, and the
+initial samples are obtained by jittered stratified sampling.
+The sampling distribution is dependent on the viewing
+and lighting conditions, as well as the status of the media
+data. The rendering cost is divided into four parts, namely
+density reconstruction, sampling, gradient interpolation and
+ray marching. For the scene shown in Fig. 1, the costs of
+each of these parts are 4.9, 14.1, 11.7 and 5.3 ms, respectively. Sampling and gradient interpolation is the bottleneck,
+consuming 60% to 80% of the run time.
+In Fig. 6 we show a comparison between the ray tracing reference and the rendering results that use different
+grid sizes in the sample splitting. The same ε is used for
+the results of (a), (b) and (c), but the maximum grid resolutions are 163 , 323 and 643 respectively. The interpolation
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Resolution
+ours (512 samples)
+per-voxel
+# Point Lights
+ours (512 samples)
+per-voxel
+# Spot Lights
+ours (1.2k∼5.8k samples)
+per-voxel
+
+323
+73.4
+68.0
+1
+63.3
+11.7
+1
+26.4
+10.3
+
+643
+69.1
+42.5
+4
+57.1
+4.2
+4
+22.9
+4.2
+
+1283
+63.3
+11.7
+16
+47.6
+2.0
+16
+17.7
+1.9
+
+2563
+45.0
+3.5
+64
+30.6
+0.7
+64
+10.4
+0.7
+
+Table 2: Performance (in fps) for different volume resolutions and numbers of light sources. Results are shown for
+point light sources, which do not require dynamic sampling,
+and spot light sources. The medium used for this test is the
+same as that used in Fig. 1. For cases where the number of
+lights varies, the default volume resolution of 1283 is used.
+For the case where the volume resolution varies, a point light
+source is used.
+
+artifacts is quite obvious in (a), especially at the volumetric shadow boundaries. In (b), with 2.8k samples, the sharp
+shading variations at shadow boundaries are better captured,
+but some high frequency details are still missing. The result
+in (c) gives a good approximation to the reference image,
+with only a small amount of blurring.
+Our algorithm scales well with respect to volume resolution and number of light sources. In Table 2, it is shown that
+the scalability of our algorithm is less sensitive to volume
+resolution and light source number than that of GPU-based
+per-voxel volume tracing. The per-voxel volume tracing uses
+render-to-3D-texture and volume ray tracing to obtain the
+per-voxel source radiance, which are then bound as a 3D texture in the final standard ray march to compute the radiance L
+seen at the viewer. It is essentially a GPU implementation of
+the ray tracing algorithm of Kajiya and von Herzen [KH84],
+and is also similar to the single scattering in Hegeman et
+al. [HAP05], which precomputes the per-voxel optical depth
+and assembles the source radiance in the final ray march. Instead of computing the optical depth, our method computes
+the source radiance at each voxel by a simple exponentiation and multiplication with the unscattered radiance at each
+media point. Also, the new render-to-3D-texture feature has
+
+1952 Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media
+
+(a) 163 /1.5k/45.0fps/8.2%
+
+(b) 323 /2.8k/34.9fps/5.3%
+
+(c) 643 /6.7k/20.4fps/1.1%
+
+(d) Reference image
+
+Figure 6: A dusty room lit by sunlight passing through a window. The light is occluded by the window frame and furniture in
+the room, generating complex volumetric shadows. Results by using different grid sizes in the sample splitting are compared
+with the reference image. The numbers shown under each of the first three sub-figures indicate grid resolution/number of
+samples/rendering speed/RMS error. For the result in (c), the cost for sampling, gradient interpolation and ray marching are
+19.1, 14.0 and 6.5 ms, respectively. This scene uses an analytic medium so density reconstruction is not needed.
+from the gradient-based interpolation and the dynamic sampling of source radiance with respect to local shading errors.
+Our current formulation utilizes certain assumptions that
+limit its generality, such as an isotropic phase function and
+a finite volume representation. Also, the algorithm does not
+consider the influence of media on surface shading, i.e., scattering prior to surface reflection. These are issues we intend
+to examine in future work.
+
+Figure 7: The scene in Fig. 1 lit by numerous dynamic point
+light sources. The point light sources are considered local
+and do not generate shadows. Our algorithm scales well
+with the number of sources, and renders at 21.5 fps when
+the scene is lit by 50 point light sources.
+made it possible for our algorithm to do the per-voxel computation at runtime with a similar level of quality.
+The observed performance gain of our algorithm over the
+per-voxel volume tracing is 2.6× to 43.7×. This results from
+calling the volume ray tracer at only a very limited number of
+sample points. Volume tracing, whose performance directly
+relates to the volume resolution and light number, accounts
+for a small portion (15%-30%) of the overall cost. In contrast, it can account for up to 90% of the overall cost in the
+per-voxel volume tracing case.
+For a volume resolution of 128 × 128 × 128, the video
+memory cost of our algorithm includes a 4 MB density
+buffer, a 6 MB radiance buffer used as the target for sample splatting, three grid information buffers totaling about
+2.5 MB, and a temporary buffer of 10 MB used for loading
+residual tables of subsequent frames.
+8. Conclusion
+In this work, we presented a technique for real-time rendering of inhomogeneous media with all-frequency shading effects. The accuracy and efficiency of this system is gained
+
+Our method presently addresses only single scattering of
+radiance. Within our framework, fast evaluation of multiple
+scattering might also be possible, by computing it at only
+the sample points and interpolating throughout the volume.
+Also, the current technique has demonstrated real-time rendering results for only compact illumination sources. By processing in the spherical harmonics domain [ZRL∗ 08], we believe that an extension of our method to environment lighting
+may be within reach as well.
+References
+[BAM06] B IRI V., A RQUES D., M ICHELIN S.: Real time
+rendering of atmospheric scattering and volumetric shadows. Journal of WSCG 14 (2006), 65–72.
+[Bli82] B LINN J. F.: Light reflection functions for simulation of clouds and dusty surfaces. In Proc. of ACM
+SIGGRAPH (1982), pp. 21–29.
+[Cha60] C HANDRASEKHAR S.:
+Dover Publications Inc., 1960.
+
+Radiative Transfer.
+
+[CPP∗ 05] C EREZO E., P ÉREZ F., P UEYO X., S ERÓN
+F. J., S ILLION F. X.: A survey on participating media
+rendering techniques. The Visual Computer 21, 5 (2005),
+303–328.
+[DKY∗ 00] D OBASHI Y., K ANEDA K., YAMASHITA H.,
+O KITA T., N ISHITA T.: A simple, efficient method for realistic animation of clouds. In Proc. of ACM SIGGRAPH
+(2000), pp. 19–28.
+Variance
+[DL06] D ONNELLY W., L AURITZEN A.:
+shadow maps. In Proc. of SI3D 06 (2006), pp. 161–165.
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+Z. Ren et al. / Gradient-based Interpolation and Sampling for Real-timeRendering of Inhomogeneous, Single-scattering Media 1953
+
+light on the weather. In Proc. of CVPR (2003), pp. 665–
+672.
+
+[DYN02] D OBASHI Y., YAMAMOTO T., N ISHITA T.: Interactive rendering of atmospheric scattering effects using
+graphics hardware. In Proc. of Graphics Hardware Workshop (2002), pp. 99–107.
+
+[NVI04] NVIDIA:
+CUDA homepage,
+http://developer.nvidia.com/object/cuda.html.
+
+[EP90] E BERT D. S., PARENT R. E.: Rendering and animation of gaseous phenomena by combining fast volume
+and scanline a-buffer techniques. In Proc. of ACM SIGGRAPH (1990), pp. 357–366.
+
+[PCS04] P IGHIN F., C OHEN J., S HAH M.: Modeling and
+editing flows using advected radial basis functions. In
+Proc. of Eurographics Symposium on Computer Anmiation (2004), pp. 223–232.
+
+ˇ
+J., B OUATOUCH
+[GKBP05] G AUTRON P., K RIVÁNEK
+K., PATTANAIK S.: Radiance cache splatting: A gpufriendly global illumination algorithm. In Proc. of Eurographics Symposium on Rendering (2005), pp. 55–64.
+
+[Per02] P ERLIN K.: Improving noise. In Proc. of ACM
+SIGGRAPH (2002), pp. 681–682.
+
+[HAP05] H EGEMAN K., A SHIKHMIN M., P REMOZE S.:
+A lighting model for general participating media. In Proc.
+of SI3D ’05 (2005), pp. 117–124.
+[HL01] H ARRIS M. J., L ASTRA A.: Real-time cloud rendering. In Proc. of Eurographics (2001), pp. 76–84.
+[Hor05] H ORN D.: Stream reduction operations for
+GPGPU applications. In GPU Gems 2 (2005), Addison
+Wesley, p. Chapter 36.
+[HSO07] H ARRIS M., S ENGUPTA S., OWENS J.: Parallel prefix sum (scan) in CUDA. In GPU Gems 3 (2007),
+Addison Wesley, p. Chapter 39.
+[JC98] J ENSEN H. W., C HRISTENSEN P. H.: Efficient
+simulation of light transport in scences with participating
+media using photon maps. In Proc. of ACM SIGGRAPH
+(1998), pp. 311–320.
+[JDZJ08] JAROSZ W., D ONNER C., Z WICKER M.,
+J ENSEN H. W.: Radiance caching for participating media.
+ACM Trans. Graph. 27, 1 (2008), 1–11.
+[KH84] K AJIYA J. T., H ERZEN B. P. V.: Ray tracing
+volume densities. In Proc. of ACM SIGGRAPH (1984),
+pp. 165–174.
+∗
+
+[KPH 03] K NISS J., P REMOZE S., H ANSEN C.,
+S HIRLEY P., M C P HERSON A.: A model for volume
+lighting and modeling. IEEE Trans. Visualization and
+Computer Graphics 9, 2 (2003), 150–162.
+[Lev90] L EVOY M.: Efficient ray tracing of volume data.
+ACM Trans. Graph. 9, 3 (1990), 245–261.
+[LW96] L AFORTUNE E. P., W ILLEMS Y. D.: Rendering participating media with bidirectional path tracing.
+In Proc. of Eurographics Workshop on Rendering (1996),
+pp. 91–100.
+[Max86] M AX N. L.: Atmospheric illumination and shadows. In Proc. of ACM SIGGRAPH (1986), pp. 117–124.
+[Max94] M AX N. L.: Efficient light propagation for multiple anisotropic volume scattering. In Proc. of Eurographics Workshop on Rendering (Darmstadt, Germany,
+1994), pp. 87–104.
+[NN03]
+
+NARASIMHAN S. G., NAYAR S. K.: Shedding
+
+c 2008 The Author(s)
+Journal compilation c 2008 The Eurographics Association and Blackwell Publishing Ltd.
+
+2004.
+
+[REK∗ 04] R ILEY K., E BERT D. S., K RAUS M.,
+T ESSENDORF J., H ANSEN C.: Efficient rendering of atmospheric phenomena. In Proc. of Eurographics Symposium on Rendering (2004), pp. 375–386.
+R AMAMOORTHI R., M AHAJAN D., B EL P.: A first-order analysis of lighting, shading,
+and shadows. ACM Trans. Graph. 26, 1 (2007), 2.
+
+[RMB07]
+
+HUMEUR
+
+[RT87] RUSHMEIER H. E., T ORRANCE K. E.: The zonal
+method for calculating light intensities in the presence of
+a participating medium. In Proc. of ACM SIGGRAPH
+(1987), pp. 293–302.
+[Sak90] S AKAS G.: Fast rendering of arbitrary distributed
+volume densities. In Proc. of Eurographics (1990),
+pp. 519–530.
+[SKS02] S LOAN P., K AUTZ J., S NYDER J.: Precomputed radiance transfer for real-time rendering in dynamic, low-frequency lighting environments. ACM Trans.
+Graph.(SIGGRAPH 2002) 21, 3 (2002), 527–536.
+[SRNN05] S UN B., R AMAMOORTHI R., NARASIMHAN
+S., NAYAR S.: A practical analytic single scattering
+model for real time rendering. ACM Trans. Graph. (SIGGRAPH 2005) 24, 3 (2005), 1040–1049.
+[SSEH03] S CHPOK J., S IMONS J., E BERT D. S.,
+H ANSEN C.: A real-time cloud modeling, rendering, and
+animation system. In Proc. of Eurographics Symposium
+on Computer Anmiation (2003), pp. 160–166.
+[Sta95] S TAM J.: Multi-Scale Stochastic Modelling of
+Complex Natural Phenomena. PhD thesis, Dept. of Computer Science, University of Toronto, 1995.
+[WH92] WARD G. J., H ECKBERT P.: Irradiance Gradients. In Proc. of Eurographics Workshop on Rendering
+92 (Bristol, UK, 1992), pp. 85–98.
+[ZHG∗ 07] Z HOU K., H OU Q., G ONG M., S NYDER J.,
+G UO B., S HUM H.-Y.: Fogshop: Real-time design
+and rendering of inhomogeneous, single-scattering media.
+Proc. of Pacific Graphics (2007), 116–125.
+[ZRL∗ 08] Z HOU K., R EN Z., L IN S., BAO H., G UO B.,
+S HUM H.-Y.: Real-time smoke rendering using compensated ray marching. ACM Trans. Graph. (SIGGRAPH
+2008, to appear) 27, 3 (2008).
+
+

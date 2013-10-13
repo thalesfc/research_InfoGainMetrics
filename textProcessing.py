@@ -51,9 +51,11 @@ def remove_unidecode(inp, outp):
     + lower case '''
     print "# remove accents"
     for line in inp:
-        uline = unicode(line, 'utf-8')
-        udline = unidecode(uline)
-        outp.write(udline.lower())
+      for token in line.split():
+          utf8_token = unicode(token.rstrip(), 'utf-8')
+          udecode_token = unidecode(utf8_token)
+          outp.write(udecode_token.replace('\n', ' ').replace('\r', '') + " ")
+      outp.write('\n')
     outp.close()
 
 

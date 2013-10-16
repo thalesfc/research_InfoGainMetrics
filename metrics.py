@@ -130,7 +130,7 @@ def get_classes_scores(fx, E, Ei, Ec, Eci, metric):
         class_scores = defaultdict(int)
         print >> f, "{} ||".format(classe),
         count += 1
-        print "Class-ID:", count
+        print "Class-ID:", count, ":: '", classe , "'"
         for item, item_freq in Ei.items():
             class_item_freq = Eci[classe][item]
 
@@ -146,8 +146,8 @@ def get_classes_scores(fx, E, Ei, Ec, Eci, metric):
                 print >> sys.stderr, "# Palavra de rank", i, "foi requisitada."
                 break
 
-            classe, score = sorted_class[i]
-            print >> f, "{}::{}".format(unidecode(classe), score),
+            item, score = sorted_class[i]
+            print >> f, "{}::{}".format(unidecode(item), score),
 
         f.write("\n")
         f.flush()

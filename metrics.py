@@ -130,7 +130,7 @@ def get_classes_scores(fx, E, Ei, Ec, Eci, metric):
         class_scores = defaultdict(int)
         print >> f, "{} ||".format(classe),
         count += 1
-        print count
+        print "Class-ID:", count
         for item, item_freq in Ei.items():
             class_item_freq = Eci[classe][item]
 
@@ -141,6 +141,11 @@ def get_classes_scores(fx, E, Ei, Ec, Eci, metric):
         # compute the top words
         sorted_class = sorted(class_scores.iteritems(), key=operator.itemgetter(1), reverse=True)
         for i in xrange(20):
+            if len(sorted_class) <= i:
+                print >> sys.stderr, "# A classse", classe, " possui apenas", len(sorted_class), "palavras."
+                print >> sys.stderr, "# Palavra de rank", i, "foi requisitada."
+                break
+
             classe, score = sorted_class[i]
             print >> f, "{}::{}".format(unidecode(classe), score),
 
@@ -162,7 +167,7 @@ def main():
     # E = number of articles
     # Ei = TFi, i.e., the frequency of term i in the base
     E, Ei, Eci = load_terms(args.path_papers, pcs)
-    print "# E:{}".format(E)
+    print "# papers:{}".format(E)
 
     # switch between the metric functions
     score_func = get_metric_func(args.metric)
